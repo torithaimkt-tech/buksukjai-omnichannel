@@ -950,10 +950,20 @@ def sync_session_to_jst(
     overrides: dict[str, Any] | None = None,
     force_create: bool = False,
 ) -> dict[str, Any]:
-    """Extract order from session (with optional UI overrides), check duplicate in JST, and create order."""
+    """Run Layer-2 Pre-JST Audit, extract order from session (with optional UI overrides), check duplicate in JST, and create order."""
+    from . import audit as _audit_mod
+    audit_res = _audit_mod.audit_session_for_jst(psid)
+    if not audit_res.get("ready_for_jst") and not overrides:
+        issues_str = " / ".join(audit_res.get("issues") or [])
+        return {
+            "status": "error",
+            "message": issues_str or "ข้อมูลออเดอร์ยังไม่ผ่านการตรวจสอบ Audit ก่อนส่งเข้า JST ERP ค่ะ",
+            "audit": audit_res,
+        }
+
     extracted = extract_order_from_session(psid)
     if not extracted.get("valid") and not overrides:
-        return {"status": "error", "message": extracted.get("reason", "ข้อมูลออเดอร์ไม่ครบถ้วนค่ะ")}
+        return {"status": "error", "message": extracted.get("reason", "ข้อมูลออเดอร์ไม่ครบถ้วนค่ะ"), "audit": audit_res}
 
     data = {**extracted, **(overrides or {})}
     res = create_order_in_jst(

@@ -18,7 +18,7 @@ from pydantic import BaseModel
 
 load_dotenv()
 
-from . import database, followup, media_generator, messenger  # noqa: E402
+from . import audit, database, followup, media_generator, messenger  # noqa: E402
 from .config_loader import (  # noqa: E402
     get_page_by_brand_id,
     load_config,
@@ -516,31 +516,32 @@ async def process_omnichannel_message(
         elif image_key == "promo_3sizes" or ((not image_key or image_key == "none") and explicitly_asked_pic):
             image_key = "promo_all"
 
-        selected_media_items: list[dict] = []
-        if image_key and image_key != "none":
-            candidates = media_generator.resolve_media_items(image_key)
-            recent_assistant_msgs = [
-                m.get("content", "") for m in history[-8:] if m.get("role") == "assistant"
-            ]
-            for item in candidates:
-                marker = f"[IMAGE:{item['relative_url']}]"
-                if explicitly_asked_pic or marker not in recent_assistant_msgs:
-                    selected_media_items.append(item)
+        # Layer-1 Automated Pre-Send Audit (ตรวจสอบความถูกต้อง 7 ข้อก่อนส่งให้ลูกค้าจริง)
+        bubbles, new_state, selected_media_items, audit_report = audit.audit_outgoing_reply(
+            psid=session_key,
+            brand_id=brand_id,
+            user_session=user,
+            history=clean_history,
+            raw_reply=reply,
+            proposed_state=new_state,
+            proposed_image_key=image_key,
+            config=CONFIG,
+        )
 
         # 1. Log promo image(s) FIRST in Admin Inbox DB
         for item in selected_media_items:
             database.log_message(session_key, "assistant", f"[IMAGE:{item['relative_url']}]")
 
         # 2. Then log the 1–2 short accompanying text bubbles right after
-        bubbles = split_into_bubbles(reply)
         for b in bubbles:
             database.log_message(session_key, "assistant", b)
 
+        audited_reply_text = "|||".join(bubbles)
         database.update_state(session_key, new_state)
         await messenger.send_omnichannel_text(
             platform=platform,
             external_user_id=external_user_id,
-            text=reply,
+            text=audited_reply_text,
             brand_id=brand_id,
             reply_token=reply_token,
             media_items=selected_media_items,
@@ -573,6 +574,7 @@ async def process_omnichannel_message(
             "image_url": selected_media_items[0]["relative_url"] if selected_media_items else None,
             "images": [it["relative_url"] for it in selected_media_items],
             "state": new_state,
+            "audit": audit_report,
         }
     except Exception:
         logger.exception("Failed to process message from %s", session_key)
@@ -965,10 +967,29 @@ async def api_save_pages(body: SaveSettingsRequest):
     return await api_get_pages()
 
 
+@app.get("/api/audit/report")
+async def api_audit_report(limit: int = 50):
+    """Return recent Layer-1 (Pre-Send Chat) and Layer-2 (Pre-JST Order) automated audit logs."""
+    events = audit.get_recent_audit_events(limit=limit)
+    return {
+        "status": "ok",
+        "total_events": len(events),
+        "auto_fixed_count": sum(1 for e in events if e.get("auto_fixed")),
+        "events": events,
+    }
+
+
+@app.get("/api/sessions/{psid:path}/audit")
+async def api_audit_session(psid: str):
+    """Run Layer-2 Pre-JST Order Audit on a specific customer session."""
+    return audit.audit_session_for_jst(psid)
+
+
 @app.post("/api/reload")
 async def api_hot_reload():
-    """Hot-reload config.json, prompt_engine, media_generator, database, followup, and llm in memory without restarting the tunnel."""
+    """Hot-reload config.json, prompt_engine, media_generator, database, followup, audit, and llm in memory without restarting the tunnel."""
     import importlib
+    from . import audit as _audit_mod
     from . import database as _db_mod
     from . import followup as _fu_mod
     from . import llm as _llm_mod
@@ -983,6 +1004,7 @@ async def api_hot_reload():
     importlib.reload(_mg_mod)
     importlib.reload(_msg_mod)
     importlib.reload(_fu_mod)
+    importlib.reload(_audit_mod)
     _db_mod.init_db()
     _mg_mod.load_media_catalog()
     split_into_bubbles = _llm_mod.split_into_bubbles

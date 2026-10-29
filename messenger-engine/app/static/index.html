@@ -502,6 +502,7 @@
       <button id="btnTopScanReengage" class="btn-top" style="background:#6d28d9; color:#fff; font-weight:700;" onclick="scanReengageNow()">⛏️ สแกนขุดลูกค้าเงียบทันที</button>
       <button id="btnToggleAutoJst" class="btn-top" style="background:#047857; color:#fff; border:1px solid #34d399;" onclick="toggleAutoJstMode()">⚡ โหมดส่ง JST อัตโนมัติ: เปิด</button>
       <button id="btnTopSyncJst" class="btn-top" style="background:#ea580c; color:#fff; font-weight:700;" onclick="syncAllOrdersToJst()">🚀 ซิงค์ & เพิ่มเข้า JST อัตโนมัติ</button>
+      <button class="btn-top" style="background:#0284c7; color:#fff; font-weight:700;" onclick="openAuditModal()">🛡️ Audit ตรวจสอบ 2 ชั้น</button>
       <button class="btn-top" style="background:#059669; color:#fff;" onclick="openMediaModal()">🖼️ คลังรูปภาพบอท</button>
       <button class="btn-top btn-sim" onclick="openModal('simModal')">🧪 จำลองลูกค้าทักแชท</button>
       <button class="btn-top btn-settings" onclick="openModal('settingsModal')">⚙️ ตั้งค่าเพจ & API Keys</button>
@@ -686,9 +687,13 @@
         <button id="btnPushSingleJst" class="btn-save-crm" style="background:#ea580c; font-size:13px; padding:9px; margin-bottom:6px;" onclick="pushSingleOrderToJst()">
           🚀 ส่งออเดอร์นี้เข้า JST อัตโนมัติทันที (เช็กซ้ำก่อนบันทึก)
         </button>
-        <button class="btn-save-crm" style="background:#15803d; margin-bottom:8px;" onclick="previewOrderForJst()">
+        <button class="btn-save-crm" style="background:#15803d; margin-bottom:6px;" onclick="previewOrderForJst()">
           🔍 ตรวจสอบข้อมูล & เช็กซ้ำใน JST ERP
         </button>
+        <button class="btn-save-crm" style="background:#0284c7; margin-bottom:8px;" onclick="runSessionAudit()">
+          🛡️ Audit ตรวจสอบความถูกต้อง 5 จุด (สลิป/COD/ที่อยู่/ติดดาว)
+        </button>
+        <div id="sessionAuditBox" style="display:none; font-size:11.5px; background:#f0f9ff; border:1px solid #bae6fd; border-radius:8px; padding:8px; margin-bottom:6px;"></div>
 
         <div id="jstOrderPreviewBox" style="display:none; font-size:12px; background:#fff; border:1px solid #bbf7d0; border-radius:8px; padding:10px; margin-top:6px;">
           <div id="jstConfirmBadge" style="font-weight:700; margin-bottom:6px;"></div>
@@ -729,16 +734,17 @@
       </div>
 
       <div class="crm-card" style="background:#f2f0e3; border-color:#d6d3c4;">
-        <h3>🍚 โพยราคา ข้าวบุกสุขใจ</h3>
+        <h3>🍚 โพยราคา ข้าวบุกสุขใจ (ครบทุกโปร 7 ชุด)</h3>
         <div style="font-size:12px; line-height:1.65; color:#334155;">
-          • <b>60g (ทดลอง):</b> 39.- (ปกติ 59.-)<br/>
-          • <b>500g (ทานประจำ):</b> 239.- (ปกติ 289.-)<br/>
-          • <b>1 กก. (คุ้มสุด):</b> 459.- <b>(โอนส่งฟรี!)</b><br/>
-          • <b>เซ็ตพกพา 20 ซอง:</b> 720.- (QR ลด 5% = 684.-)<br/>
-          • <b>เซ็ตครอบครัว 1กก.×2 แถม 60g×2:</b> 899.- <b>ส่งฟรี</b> (QR 5% = 854.-)<br/>
-          • <b>เซ็ตใหญ่ 1กก.×3 แถม 60g×3:</b> 1,299.- <b>ส่งฟรี</b><br/>
+          • <b>1) 60g (ทดลอง 1 ซอง):</b> 39.- (ปกติ 59.-)<br/>
+          • <b>2) 500g (ทานประจำ):</b> 239.- (ปกติ 289.-)<br/>
+          • <b>3) 1 กก. (ขายดีอันดับ 1):</b> 459.- <b>(โอนส่งฟรี!)</b><br/>
+          • <b>4) เซ็ตพกพา 60g × 15 ซอง:</b> 555.- <b>(โอนส่งฟรี!)</b><br/>
+          • <b>5) เซ็ตพกพา 60g × 20 ซอง:</b> 720.- <b>(โอนส่งฟรี!)</b><br/>
+          • <b>6) เซ็ตครอบครัว 2 แถม 2 (1กก.×2 + 60g×2):</b> 899.- <b>ส่งฟรี</b><br/>
+          • <b>7) เซ็ตสุดคุ้ม 3 แถม 3 (1กก.×3 + 60g×3):</b> 1,299.- <b>ส่งฟรี</b><br/>
           <hr style="margin:6px 0; border:none; border-top:1px solid #cbd5e1;"/>
-          🚚 <b>ค่าส่ง:</b> โอน 30.- (1 กก.ขึ้นไปส่งฟรี) | ปลายทาง COD 70.- (1 กก.ขึ้นไป 40.-)
+          🚚 <b>ค่าส่ง:</b> โอน 30.- (1 กก. หรือเซ็ตพกพาขึ้นไปส่งฟรี) | ปลายทาง COD 70.- (เซ็ตส่งฟรี เก็บปลายทาง +40.-)
         </div>
       </div>
     </aside>
@@ -856,6 +862,47 @@
           ระบบเชื่อมรูปภาพโปรโมชั่นจริงของ <b>ข้าวบุกสุขใจ</b> จากโฟลเดอร์ <code>pro buksukjai</code> ไว้ให้พร้อมใช้ทันทีทั้ง 4 หมวดค่ะ และคุณสามารถกดปุ่ม <b>"📤 อัปโหลดรูปจริงของคุณทับช่องนี้"</b> เพื่ออัปเดตรูปโปรโมชั่นใหม่ได้ตลอดเวลาเลยค่ะ!
         </p>
         <div id="mediaSlotsGrid" style="display:grid; grid-template-columns:1fr 1fr; gap:14px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 4: 2-Layer Automated Accuracy & Compliance Audit -->
+  <div id="auditModal" class="modal-backdrop">
+    <div class="modal-box" style="max-width:860px;">
+      <div class="modal-header">
+        <h3 class="font-mitr">🛡️ ระบบ Audit ตรวจสอบความถูกต้องอัตโนมัติ 2 ชั้น (Pre-Send Chat & Pre-JST Order Audit)</h3>
+        <button class="close-btn" onclick="closeModal('auditModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+          <div style="background:#f0f9ff; border:1px solid #bae6fd; border-radius:10px; padding:12px;">
+            <h4 style="font-size:13.5px; color:#0369a1; margin-bottom:6px;">✅ ชั้นที่ 1: ตรวจสอบข้อความก่อนส่งหาลูกค้า (7 ข้อ)</h4>
+            <ul style="font-size:12px; color:#334155; padding-left:18px; line-height:1.6;">
+              <li><b>1. เลขบัญชีจริงเท่านั้น:</b> บังคับใช้ SCB <code>304-407545-5</code> บล็อกเลขสมมติ 100%</li>
+              <li><b>2. ส่งโปรครบทีเดียว:</b> ลูกค้าถามราคา/สนใจ ส่งครบทั้ง <b>4 รูปโปร</b> + <b>7 ชุดราคา</b> ทันที</li>
+              <li><b>3. บล็อกรูปตารางที่สร้างเอง:</b> ใช้เฉพาะรูปจริงจาก <code>pro buksukjai</code> เท่านั้น</li>
+              <li><b>4. ตรวจลูกค้าติดดาว ⭐:</b> ลูกค้าที่ซื้อแล้วจะไม่ถูกส่งตารางขายซ้ำ</li>
+              <li><b>5. กฎเหล็ก Ad-Safe:</b> กรองคำเคลมโรค/ลดน้ำหนัก/ทักรูปร่างอัตโนมัติ</li>
+              <li><b>6. กติกาโปรลับ 5%:</b> สงวนสิทธิ์เฉพาะลูกค้าที่ทักมาจากใบแนบ QR ในกล่อง</li>
+              <li><b>7. Confirmation Gate:</b> ห้ามปิดการขายก่อนลูกค้ายืนยันที่อยู่หรือส่งสลิปจริง</li>
+            </ul>
+          </div>
+          <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:10px; padding:12px;">
+            <h4 style="font-size:13.5px; color:#15803d; margin-bottom:6px;">✅ ชั้นที่ 2: ตรวจสอบออเดอร์ก่อนส่งเข้า JST ERP (5 ข้อ)</h4>
+            <ul style="font-size:12px; color:#334155; padding-left:18px; line-height:1.6;">
+              <li><b>1. สลิปโอนเงินจริงฝั่งลูกค้า:</b> ต้องมาจากฝั่งลูกค้าเท่านั้น ห้ามเอารูปโปรของเพจมาใส่ช่องสลิปเด็ดขาด</li>
+              <li><b>2. แยกโอน vs COD ชัดเจน:</b> โอนต้องมีสลิป / COD ต้องมีข้อความคอนเฟิร์มจากลูกค้า</li>
+              <li><b>3. เบอร์โทรมือถือ 10 หลัก:</b> ตรวจสอบรูปแบบเบอร์ไทย 06/08/09 ครบ 10 หลัก</li>
+              <li><b>4. ที่อยู่จัดส่งครบ 4 ส่วน:</b> ตำบล/แขวง, อำเภอ/เขต, จังหวัด และรหัสไปรษณีย์</li>
+              <li><b>5. ติดดาว ⭐ อัตโนมัติ:</b> ลูกค้าที่โอนเงินหรือยืนยัน COD แล้วจะถูกติดดาวทันที</li>
+            </ul>
+          </div>
+        </div>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px;">
+          <h4 style="font-size:13.5px; color:#0f172a;">📋 ประวัติการ Audit และแก้ไขคำตอบอัตโนมัติล่าสุด (Real-Time Audit Log)</h4>
+          <button class="snippet-btn" onclick="openAuditModal()">🔄 รีเฟรชผล Audit</button>
+        </div>
+        <div id="auditEventsList" style="max-height:300px; overflow-y:auto; display:flex; flex-direction:column; gap:8px;"></div>
       </div>
     </div>
   </div>
@@ -1494,6 +1541,75 @@
       const txt = document.getElementById('jstFilterText').value;
       navigator.clipboard.writeText(txt);
       document.getElementById('jstActionStatus').innerText = '📋 คัดลอกที่อยู่เรียบร้อย! นำไปวางในช่อง "รายละเอียดที่อยู่ -> กรอง" ของ JST ERP ได้เลยค่ะ';
+    }
+
+    async function runSessionAudit() {
+      if (!activePsid) return;
+      const box = document.getElementById('sessionAuditBox');
+      box.style.display = 'block';
+      box.innerHTML = '⏳ กำลังตรวจสอบความถูกต้อง 5 จุด...';
+      try {
+        const res = await fetch(`/api/sessions/${encodeURIComponent(activePsid)}/audit`);
+        const data = await res.json();
+        const header = data.ready_for_jst
+          ? `<div style="color:#15803d; font-weight:700; margin-bottom:4px;">✅ ผ่านการ Audit ครบทุกข้อ — พร้อมส่งเข้า JST ERP ค่ะ</div>`
+          : `<div style="color:#b45309; font-weight:700; margin-bottom:4px;">⚠️ รอข้อมูล/การยืนยันเพิ่มเติมก่อนส่งเข้า JST ERP (${data.issues.length} รายการ)</div>`;
+        const rows = (data.checks || []).map(c => {
+          const icon = c.status === 'ok' ? '✅' : (c.status === 'warn' ? '⚠️' : '❌');
+          return `<div style="margin-bottom:3px;">${icon} <b>${escapeHtml(c.name)}:</b> ${escapeHtml(c.value || '')}</div>`;
+        }).join('');
+        box.innerHTML = header + rows;
+      } catch (e) {
+        box.innerHTML = '❌ ไม่สามารถตรวจสอบ Audit ได้ค่ะ';
+      }
+    }
+
+    async function openAuditModal() {
+      openModal('auditModal');
+      const listEl = document.getElementById('auditEventsList');
+      listEl.innerHTML = '<div style="padding:12px; color:#64748b;">⏳ กำลังโหลดประวัติการ Audit...</div>';
+      try {
+        const res = await fetch('/api/audit/report?limit=30');
+        const data = await res.json();
+        const events = data.events || [];
+        if (events.length === 0) {
+          listEl.innerHTML = '<div style="padding:14px; background:#f8fafc; border-radius:8px; color:#64748b; text-align:center;">ยังไม่มีรายการ Audit ในรอบนี้ค่ะ — ลองกดจำลองลูกค้าทักแชท หรือกดปุ่ม Audit ในแชทลูกค้าเพื่อดูผลตรวจสอบสดได้เลยค่ะ</div>';
+          return;
+        }
+        listEl.innerHTML = events.map(ev => {
+          const layerBadge = ev.layer === 'pre_send_chat'
+            ? '<span style="background:#e0f2fe; color:#0369a1; padding:2px 8px; border-radius:99px; font-size:11px; font-weight:700;">ชั้นที่ 1: ตรวจแชทก่อนส่ง</span>'
+            : '<span style="background:#dcfce7; color:#15803d; padding:2px 8px; border-radius:99px; font-size:11px; font-weight:700;">ชั้นที่ 2: ตรวจออเดอร์ก่อนส่ง JST</span>';
+          const statusBadge = ev.auto_fixed
+            ? '<span style="background:#fef3c7; color:#b45309; padding:2px 8px; border-radius:99px; font-size:11px; font-weight:700;">🛠️ ระบบปรับแก้ให้อัตโนมัติ</span>'
+            : (ev.passed
+                ? '<span style="background:#dcfce7; color:#15803d; padding:2px 8px; border-radius:99px; font-size:11px; font-weight:700;">✅ ผ่าน 100%</span>'
+                : '<span style="background:#fee2e2; color:#b91c1c; padding:2px 8px; border-radius:99px; font-size:11px; font-weight:700;">⚠️ รอข้อมูลครบ</span>');
+          const fixesHtml = (ev.auto_fixes && ev.auto_fixes.length)
+            ? `<div style="margin-top:4px; color:#b45309; font-size:11.5px;"><b>รายการที่ระบบจัดการให้:</b> ${ev.auto_fixes.map(escapeHtml).join(' | ')}</div>`
+            : '';
+          const checksHtml = (ev.checks || []).map(c => {
+            const ic = c.status === 'ok' ? '✅' : (c.status === 'fixed' ? '🛠️' : '⚠️');
+            return `<span style="display:inline-block; background:#fff; border:1px solid #e2e8f0; border-radius:6px; padding:2px 6px; font-size:11px; margin:2px;">${ic} ${escapeHtml(c.name)}</span>`;
+          }).join('');
+          return `
+            <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:10px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                <div style="display:flex; align-items:center; gap:6px;">
+                  ${layerBadge}
+                  ${statusBadge}
+                  <span style="font-size:11.5px; color:#475569; font-weight:600;">${escapeHtml(ev.psid)}</span>
+                </div>
+                <span style="font-size:11px; color:#94a3b8;">${escapeHtml(ev.timestamp)}</span>
+              </div>
+              <div>${checksHtml}</div>
+              ${fixesHtml}
+            </div>
+          `;
+        }).join('');
+      } catch (e) {
+        listEl.innerHTML = '<div style="padding:12px; color:#ef4444;">โหลดประวัติ Audit ไม่สำเร็จค่ะ</div>';
+      }
     }
 
     function updateSimIdentity() {
