@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ข้าวบุกสุขใจ — แชทกับน้องบุก</title>
+<style>
+  :root {
+    --green: #3d7a3f;
+    --green-dark: #2e5c30;
+    --cream: #faf6ee;
+    --bubble-bot: #ffffff;
+    --bubble-user: #dcefdc;
+    --text: #2b2b2b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Segoe UI", "Leelawadee UI", "Noto Sans Thai", sans-serif;
+    background: var(--cream);
+    color: var(--text);
+    display: flex;
+    justify-content: center;
+    min-height: 100vh;
+  }
+  .app {
+    width: 100%;
+    max-width: 640px;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    background: var(--cream);
+    box-shadow: 0 0 24px rgba(0,0,0,.08);
+  }
+  header {
+    background: var(--green);
+    color: #fff;
+    padding: 14px 18px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  header .avatar {
+    width: 42px; height: 42px;
+    border-radius: 50%;
+    background: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 24px;
+  }
+  header h1 { font-size: 17px; font-weight: 600; }
+  header p { font-size: 12px; opacity: .85; }
+  #chat {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .msg {
+    max-width: 80%;
+    padding: 10px 14px;
+    border-radius: 16px;
+    line-height: 1.55;
+    font-size: 15px;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    box-shadow: 0 1px 2px rgba(0,0,0,.06);
+  }
+  .bot { background: var(--bubble-bot); align-self: flex-start; border-bottom-left-radius: 4px; }
+  .user { background: var(--bubble-user); align-self: flex-end; border-bottom-right-radius: 4px; }
+  .error { background: #fdecea; color: #b3261e; align-self: flex-start; font-size: 13px; }
+  .typing { color: #888; font-style: italic; }
+  form {
+    display: flex;
+    gap: 8px;
+    padding: 12px;
+    background: #fff;
+    border-top: 1px solid #e5e0d5;
+  }
+  input {
+    flex: 1;
+    padding: 11px 14px;
+    border: 1px solid #d5cfc0;
+    border-radius: 24px;
+    font-size: 15px;
+    font-family: inherit;
+    outline: none;
+  }
+  input:focus { border-color: var(--green); }
+  button {
+    background: var(--green);
+    color: #fff;
+    border: none;
+    border-radius: 24px;
+    padding: 0 22px;
+    font-size: 15px;
+    font-family: inherit;
+    cursor: pointer;
+  }
+  button:hover { background: var(--green-dark); }
+  button:disabled { opacity: .5; cursor: default; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="avatar">🍚</div>
+    <div>
+      <h1 id="brand">ข้าวบุกสุขใจ</h1>
+      <p id="botname">น้องบุก · ตอบกลับทันที</p>
+    </div>
+  </header>
+  <div id="chat"></div>
+  <form id="form">
+    <input id="input" type="text" placeholder="พิมพ์ข้อความ..." autocomplete="off" />
+    <button id="send" type="submit">ส่ง</button>
+  </form>
+</div>
+<script>
+const chat = document.getElementById("chat");
+const form = document.getElementById("form");
+const input = document.getElementById("input");
+const sendBtn = document.getElementById("send");
+const history = []; // {role, content}
+
+function addBubble(text, cls) {
+  const div = document.createElement("div");
+  div.className = "msg " + cls;
+  div.textContent = text;
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+  return div;
+}
+
+async function init() {
+  try {
+    const res = await fetch("/api/config");
+    const cfg = await res.json();
+    document.getElementById("brand").textContent = cfg.brand_name;
+    document.getElementById("botname").textContent = cfg.bot_name + " · ตอบกลับทันที";
+    document.title = cfg.brand_name + " — แชทกับ" + cfg.bot_name;
+    addBubble(cfg.greeting_message, "bot");
+    history.push({ role: "assistant", content: cfg.greeting_message });
+  } catch {
+    addBubble("โหลดข้อมูลร้านไม่สำเร็จ ลองรีเฟรชหน้าอีกครั้งครับ", "error");
+  }
+}
+
+form.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = "";
+  addBubble(text, "user");
+  history.push({ role: "user", content: text });
+
+  sendBtn.disabled = true;
+  input.disabled = true;
+  const typing = addBubble("กำลังพิมพ์...", "bot typing");
+
+  try {
+    const res = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages: history }),
+    });
+    const data = await res.json();
+    typing.remove();
+    if (!res.ok) {
+      addBubble(data.error || "เกิดข้อผิดพลาด กรุณาลองใหม่ครับ", "error");
+      history.pop(); // let the user retry the same question
+    } else {
+      addBubble(data.reply, "bot");
+      history.push({ role: "assistant", content: data.reply });
+    }
+  } catch {
+    typing.remove();
+    addBubble("เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ กรุณาลองใหม่ครับ", "error");
+    history.pop();
+  } finally {
+    sendBtn.disabled = false;
+    input.disabled = false;
+    input.focus();
+  }
+});
+
+init();
+input.focus();
+</script>
+</body>
+</html>

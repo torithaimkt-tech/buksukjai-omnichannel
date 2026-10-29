@@ -1,0 +1,1584 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Omnichannel Chat & AI Admin Inbox — ข้าวบุกสุขใจ (รองรับ 5 เพจ)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Mitr:wght@300;400;500;600&family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-dark: #1e232a;
+      --bg-sidebar: #f8f9fa;
+      --bg-chat: #f2f0e3;
+      --sage: #558b2f;
+      --sage-light: #e8f5e9;
+      --taupe: #5c564f;
+      --border: #e2e8f0;
+      --line-green: #06c755;
+      --fb-blue: #1877f2;
+      --ig-pink: #e1306c;
+      --web-orange: #f59e0b;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Sarabun', sans-serif;
+      background: #fff;
+      color: #1e293b;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    h1, h2, h3, .font-mitr { font-family: 'Mitr', sans-serif; font-weight: 500; }
+
+    /* Top Header */
+    .topbar {
+      height: 58px;
+      background: var(--bg-dark);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+      border-bottom: 1px solid #334155;
+      flex-shrink: 0;
+    }
+    .topbar-left { display: flex; align-items: center; gap: 12px; }
+    .brand-logo {
+      background: var(--sage);
+      color: #fff;
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+    }
+    .topbar-title { font-size: 17px; font-family: 'Mitr', sans-serif; }
+    .topbar-sub { font-size: 12px; color: #94a3b8; margin-left: 8px; }
+    .topbar-right { display: flex; align-items: center; gap: 10px; }
+    .ai-badge {
+      font-size: 12px;
+      padding: 5px 12px;
+      border-radius: 999px;
+      background: rgba(6, 199, 85, 0.15);
+      color: #4ade80;
+      border: 1px solid rgba(74, 222, 128, 0.3);
+    }
+    .btn-top {
+      padding: 7px 14px;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+      font-family: 'Mitr', sans-serif;
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: 0.15s;
+    }
+    .btn-sim { background: #f59e0b; color: #1e293b; font-weight: 500; }
+    .btn-sim:hover { background: #fbbf24; }
+    .btn-settings { background: #334155; color: #fff; }
+    .btn-settings:hover { background: #475569; }
+
+    /* Main 4-Column Layout */
+    .workspace {
+      display: grid;
+      grid-template-columns: 210px 330px 1fr 320px;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* Col 1: 5-Page Selector */
+    .pages-col {
+      background: #262c36;
+      color: #cbd5e1;
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid #334155;
+      padding: 14px 10px;
+      overflow-y: auto;
+    }
+    .pages-col-title {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #94a3b8;
+      margin-bottom: 10px;
+      padding: 0 8px;
+    }
+    .page-btn {
+      background: transparent;
+      border: none;
+      color: #cbd5e1;
+      text-align: left;
+      padding: 10px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+      margin-bottom: 4px;
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      transition: 0.15s;
+    }
+    .page-btn:hover { background: rgba(255,255,255,0.06); color: #fff; }
+    .page-btn.active { background: var(--sage); color: #fff; font-weight: 600; }
+    .page-slot-num {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      border-radius: 5px;
+      background: rgba(255,255,255,0.12);
+      text-align: center;
+      line-height: 20px;
+      font-size: 11px;
+      margin-right: 8px;
+    }
+
+    /* Col 2: Conversation List */
+    .conv-col {
+      background: var(--bg-sidebar);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .filter-bar {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+      background: #fff;
+    }
+    .platform-tabs {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 8px;
+    }
+    .plat-tab {
+      flex: 1;
+      padding: 6px 4px;
+      font-size: 12px;
+      border: 1px solid var(--border);
+      background: #f8fafc;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 600;
+      text-align: center;
+    }
+    .plat-tab.active { background: #1e293b; color: #fff; border-color: #1e293b; }
+    .state-tabs {
+      display: flex;
+      gap: 4px;
+    }
+    .state-tab {
+      flex: 1;
+      padding: 4px;
+      font-size: 11px;
+      border: 1px solid var(--border);
+      background: #fff;
+      border-radius: 6px;
+      cursor: pointer;
+      text-align: center;
+    }
+    .state-tab.active { background: var(--sage-light); color: var(--sage); border-color: var(--sage); font-weight: 600; }
+
+    .conv-list {
+      flex: 1;
+      overflow-y: auto;
+    }
+    .conv-item {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      background: #fff;
+      transition: 0.12s;
+      position: relative;
+    }
+    .conv-item:hover { background: #f1f5f9; }
+    .conv-item.active { background: #ecfdf5; border-left: 4px solid var(--sage); }
+    .conv-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 4px;
+    }
+    .conv-name { font-weight: 700; font-size: 14px; color: #0f172a; display: flex; align-items: center; gap: 6px; }
+    .plat-pill {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: #fff;
+      text-transform: uppercase;
+    }
+    .plat-line { background: var(--line-green); }
+    .plat-facebook { background: var(--fb-blue); }
+    .plat-instagram { background: var(--ig-pink); }
+    .plat-web { background: var(--web-orange); }
+
+    .conv-preview {
+      font-size: 12.5px;
+      color: #64748b;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-bottom: 6px;
+    }
+    .conv-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 11px;
+    }
+    .state-badge {
+      padding: 2px 7px;
+      border-radius: 99px;
+      font-weight: 600;
+      font-size: 10.5px;
+    }
+    .state-browsing { background: #e0f2fe; color: #0369a1; }
+    .state-pending_payment { background: #fef3c7; color: #b45309; }
+    .state-completed { background: #dcfce7; color: #15803d; }
+    .bot-mini-status { font-size: 11px; color: #475569; }
+
+    /* Col 3: Chat Window */
+    .chat-col {
+      display: flex;
+      flex-direction: column;
+      background: var(--bg-chat);
+      overflow: hidden;
+    }
+    .chat-header {
+      height: 60px;
+      background: #fff;
+      border-bottom: 1px solid var(--border);
+      padding: 0 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+    .chat-messages {
+      flex: 1;
+      padding: 18px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .msg-row {
+      display: flex;
+      flex-direction: column;
+      max-width: 76%;
+    }
+    .msg-row.user { align-self: flex-start; }
+    .msg-row.assistant, .msg-row.admin { align-self: flex-end; align-items: flex-end; }
+    .msg-sender {
+      font-size: 11px;
+      color: #64748b;
+      margin-bottom: 3px;
+      padding: 0 4px;
+    }
+    .msg-bubble {
+      padding: 10px 14px;
+      border-radius: 14px;
+      font-size: 14px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+    }
+    .msg-row.user .msg-bubble {
+      background: #fff;
+      color: #0f172a;
+      border-top-left-radius: 4px;
+    }
+    .msg-row.assistant .msg-bubble {
+      background: #558b2f;
+      color: #fff;
+      border-top-right-radius: 4px;
+    }
+    .msg-row.admin .msg-bubble {
+      background: #1e293b;
+      color: #fff;
+      border-top-right-radius: 4px;
+    }
+
+    .quick-snippets {
+      background: #fff;
+      padding: 6px 14px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      flex-shrink: 0;
+    }
+    .snippet-btn {
+      font-size: 11.5px;
+      padding: 4px 10px;
+      border-radius: 99px;
+      border: 1px solid #cbd5e1;
+      background: #f8fafc;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .snippet-btn:hover { background: #e2e8f0; }
+
+    .chat-composer {
+      background: #fff;
+      padding: 12px 16px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    .composer-row {
+      display: flex;
+      gap: 8px;
+    }
+    .composer-input {
+      flex: 1;
+      padding: 10px 14px;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 14px;
+      outline: none;
+    }
+    .composer-input:focus { border-color: var(--sage); }
+    .btn-send {
+      background: var(--sage);
+      color: #fff;
+      border: none;
+      padding: 0 20px;
+      border-radius: 8px;
+      font-family: 'Mitr', sans-serif;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    .btn-send:hover { background: #437023; }
+
+    /* Col 4: CRM & Order Details */
+    .crm-col {
+      background: #fff;
+      border-left: 1px solid var(--border);
+      padding: 16px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .crm-card {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px;
+      background: #f8fafc;
+    }
+    .crm-card h3 { font-size: 14px; margin-bottom: 8px; color: #1e293b; }
+    .bot-toggle-btn {
+      width: 100%;
+      padding: 10px;
+      border-radius: 8px;
+      border: none;
+      font-family: 'Mitr', sans-serif;
+      font-size: 13.5px;
+      cursor: pointer;
+      transition: 0.15s;
+    }
+    .bot-on { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
+    .bot-off { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+    .form-label { display: block; font-size: 12px; font-weight: 600; color: #475569; margin: 8px 0 4px; }
+    .form-control {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      font-family: inherit;
+      font-size: 13px;
+    }
+    .btn-save-crm {
+      margin-top: 8px;
+      width: 100%;
+      padding: 8px;
+      background: #1e293b;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 12.5px;
+    }
+
+    /* Modals (Simulator & Settings) */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.6);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+    }
+    .modal-backdrop.open { display: flex; }
+    .modal-box {
+      background: #fff;
+      width: 92%;
+      max-width: 720px;
+      max-height: 88vh;
+      border-radius: 14px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.25);
+    }
+    .modal-header {
+      padding: 14px 20px;
+      background: var(--bg-dark);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .modal-body {
+      padding: 20px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .close-btn {
+      background: transparent;
+      border: none;
+      color: #fff;
+      font-size: 20px;
+      cursor: pointer;
+    }
+    .sim-preset-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .sim-preset {
+      padding: 6px 12px;
+      background: var(--sage-light);
+      color: var(--sage);
+      border: 1px solid #a5d6a7;
+      border-radius: 99px;
+      font-size: 12.5px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    .sim-preset:hover { background: #c8e6c9; }
+    .webhook-box {
+      background: #0f172a;
+      color: #38bdf8;
+      padding: 10px 12px;
+      border-radius: 6px;
+      font-family: monospace;
+      font-size: 12.5px;
+      margin-top: 4px;
+      word-break: break-all;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Navigation -->
+  <header class="topbar">
+    <div class="topbar-left">
+      <div class="brand-logo">🍚</div>
+      <div>
+        <span class="topbar-title">Omnichannel Chat & AI Admin</span>
+        <span class="topbar-sub">ระบบรวมแชท LINE OA + Facebook + IG (รองรับ 5 เพจ)</span>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <span id="aiModeBadge" class="ai-badge">🤖 กำลังโหลดโหมด AI...</span>
+      <button id="btnToggleAutoReengage" class="btn-top" style="background:#7c3aed; color:#fff; border:1px solid #c4b5fd;" onclick="toggleAutoReengageMode()">⛏️ บอทขุดแชทเงียบ: เปิด</button>
+      <button id="btnTopScanReengage" class="btn-top" style="background:#6d28d9; color:#fff; font-weight:700;" onclick="scanReengageNow()">⛏️ สแกนขุดลูกค้าเงียบทันที</button>
+      <button id="btnToggleAutoJst" class="btn-top" style="background:#047857; color:#fff; border:1px solid #34d399;" onclick="toggleAutoJstMode()">⚡ โหมดส่ง JST อัตโนมัติ: เปิด</button>
+      <button id="btnTopSyncJst" class="btn-top" style="background:#ea580c; color:#fff; font-weight:700;" onclick="syncAllOrdersToJst()">🚀 ซิงค์ & เพิ่มเข้า JST อัตโนมัติ</button>
+      <button class="btn-top" style="background:#059669; color:#fff;" onclick="openMediaModal()">🖼️ คลังรูปภาพบอท</button>
+      <button class="btn-top btn-sim" onclick="openModal('simModal')">🧪 จำลองลูกค้าทักแชท</button>
+      <button class="btn-top btn-settings" onclick="openModal('settingsModal')">⚙️ ตั้งค่าเพจ & API Keys</button>
+    </div>
+  </header>
+
+  <!-- 4-Column Main Workspace -->
+  <div class="workspace">
+    <!-- Column 1: 5 Pages Selector -->
+    <aside class="pages-col">
+      <div class="pages-col-title">เพจธุรกิจของคุณ (5 เพจ)</div>
+      <div id="pagesList"></div>
+
+      <div style="margin-top:auto; padding:12px; background:rgba(255,255,255,0.05); border-radius:8px; font-size:11.5px; line-height:1.5; color:#94a3b8;">
+        <strong style="color:#fff;">💡 ทดสอบในเครื่องได้ 100%</strong><br/>
+        กดปุ่ม <b>"🧪 จำลองลูกค้าทักแชท"</b> ด้านบนเพื่อทดสอบบอทตอบ LINE / FB / IG ได้ทันทีโดยยังไม่ต้องเสียเงินเช่า Railway
+      </div>
+    </aside>
+
+    <!-- Column 2: Conversation List -->
+    <section class="conv-col">
+      <div class="filter-bar">
+        <div class="platform-tabs" id="platformTabs">
+          <button class="plat-tab active" data-plat="all" onclick="setPlatformFilter('all')">ทั้งหมด</button>
+          <button class="plat-tab" data-plat="line" onclick="setPlatformFilter('line')">🟢 LINE</button>
+          <button class="plat-tab" data-plat="facebook" onclick="setPlatformFilter('facebook')">🔵 FB</button>
+          <button class="plat-tab" data-plat="instagram" onclick="setPlatformFilter('instagram')">🟣 IG</button>
+        </div>
+        <div class="state-tabs" id="stateTabs">
+          <button class="state-tab active" data-state="all" onclick="setStateFilter('all')">ทุกสถานะ</button>
+          <button class="state-tab" data-state="starred" onclick="setStateFilter('starred')" style="color:#d97706; font-weight:700;">⭐ ติดดาว</button>
+          <button class="state-tab" data-state="browsing" onclick="setStateFilter('browsing')">💬 สอบถาม</button>
+          <button class="state-tab" data-state="pending_payment" onclick="setStateFilter('pending_payment')">⏳ รอโอน</button>
+          <button class="state-tab" data-state="completed" onclick="setStateFilter('completed')">✅ ปิดการขาย</button>
+        </div>
+      </div>
+      <div class="conv-list" id="convList"></div>
+    </section>
+
+    <!-- Column 3: Unified Chat Window -->
+    <main class="chat-col">
+      <div class="chat-header">
+        <div>
+          <div id="activeChatTitle" style="font-weight:700; font-size:15px;">เลือกแชททางซ้ายเพื่อดูบทสนทนา</div>
+          <div id="activeChatSub" style="font-size:12px; color:#64748b;">รวมแชทจาก LINE OA, Facebook และ Instagram</div>
+        </div>
+        <div id="headerQuickStatus"></div>
+      </div>
+
+      <div class="chat-messages" id="chatMessages"></div>
+
+      <div class="quick-snippets" style="flex-wrap:wrap;">
+        <button class="snippet-btn" style="background:#ecfdf5; border-color:#6ee7b7; color:#047857; font-weight:600;" onclick="sendPresetImage('promo_3sizes')">🖼️ โปร 3 ขนาด (39/239/459)</button>
+        <button class="snippet-btn" style="background:#ecfdf5; border-color:#6ee7b7; color:#047857; font-weight:600;" onclick="sendPresetImage('promo_60g_set')">🖼️ โปรซอง 60g (555/720)</button>
+        <button class="snippet-btn" style="background:#ecfdf5; border-color:#6ee7b7; color:#047857; font-weight:600;" onclick="sendPresetImage('promo_899')">🖼️ โปร 2 แถม 2 (899.-)</button>
+        <button class="snippet-btn" style="background:#ecfdf5; border-color:#6ee7b7; color:#047857; font-weight:600;" onclick="sendPresetImage('promo_1299')">🖼️ โปร 3 แถม 3 (1,299.-)</button>
+        <button class="snippet-btn" style="background:#fef3c7; border-color:#fcd34d; color:#b45309; font-weight:600;" onclick="sendPresetImage('promo_all')">🖼️ ส่งครบ 4 รูปโปร</button>
+        <label class="snippet-btn" style="background:#eff6ff; border-color:#93c5fd; color:#1d4ed8; font-weight:600; display:inline-flex; align-items:center;">
+          📷 ส่งรูปจากเครื่อง...
+          <input type="file" accept="image/*" style="display:none;" onchange="sendCustomImageFile(this)" />
+        </label>
+        <button class="snippet-btn" onclick="insertSnippet('ตอนนี้โปรโมชั่นขายดี ขนาด 1 กก. เพียง 459 บาท (โอนเงินส่งฟรี!) หรือโปรตุน 1 กก. 2 ถุง แถมซองเล็ก 60g 2 ซอง เพียง 899 บาท ส่งฟรีค่ะ 🍚💚')">+ แจ้งโปร 1 กก.</button>
+        <button class="snippet-btn" onclick="insertSnippet('รบกวนคุณลูกค้าแจ้ง ชื่อ-ที่อยู่ และเบอร์โทรศัพท์ สำหรับจัดส่งได้เลยนะคะ 🙏')">+ ขอที่อยู่จัดส่ง</button>
+      </div>
+
+      <div class="chat-composer">
+        <div class="composer-row">
+          <input id="adminReplyInput" class="composer-input" type="text" placeholder="พิมพ์ข้อความตอบลูกค้าในนามแอดมิน (กด Enter เพื่อส่ง)..." onkeydown="if(event.key==='Enter') sendAdminReply()" />
+          <button class="btn-send" onclick="sendAdminReply()">ส่งข้อความ</button>
+        </div>
+        <label style="font-size:12px; color:#475569; display:flex; align-items:center; gap:6px; cursor:pointer;">
+          <input type="checkbox" id="pauseBotOnAdminReply" checked />
+          หยุด AI อัตโนมัติสำหรับแชทนี้เมื่อแอดมินพิมพ์แทรก (Human Handover — เปิดกลับได้ตลอดเวลาที่แถบขวา)
+        </label>
+      </div>
+    </main>
+
+    <!-- Column 4: Customer CRM & Bot Control -->
+    <aside class="crm-col">
+      <div class="crm-card">
+        <h3>🤖 สถานะ AI Chatbot (รายคน)</h3>
+        <p style="font-size:12px; color:#64748b; margin-bottom:8px;">เลือกได้ว่าจะให้ AI น้องบุกตอบอัตโนมัติ หรือปิดเพื่อให้แอดมินคุยเอง</p>
+        <button id="botToggleBtn" class="bot-toggle-btn bot-on" onclick="toggleBotEnabled()">🤖 AI กำลังตอบอัตโนมัติ (คลิกเพื่อหยุด)</button>
+      </div>
+
+      <div class="crm-card">
+        <h3>📦 สถานะออเดอร์ & ข้อมูลลูกค้า</h3>
+        <label class="form-label">ชื่อลูกค้า</label>
+        <input id="crmCustomerName" class="form-control" type="text" />
+
+        <label class="form-label">สถานะออเดอร์</label>
+        <select id="crmOrderState" class="form-control">
+          <option value="browsing">💬 กำลังสอบถาม (Browsing)</option>
+          <option value="pending_payment">⏳ รอโอนเงิน / รอที่อยู่ (Pending)</option>
+          <option value="completed">✅ ปิดการขายแล้ว (Completed)</option>
+        </select>
+
+        <label class="form-label">บันทึกที่อยู่จัดส่ง / เบอร์โทร / ออเดอร์</label>
+        <textarea id="crmNotes" class="form-control" rows="2" placeholder="จดที่อยู่ เบอร์โทร หรือรายการที่ลูกค้าสั่ง..."></textarea>
+
+        <label class="form-label">🏷️ Broadcast Tags (ป้ายกำกับลูกค้า)</label>
+        <input id="crmBroadcastTags" class="form-control" type="text" placeholder="เช่น ชำระเงินแล้ว, ลูกค้าเก่า_VIP" />
+        <div style="display:flex; flex-wrap:wrap; gap:4px; margin-bottom:8px;">
+          <button type="button" class="snippet-btn" style="font-size:11px; padding:2px 7px; background:#fef3c7; color:#b45309; border-color:#fcd34d; font-weight:700;" onclick="addQuickTag('⭐ ติดดาว (ซื้อแล้ว)')">+ ⭐ ติดดาว (ซื้อแล้ว)</button>
+          <button type="button" class="snippet-btn" style="font-size:11px; padding:2px 7px;" onclick="addQuickTag('ชำระเงินแล้ว')">+ ชำระเงินแล้ว</button>
+          <button type="button" class="snippet-btn" style="font-size:11px; padding:2px 7px;" onclick="addQuickTag('ขุดแชท_1ชม')">+ ขุดแชท 1 ชม.</button>
+          <button type="button" class="snippet-btn" style="font-size:11px; padding:2px 7px;" onclick="addQuickTag('ขุดแชท_6ชม')">+ ขุดแชท 6 ชม.</button>
+          <button type="button" class="snippet-btn" style="font-size:11px; padding:2px 7px;" onclick="addQuickTag('ขุดแชท_20ชม')">+ ขุดแชท 20 ชม.</button>
+          <button type="button" class="snippet-btn" style="font-size:11px; padding:2px 7px;" onclick="addQuickTag('เช็กพัสดุ_3วัน')">+ เช็กพัสดุ 3 วัน</button>
+          <button type="button" class="snippet-btn" style="font-size:11px; padding:2px 7px;" onclick="addQuickTag('ถามรสชาติ_5วัน')">+ ถามรสชาติ 5 วัน</button>
+          <button type="button" class="snippet-btn" style="font-size:11px; padding:2px 7px;" onclick="addQuickTag('ลูกค้าเก่า_VIP')">+ ลูกค้าเก่า VIP</button>
+        </div>
+
+        <button class="btn-save-crm" onclick="saveCrmDetails()">💾 บันทึกข้อมูลลูกค้า & แท็ก</button>
+      </div>
+
+      <div class="crm-card" style="background:#f5f3ff; border-color:#ddd6fe;">
+        <h3>⛏️ บอทขุดสำหรับลูกค้าที่เงียบหายไป (Ghost Re-engagement)</h3>
+        <p style="font-size:11.5px; color:#5b21b6; margin-bottom:8px;">
+          ทริกเกอร์ขุดอัตโนมัติ 3 ระยะเมื่อลูกค้าถามแล้วเงียบ หรือค้างที่อยู่/ค้างโอน (ภายในกรอบ 24 ชม. ของ Facebook และเช็กซ้ำว่ายังไม่ซื้อก่อนขุดทุกครั้งค่ะ)
+        </p>
+        <div id="reengageStatusBox" style="font-size:11.5px; color:#6d28d9; background:#ede9fe; padding:6px 8px; border-radius:6px; margin-bottom:8px; font-weight:600;">
+          ⏳ กำลังตรวจสอบสถานะการขุดแชท...
+        </div>
+        <div style="display:flex; flex-direction:column; gap:5px;">
+          <button class="btn-save-crm" style="background:#7c3aed; font-size:12px; padding:6px;" onclick="triggerReengage(1)">
+            ⛏️ ขุดรอบ 1 (เงียบครบ 1 ชม. — ถามไซส์ที่สนใจ / ตามที่อยู่)
+          </button>
+          <button class="btn-save-crm" style="background:#6d28d9; font-size:12px; padding:6px;" onclick="triggerReengage(2)">
+            ⛏️ ขุดรอบ 2 (เงียบครบ 6 ชม. — คลายความลังเล / เสนอ COD)
+          </button>
+          <button class="btn-save-crm" style="background:#4c1d95; font-size:12px; padding:6px;" onclick="triggerReengage(3)">
+            ⛏️ ขุดรอบ 3 (เงียบครบ 20 ชม. — โค้งสุดท้ายสิทธิ์ส่งฟรี)
+          </button>
+        </div>
+      </div>
+
+      <div class="crm-card" style="background:#fffbeb; border-color:#fde68a;">
+        <h3>💝 บริการหลังการขายอัตโนมัติ (After-Sales & ซื้อซ้ำ)</h3>
+        <p style="font-size:11.5px; color:#92400e; margin-bottom:8px;">
+          คำนวณวันทักตามปริมาณที่สั่งซื้ออัตโนมัติ (3 วันเช็กของ ➔ 5 วันถามรสชาติ ➔ ใกล้หมดทักเสนอโปรลูกค้าเก่าลด 5%)
+        </p>
+        <div style="display:grid; grid-template-columns:2fr 1fr; gap:6px;">
+          <div>
+            <label class="form-label">ขนาดที่ลูกค้าสั่งซื้อ</label>
+            <select id="crmPurchasedSku" class="form-control" onchange="updateDepletionPreview()">
+              <option value="BSJ60G1">ซองเล็ก 60g (1 มื้อ)</option>
+              <option value="BSJ500G1">ถุงกลาง 500g (8 มื้อ)</option>
+              <option value="BSJ1KG1">ถุงใหญ่ 1 กก. (16 มื้อ)</option>
+              <option value="BSJ_SET15">เซ็ต 15 ซอง (15 มื้อ)</option>
+              <option value="BSJ_SET20">เซ็ต 20 ซอง (20 มื้อ)</option>
+              <option value="BSJ_FAM2">โปร 2 แถม 2 (34 มื้อ)</option>
+              <option value="BSJ_BIG3">โปร 3 แถม 3 (51 มื้อ)</option>
+            </select>
+          </div>
+          <div>
+            <label class="form-label">จำนวน (ชุด)</label>
+            <input id="crmPurchasedQty" class="form-control" type="number" min="1" value="1" onchange="updateDepletionPreview()" />
+          </div>
+        </div>
+        <div id="depletionPreviewText" style="font-size:11.5px; color:#b45309; background:#fef3c7; padding:6px 8px; border-radius:6px; margin-bottom:8px; font-weight:600;">
+          📅 ตารางดูแล: วันที่ 3 เช็กพัสดุ | วันที่ 5 ถามรสชาติ | วันที่ 17 ทักถามข้าวใกล้หมด + โปรลูกค้าเก่า
+        </div>
+        <div style="display:flex; flex-direction:column; gap:5px;">
+          <button class="btn-save-crm" style="background:#0284c7; font-size:12px; padding:6px;" onclick="triggerAfterSales(1)">
+            📦 ส่งข้อความวันที่ 3 (ได้รับสินค้าหรือยังคะ)
+          </button>
+          <button class="btn-save-crm" style="background:#0d9488; font-size:12px; padding:6px;" onclick="triggerAfterSales(2)">
+            🍚 ส่งข้อความวันที่ 5 (ได้ลองชิมหรือยังคะ)
+          </button>
+          <button class="btn-save-crm" style="background:#b45309; font-size:12px; padding:6px;" onclick="triggerAfterSales(3)">
+            💝 ส่งข้อความถามข้าวหมดยัง + โปรลูกค้าเก่าลด 5%
+          </button>
+        </div>
+      </div>
+
+      <div class="crm-card" style="background:#f0fdf4; border-color:#86efac;">
+        <h3>🚀 ส่งออเดอร์เข้าคลัง JST ERP อัตโนมัติ & ROAS</h3>
+        <p style="font-size:11.5px; color:#166534; margin-bottom:8px;">
+          เช็กซ้ำจากเบอร์โทรใน JST ERP อัตโนมัติก่อนบันทึกทุกครั้ง พร้อมอัปโหลดสลิปโอนเงินเข้า SCB 304-407545-5 ทันทีค่ะ
+        </p>
+        <button id="btnPushSingleJst" class="btn-save-crm" style="background:#ea580c; font-size:13px; padding:9px; margin-bottom:6px;" onclick="pushSingleOrderToJst()">
+          🚀 ส่งออเดอร์นี้เข้า JST อัตโนมัติทันที (เช็กซ้ำก่อนบันทึก)
+        </button>
+        <button class="btn-save-crm" style="background:#15803d; margin-bottom:8px;" onclick="previewOrderForJst()">
+          🔍 ตรวจสอบข้อมูล & เช็กซ้ำใน JST ERP
+        </button>
+
+        <div id="jstOrderPreviewBox" style="display:none; font-size:12px; background:#fff; border:1px solid #bbf7d0; border-radius:8px; padding:10px; margin-top:6px;">
+          <div id="jstConfirmBadge" style="font-weight:700; margin-bottom:6px;"></div>
+          <label class="form-label">รหัส SKU (เช่น BSJ500G1, BSJ1KG1, BSJ60G15, BSJ60G20)</label>
+          <input id="jstSku" class="form-control" type="text" />
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
+            <div>
+              <label class="form-label">ราคาสินค้า/ชุด (บาท)</label>
+              <input id="jstUnitPrice" class="form-control" type="number" />
+            </div>
+            <div>
+              <label class="form-label">ค่าขนส่ง (บาท)</label>
+              <input id="jstFreight" class="form-control" type="number" value="0" />
+            </div>
+          </div>
+          <label class="form-label">วิธีชำระเงิน</label>
+          <select id="jstPayType" class="form-control">
+            <option value="transfer">🏦 โอนเงินธนาคาร SCB (304-407545-5)</option>
+            <option value="cod">🚚 COD เก็บเงินปลายทาง</option>
+          </select>
+          <label class="form-label">ยอดเงินสุทธิรวมส่ง (บาท) — สำหรับ ROAS & JST</label>
+          <input id="jstAmount" class="form-control" type="number" />
+          <label class="form-label">ชื่อ-ที่อยู่-เบอร์โทร (สำหรับกรองที่อยู่ใน JST ERP)</label>
+          <textarea id="jstFilterText" class="form-control" rows="3"></textarea>
+          <input id="jstSlipUrl" type="hidden" />
+
+          <button class="btn-save-crm" style="background:#d97706; margin-top:6px;" onclick="pushSingleOrderToJst(true)">
+            ✅ ยืนยันบันทึกข้อมูลชุดนี้เข้า JST ERP ทันที
+          </button>
+          <button class="btn-save-crm" style="background:#1877F2; margin-top:6px;" onclick="sendRoasValue()">
+            💰 บันทึกยอดขายส่งค่า ROAS (Facebook Ads)
+          </button>
+          <button class="btn-save-crm" style="background:#0f172a; margin-top:6px;" onclick="copyJstFilterText()">
+            📋 คัดลอกที่อยู่ไปวางใน JST ERP
+          </button>
+          <div id="jstActionStatus" style="margin-top:6px; font-size:11.5px; color:#15803d; font-weight:600; white-space:pre-wrap;"></div>
+        </div>
+      </div>
+
+      <div class="crm-card" style="background:#f2f0e3; border-color:#d6d3c4;">
+        <h3>🍚 โพยราคา ข้าวบุกสุขใจ</h3>
+        <div style="font-size:12px; line-height:1.65; color:#334155;">
+          • <b>60g (ทดลอง):</b> 39.- (ปกติ 59.-)<br/>
+          • <b>500g (ทานประจำ):</b> 239.- (ปกติ 289.-)<br/>
+          • <b>1 กก. (คุ้มสุด):</b> 459.- <b>(โอนส่งฟรี!)</b><br/>
+          • <b>เซ็ตพกพา 20 ซอง:</b> 720.- (QR ลด 5% = 684.-)<br/>
+          • <b>เซ็ตครอบครัว 1กก.×2 แถม 60g×2:</b> 899.- <b>ส่งฟรี</b> (QR 5% = 854.-)<br/>
+          • <b>เซ็ตใหญ่ 1กก.×3 แถม 60g×3:</b> 1,299.- <b>ส่งฟรี</b><br/>
+          <hr style="margin:6px 0; border:none; border-top:1px solid #cbd5e1;"/>
+          🚚 <b>ค่าส่ง:</b> โอน 30.- (1 กก.ขึ้นไปส่งฟรี) | ปลายทาง COD 70.- (1 กก.ขึ้นไป 40.-)
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- Modal 1: Live Customer Chat Simulator -->
+  <div id="simModal" class="modal-backdrop">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 class="font-mitr">🧪 จำลองลูกค้าทักแชท (ทดสอบ LINE OA / Facebook / IG ในเครื่อง)</h3>
+        <button class="close-btn" onclick="closeModal('simModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size:13.5px; color:#334155;">
+          จำลองเหตุการณ์เหมือนมีลูกค้าทักมาจากแอป <b>LINE OA, Facebook หรือ Instagram</b> เข้ามาที่เพจของคุณ บอทจะประมวลผลคำตอบและเปลี่ยนสถานะออเดอร์ให้ดูสดๆ ในหน้า Inbox ทันทีครับ
+        </p>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+          <div>
+            <label class="form-label">เลือกเพจที่ลูกค้าทักเข้า (1–5)</label>
+            <select id="simBrandId" class="form-control"></select>
+          </div>
+          <div>
+            <label class="form-label">เลือกแพลตฟอร์มที่ลูกค้าทักมา</label>
+            <select id="simPlatform" class="form-control" onchange="updateSimIdentity()">
+              <option value="line">🟢 LINE Official Account (LINE OA)</option>
+              <option value="facebook">🔵 Facebook Page Messenger</option>
+              <option value="instagram">🟣 Instagram DM</option>
+              <option value="web">🌐 แชทหน้าเว็บไซต์ (Web Chat)</option>
+            </select>
+          </div>
+          <div>
+            <label class="form-label">ชื่อลูกค้าจำลอง</label>
+            <input id="simCustomerName" class="form-control" value="คุณลูกน้ำ (ทดสอบ LINE)" />
+          </div>
+          <div>
+            <label class="form-label">รหัสผู้ใช้จำลอง (User ID)</label>
+            <input id="simUserId" class="form-control" value="U_test_line_01" />
+          </div>
+        </div>
+
+        <div>
+          <label class="form-label">คลิกปุ่มคำถามยอดฮิตของลูกค้า "ข้าวบุกสุขใจ" เพื่อยิงแชททดสอบทันที:</label>
+          <div class="sim-preset-grid">
+            <button class="sim-preset" onclick="sendSimPreset('สวัสดีค่ะ ขอทราบราคาและโปรโมชั่นข้าวบุกสุขใจหน่อยค่ะ')">1. ถามราคา/โปรโมชั่น</button>
+            <button class="sim-preset" onclick="sendSimPreset('ค่าส่งเท่าไหร่คะ มีเก็บเงินปลายทางหรือส่งฟรีไหม?')">2. ถามค่าส่ง/ส่งฟรี/ปลายทาง</button>
+            <button class="sim-preset" onclick="sendSimPreset('ต้องหุงในหม้อหุงข้าวไหมคะ วิธีทานทำยังไง?')">3. ถามวิธีหุง (ตัก-เติม-รอ)</button>
+            <button class="sim-preset" onclick="sendSimPreset('ทำจากอะไรคะ กี่แคลอรี่?')">4. ถามส่วนผสม & แคลอรี่</button>
+            <button class="sim-preset" onclick="sendSimPreset('สนใจสั่งซื้อขนาด 1 กิโลกรัม 459 บาทค่ะ')">5. สั่งซื้อ 1 กก. (เปลี่ยนเป็น รอโอน)</button>
+            <button class="sim-preset" onclick="sendSimPreset('สนใจสั่งเซ็ตครอบครัว 899 บาทค่ะ')">6. สั่งเซ็ตครอบครัว 899.-</button>
+            <button class="sim-preset" onclick="sendSimPreset('โอนแล้วค่ะ จัดส่ง คุณลูกน้ำ 88/9 ถ.ลาดพร้าว กรุงเทพฯ โทร 081-234-5678')">7. แจ้งโอน+ที่อยู่ (ปิดการขาย)</button>
+            <button class="sim-preset" onclick="sendSimPreset('มีเลข อย. ไหมคะ?')">8. ทดสอบกฎตอบเรื่อง อย.</button>
+          </div>
+        </div>
+
+        <div>
+          <label class="form-label">หรือพิมพ์ข้อความลูกค้าเอง:</label>
+          <div style="display:flex; gap:8px;">
+            <input id="simCustomText" class="form-control" placeholder="พิมพ์ข้อความในฐานะลูกค้า..." onkeydown="if(event.key==='Enter') sendSimCustom()" />
+            <button class="btn-send" onclick="sendSimCustom()">ส่งเข้าบอท</button>
+          </div>
+        </div>
+
+        <div id="simResultBox" style="display:none; padding:12px; border-radius:8px; background:#ecfdf5; border:1px solid #6ee7b7; font-size:13px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 2: 5-Page Settings & Webhook Guide -->
+  <div id="settingsModal" class="modal-backdrop">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 class="font-mitr">⚙️ ตั้งค่าเชื่อม 5 เพจ (LINE OA / Facebook / IG) & OpenAI API</h3>
+        <button class="close-btn" onclick="closeModal('settingsModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="crm-card">
+          <h3>🔑 1. ตั้งค่าสมอง AI (รองรับทั้ง Google Gemini API Key และ OpenAI API Key)</h3>
+          <p style="font-size:12px; color:#64748b; margin-bottom:6px;">
+            วางคีย์ <b>Google Gemini (ขึ้นต้นด้วย <code>AIza...</code>)</b> ที่คุณเติมเงินไว้แล้วได้เลยค่ะ ระบบจะสลับไปใช้โมเดล <b>Gemini 2.5 Flash</b> อัตโนมัติทันที (หรือใช้คีย์ OpenAI <code>sk-...</code> ก็ได้เช่นกันค่ะ)
+          </p>
+          <input id="settingOpenAiKey" class="form-control" type="password" placeholder="วางคีย์ Gemini (AIzaSy...) หรือ OpenAI (sk-...) ที่นี่" />
+        </div>
+
+        <div class="crm-card">
+          <h3>🔗 2. ลิงก์ Webhook สดในเครื่องของคุณตอนนี้ (HTTPS พร้อมใช้งานฟรี!)</h3>
+          <div style="font-size:12.5px; color:#334155;">
+            <b>🟢 สำหรับวางใน LINE Official Account Manager (ตั้งค่า &gt; Messaging API &gt; Webhook URL):</b>
+            <div class="webhook-box" id="lineWebhookUrlBox">https://nested-entertaining-north-socks.trycloudflare.com/webhook/line/buksukjai</div>
+            <div style="margin-top:8px;"><b>🔵🟣 สำหรับวางใน Facebook Page &amp; Instagram (Meta for Developers &gt; Webhooks):</b></div>
+            <div class="webhook-box" id="metaWebhookUrlBox">https://nested-entertaining-north-socks.trycloudflare.com/webhook/meta</div>
+            <div style="margin-top:4px; font-size:11.5px; color:#64748b;">Verify Token ของ Meta: <code>changeme</code></div>
+          </div>
+        </div>
+
+        <div class="crm-card">
+          <h3>🏢 3. จัดการชื่อเพจและ Token ทั้ง 5 เพจ (รองรับครบ 5 เพจในแพ็กเกจเดียว)</h3>
+          <div id="settingsPagesContainer" style="display:flex; flex-direction:column; gap:10px; margin-top:8px;"></div>
+        </div>
+
+        <button class="btn-send" style="padding:12px; width:100%;" onclick="saveAllSettings()">💾 บันทึกการตั้งค่าทั้งหมด</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 3: Bot Image Library & Upload Manager -->
+  <div id="mediaModal" class="modal-backdrop">
+    <div class="modal-box" style="max-width:820px;">
+      <div class="modal-header">
+        <h3 class="font-mitr">🖼️ คลังรูปภาพบอท ข้าวบุกสุขใจ (AI ส่งอัตโนมัติใน LINE OA & Messenger)</h3>
+        <button class="close-btn" onclick="closeModal('mediaModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size:13.5px; color:#334155;">
+          ระบบเชื่อมรูปภาพโปรโมชั่นจริงของ <b>ข้าวบุกสุขใจ</b> จากโฟลเดอร์ <code>pro buksukjai</code> ไว้ให้พร้อมใช้ทันทีทั้ง 4 หมวดค่ะ และคุณสามารถกดปุ่ม <b>"📤 อัปโหลดรูปจริงของคุณทับช่องนี้"</b> เพื่ออัปเดตรูปโปรโมชั่นใหม่ได้ตลอดเวลาเลยค่ะ!
+        </p>
+        <div id="mediaSlotsGrid" style="display:grid; grid-template-columns:1fr 1fr; gap:14px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let allPages = [];
+    let sessions = [];
+    let selectedBrand = 'all';
+    let selectedPlatform = 'all';
+    let selectedState = 'all';
+    let activePsid = null;
+
+    let autoJstEnabled = true;
+    let autoReengageEnabled = true;
+
+    async function initApp() {
+      await loadPagesConfig();
+      await loadJstConfig();
+      await loadReengageConfig();
+      await loadSessions(true);
+      setInterval(() => loadSessions(false), 4000);
+    }
+
+    async function loadReengageConfig() {
+      try {
+        const res = await fetch('/api/reengage/config');
+        if (res.ok) {
+          const data = await res.json();
+          autoReengageEnabled = !!data.auto_enabled;
+          renderAutoReengageButton();
+        }
+      } catch (e) {}
+    }
+
+    function renderAutoReengageButton() {
+      const btn = document.getElementById('btnToggleAutoReengage');
+      if (!btn) return;
+      if (autoReengageEnabled) {
+        btn.style.background = '#7c3aed';
+        btn.textContent = '⛏️ บอทขุดแชทเงียบ: เปิด (1ชม./6ชม./20ชม.)';
+      } else {
+        btn.style.background = '#475569';
+        btn.textContent = '⏸️ บอทขุดแชทเงียบ: ปิด (กดขุดเอง)';
+      }
+    }
+
+    async function toggleAutoReengageMode() {
+      autoReengageEnabled = !autoReengageEnabled;
+      renderAutoReengageButton();
+      await fetch('/api/reengage/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ auto_enabled: autoReengageEnabled })
+      });
+    }
+
+    async function scanReengageNow() {
+      const btn = document.getElementById('btnTopScanReengage');
+      const oldTxt = btn.textContent;
+      btn.textContent = '⏳ กำลังสแกนขุดแชทลูกค้าเงียบ...';
+      btn.disabled = true;
+      try {
+        const res = await fetch('/api/reengage/scan-now', { method: 'POST' });
+        const data = await res.json();
+        const count = data.triggered_count || 0;
+        const list = (data.triggered || []).map(t => `• ${t.customer_name} -> ขุดรอบที่ ${t.stage} (${t.added_tag})`).join('\n');
+        alert(
+          `⛏️ สแกนขุดแชทลูกค้าที่เงียบหายไปเรียบร้อยแล้วค่ะ!\n\n` +
+          `💬 ส่งข้อความขุดแชทอัตโนมัติ: ${count} ราย\n${list ? list + '\n\n' : ''}` +
+          `🛡️ ข้ามลูกค้าที่ซื้อแล้ว/ยังไม่ถึงเวลาขุด: ${data.skipped_count || 0} ราย`
+        );
+        await loadSessions(false);
+      } catch (e) {
+        alert('เกิดข้อผิดพลาดในการสแกนขุดแชทค่ะ: ' + e);
+      } finally {
+        btn.textContent = oldTxt;
+        btn.disabled = false;
+      }
+    }
+
+    async function loadSessionReengageStatus(psid) {
+      const box = document.getElementById('reengageStatusBox');
+      if (!box || !psid) return;
+      try {
+        const res = await fetch(`/api/sessions/${encodeURIComponent(psid)}/reengage-status`);
+        if (!res.ok) return;
+        const st = await res.json();
+        if (!st.eligible) {
+          box.innerHTML = `🛡️ <b>สถานะ:</b> ${escapeHtml(st.reason || 'ไม่เข้าเงื่อนไขขุดแชท')}`;
+        } else {
+          const stageTxt = st.current_stage === 0 ? 'ยังไม่เคยขุดแชท' : `ขุดไปแล้ว ${st.current_stage} รอบ`;
+          const winTxt = st.within_24h_window ? '🟢 อยู่ในกรอบ 24 ชม. ของ Facebook' : '⚪ เกิน 24 ชม. จากข้อความล่าสุดของลูกค้า';
+          box.innerHTML = `⏱️ ลูกค้าทักล่าสุดเมื่อ <b>${st.hours_since_user_msg} ชม. ที่แล้ว</b> | สถานะ: <b>${stageTxt}</b><br/>${winTxt}`;
+        }
+      } catch (e) {}
+    }
+
+    async function triggerReengage(stage) {
+      if (!activePsid) return;
+      const box = document.getElementById('reengageStatusBox');
+      if (box) box.innerHTML = `⏳ กำลังเช็กสถานะออเดอร์และส่งข้อความขุดแชทรอบที่ ${stage}...`;
+      const res = await fetch(`/api/sessions/${encodeURIComponent(activePsid)}/reengage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stage, force_manual: true })
+      });
+      const data = await res.json();
+      if (data.status === 'skipped') {
+        alert(`🛡️ ระบบป้องกัน: ${data.reason}`);
+      }
+      await loadSessions(false);
+    }
+
+    async function loadJstConfig() {
+      try {
+        const res = await fetch('/api/jst/config');
+        if (res.ok) {
+          const data = await res.json();
+          autoJstEnabled = !!data.auto_sync_enabled;
+          renderAutoJstButton();
+        }
+      } catch (e) {}
+    }
+
+    function renderAutoJstButton() {
+      const btn = document.getElementById('btnToggleAutoJst');
+      if (!btn) return;
+      if (autoJstEnabled) {
+        btn.style.background = '#047857';
+        btn.textContent = '⚡ โหมดส่ง JST อัตโนมัติ: เปิด';
+      } else {
+        btn.style.background = '#475569';
+        btn.textContent = '⏸️ โหมดส่ง JST อัตโนมัติ: ปิด (แอดมินกดเอง)';
+      }
+    }
+
+    async function toggleAutoJstMode() {
+      autoJstEnabled = !autoJstEnabled;
+      renderAutoJstButton();
+      await fetch('/api/jst/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ auto_sync_enabled: autoJstEnabled })
+      });
+    }
+
+    async function syncAllOrdersToJst() {
+      const btn = document.getElementById('btnTopSyncJst');
+      const oldTxt = btn.textContent;
+      btn.textContent = '⏳ กำลังซิงค์แชท & เช็กซ้ำใน JST...';
+      btn.disabled = true;
+      try {
+        const res = await fetch('/api/jst/sync-all?days_lookback=2', { method: 'POST' });
+        const data = await res.json();
+        const createdCount = (data.created || []).length;
+        const skippedCount = (data.duplicate_skipped || []).length;
+        const createdNames = (data.created || []).map(c => `• ${c.customer_name} (${c.phone}) -> #${(c.result?.created_order?.order_id) || 'สำเร็จ'}`).join('\n');
+        const skippedNames = (data.duplicate_skipped || []).map(d => `• ${d.customer_name} (${d.phone}) -> มีแล้ว #${(d.result?.existing_orders?.[0]?.order_id) || ''}`).join('\n');
+        alert(
+          `✅ ซิงค์และตรวจสอบระบบ JST ERP เรียบร้อยแล้วค่ะ!\n\n` +
+          `➕ สร้างออเดอร์ใหม่อัตโนมัติ: ${createdCount} รายการ\n${createdNames ? createdNames + '\n\n' : ''}` +
+          `🛡️ ข้ามรายการที่มีใน JST แล้ว (ป้องกันซ้ำ): ${skippedCount} รายการ\n${skippedNames}`
+        );
+        await loadSessions(false);
+      } catch (e) {
+        alert('เกิดข้อผิดพลาดในการซิงค์ JST ERP ค่ะ: ' + e);
+      } finally {
+        btn.textContent = oldTxt;
+        btn.disabled = false;
+      }
+    }
+
+    async function loadPagesConfig() {
+      const res = await fetch('/api/pages');
+      const data = await res.json();
+      allPages = data.pages || [];
+      document.getElementById('aiModeBadge').textContent = '🤖 ' + data.ai_mode;
+      if (data.public_base_url) {
+        const lineBox = document.getElementById('lineWebhookUrlBox');
+        const metaBox = document.getElementById('metaWebhookUrlBox');
+        if (lineBox) lineBox.textContent = `${data.public_base_url}/webhook/line/buksukjai`;
+        if (metaBox) metaBox.textContent = `${data.public_base_url}/webhook/meta`;
+      }
+
+      // Render left sidebar 5 pages
+      const listEl = document.getElementById('pagesList');
+      let html = `
+        <button class="page-btn ${selectedBrand === 'all' ? 'active' : ''}" onclick="selectBrand('all')">
+          <span><span class="page-slot-num">★</span>รวมทุกเพจ (5 เพจ)</span>
+        </button>
+      `;
+      allPages.forEach(p => {
+        html += `
+          <button class="page-btn ${selectedBrand === p.brand_id ? 'active' : ''}" onclick="selectBrand('${p.brand_id}')">
+            <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+              <span class="page-slot-num">${p.slot}</span>${p.name}
+            </span>
+          </button>
+        `;
+      });
+      listEl.innerHTML = html;
+
+      // Populate Simulator Brand dropdown
+      const simBrandEl = document.getElementById('simBrandId');
+      simBrandEl.innerHTML = allPages.map(p => `<option value="${p.brand_id}">เพจ ${p.slot}: ${p.name}</option>`).join('');
+
+      // Populate Settings 5-page inputs
+      const container = document.getElementById('settingsPagesContainer');
+      container.innerHTML = allPages.map((p, idx) => `
+        <div style="border:1px solid #cbd5e1; border-radius:8px; padding:10px; background:#fff;">
+          <div style="font-weight:700; font-size:13px; margin-bottom:6px;">เพจที่ ${p.slot} (รหัส Webhook: <code>${p.brand_id}</code>)</div>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
+            <div>
+              <label class="form-label">ชื่อเพจ/แบรนด์</label>
+              <input class="form-control" id="page_name_${idx}" value="${p.name}" />
+            </div>
+            <div>
+              <label class="form-label">LINE Channel Access Token</label>
+              <input class="form-control" id="page_line_token_${idx}" value="${p.channels?.line_channel_access_token || ''}" placeholder="ใส่ Token จาก LINE OA" />
+            </div>
+            <div>
+              <label class="form-label">Facebook Page ID</label>
+              <input class="form-control" id="page_fb_id_${idx}" value="${p.channels?.fb_page_id || ''}" placeholder="เลข Page ID" />
+            </div>
+            <div>
+              <label class="form-label">Facebook / IG Page Access Token</label>
+              <input class="form-control" id="page_fb_token_${idx}" value="${p.channels?.fb_page_access_token || ''}" placeholder="EAA..." />
+            </div>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function selectBrand(brandId) {
+      selectedBrand = brandId;
+      loadPagesConfig();
+      loadSessions(true);
+    }
+
+    function setPlatformFilter(plat) {
+      selectedPlatform = plat;
+      document.querySelectorAll('.plat-tab').forEach(b => b.classList.toggle('active', b.dataset.plat === plat));
+      loadSessions(true);
+    }
+
+    function setStateFilter(st) {
+      selectedState = st;
+      document.querySelectorAll('.state-tab').forEach(b => b.classList.toggle('active', b.dataset.state === st));
+      loadSessions(true);
+    }
+
+    function stateLabel(st) {
+      if (st === 'pending_payment') return '⏳ รอโอน/ที่อยู่';
+      if (st === 'completed') return '✅ ปิดการขาย';
+      return '💬 กำลังถาม';
+    }
+
+    async function loadSessions(autoSelectFirst = false) {
+      const url = `/api/sessions?brand_id=${encodeURIComponent(selectedBrand)}&platform=${encodeURIComponent(selectedPlatform)}&state=${encodeURIComponent(selectedState)}`;
+      const res = await fetch(url);
+      sessions = await res.json();
+
+      const listEl = document.getElementById('convList');
+      if (sessions.length === 0) {
+        listEl.innerHTML = `<div style="padding:28px 16px; text-align:center; color:#64748b; font-size:13px;">ยังไม่มีรายการแชทในหมวดนี้<br/>กดปุ่ม <b>"🧪 จำลองลูกค้าทักแชท"</b> ด้านบนเพื่อทดสอบได้เลย!</div>`;
+        return;
+      }
+
+      if (autoSelectFirst && (!activePsid || !sessions.some(s => s.psid === activePsid))) {
+        activePsid = sessions[0].psid;
+      }
+
+      listEl.innerHTML = sessions.map(s => `
+        <div class="conv-item ${s.psid === activePsid ? 'active' : ''}" onclick="selectConversation('${s.psid}')">
+          <div class="conv-top">
+            <div class="conv-name">
+              <span class="plat-pill plat-${s.platform}">${s.platform}</span>
+              <span>${escapeHtml(s.customer_name)}</span>
+            </div>
+            <div style="display:flex; align-items:center; gap:6px;">
+              ${s.unread_count > 0 ? `<span style="background:#ef4444; color:#fff; border-radius:99px; padding:1px 7px; font-size:11px; font-weight:700;">${s.unread_count}</span>` : ''}
+              <button
+                type="button"
+                title="${s.is_starred ? 'ติดดาวแล้ว (เคยสั่งซื้อ/ชำระเงินแล้ว) — คลิกเพื่อยกเลิกดาว' : 'คลิกเพื่อติดดาว (เมื่อลูกค้าโอนเงิน/ยืนยันที่อยู่ COD แล้ว)'}"
+                onclick="toggleStar('${s.psid}', event)"
+                style="background:transparent; border:none; cursor:pointer; font-size:18px; line-height:1; color:${s.is_starred ? '#f59e0b' : '#cbd5e1'}; padding:0 2px;"
+              >${s.is_starred ? '★' : '☆'}</button>
+            </div>
+          </div>
+          <div class="conv-preview">${escapeHtml(s.last_message || 'เริ่มบทสนทนา...')}</div>
+          <div class="conv-meta">
+            <div style="display:flex; align-items:center; gap:4px;">
+              <span class="state-badge state-${s.state}">${stateLabel(s.state)}</span>
+              ${s.is_starred ? `<span style="background:#fffbeb; color:#d97706; border:1px solid #fcd34d; border-radius:99px; padding:1px 6px; font-size:10px; font-weight:700;">★ ซื้อแล้ว</span>` : ''}
+            </div>
+            <span class="bot-mini-status">${s.bot_enabled ? '🤖 AI ตอบอัตโนมัติ' : '👤 แอดมินดูแล'}</span>
+          </div>
+          ${s.broadcast_tags ? `<div style="margin-top:4px; display:flex; flex-wrap:wrap; gap:3px;">${s.broadcast_tags.split(',').filter(Boolean).map(t => `<span style="background:#fef3c7; color:#92400e; border:1px solid #fde68a; border-radius:4px; padding:1px 5px; font-size:10px; font-weight:600;">🏷️ ${escapeHtml(t.trim())}</span>`).join('')}</div>` : ''}
+        </div>
+      `).join('');
+
+      if (activePsid) {
+        await loadActiveConversation(activePsid);
+      }
+    }
+
+    async function toggleStar(psid, ev) {
+      if (ev) ev.stopPropagation();
+      await fetch(`/api/sessions/${encodeURIComponent(psid)}/toggle-star`, { method: 'POST' });
+      await loadSessions(false);
+    }
+
+    async function selectConversation(psid) {
+      activePsid = psid;
+      await loadSessions(false);
+    }
+
+    async function loadActiveConversation(psid) {
+      const s = sessions.find(x => x.psid === psid);
+      if (!s) return;
+
+      const pageObj = allPages.find(p => p.brand_id === s.brand_id);
+      const pageName = pageObj ? pageObj.name : s.brand_id;
+
+      document.getElementById('activeChatTitle').innerHTML = `
+        <span class="plat-pill plat-${s.platform}" style="margin-right:6px;">${s.platform}</span>
+        ${escapeHtml(s.customer_name)}
+        ${s.is_starred ? `<span style="color:#f59e0b; margin-left:4px;" title="ลูกค้าติดดาว (เคยซื้อแล้ว)">★</span>` : ''}
+      `;
+      document.getElementById('activeChatSub').textContent = `เพจ: ${pageName} | รหัสลูกค้า: ${s.external_user_id}`;
+      document.getElementById('headerQuickStatus').innerHTML = `
+        <div style="display:flex; align-items:center; gap:8px;">
+          <button
+            type="button"
+            onclick="toggleStar('${s.psid}', event)"
+            style="padding:4px 10px; border-radius:99px; font-size:12px; font-weight:700; cursor:pointer; border:1px solid ${s.is_starred ? '#f59e0b' : '#cbd5e1'}; background:${s.is_starred ? '#fffbeb' : '#f8fafc'}; color:${s.is_starred ? '#d97706' : '#475569'};"
+          >${s.is_starred ? '★ ติดดาวแล้ว (ลูกค้าซื้อแล้ว)' : '☆ กดติดดาว (โอนแล้ว / ยืนยัน COD)'}</button>
+          <span class="state-badge state-${s.state}" style="font-size:12px; padding:4px 10px;">${stateLabel(s.state)}</span>
+        </div>
+      `;
+
+      // Update right CRM column
+      document.getElementById('crmCustomerName').value = s.customer_name || '';
+      document.getElementById('crmOrderState').value = s.state || 'browsing';
+      document.getElementById('crmNotes').value = s.notes || '';
+      document.getElementById('crmBroadcastTags').value = s.broadcast_tags || '';
+      document.getElementById('crmPurchasedSku').value = s.purchased_sku || 'BSJ1KG1';
+      document.getElementById('crmPurchasedQty').value = s.purchased_qty || 1;
+      updateDepletionPreview();
+      loadSessionReengageStatus(psid);
+
+      const botBtn = document.getElementById('botToggleBtn');
+      if (s.bot_enabled) {
+        botBtn.className = 'bot-toggle-btn bot-on';
+        botBtn.textContent = '🤖 AI กำลังตอบอัตโนมัติ (คลิกเพื่อหยุดให้แอดมินคุยเอง)';
+      } else {
+        botBtn.className = 'bot-toggle-btn bot-off';
+        botBtn.textContent = '👤 ปิด AI ชั่วคราว — แอดมินดูแลเอง (คลิกเพื่อเปิด AI)';
+      }
+
+      const res = await fetch(`/api/sessions/${encodeURIComponent(psid)}/messages`);
+      const messages = await res.json();
+      const chatBox = document.getElementById('chatMessages');
+      chatBox.innerHTML = messages.map(m => {
+        const raw = String(m.content || '');
+        let bubbleHtml = '';
+        if (raw.startsWith('[IMAGE:') && raw.endsWith(']')) {
+          const imgUrl = raw.slice(7, -1);
+          bubbleHtml = `<a href="${escapeHtml(imgUrl)}" target="_blank"><img src="${escapeHtml(imgUrl)}" style="max-width:260px; max-height:260px; border-radius:10px; display:block;" /></a>`;
+        } else {
+          const cleaned = m.role === 'assistant'
+            ? raw.replace(/\*\*/g, '').replace(/`/g, '').replace(/\*/g, '').replace(/นะครับ/g, 'นะคะ').replace(/ครับ/g, 'ค่ะ')
+            : raw;
+          bubbleHtml = escapeHtml(cleaned);
+        }
+        return `
+          <div class="msg-row ${m.role}">
+            <div class="msg-sender">${escapeHtml(m.sender_label)}</div>
+            <div class="msg-bubble">${bubbleHtml}</div>
+          </div>
+        `;
+      }).join('');
+      chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    async function sendPresetImage(imageKey) {
+      if (!activePsid) return;
+      const pauseBot = document.getElementById('pauseBotOnAdminReply').checked;
+      await fetch(`/api/sessions/${encodeURIComponent(activePsid)}/send-image`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image_key: imageKey, pause_bot: pauseBot })
+      });
+      await loadSessions(false);
+    }
+
+    async function sendCustomImageFile(inputEl) {
+      if (!activePsid || !inputEl.files || !inputEl.files[0]) return;
+      const file = inputEl.files[0];
+      const pauseBot = document.getElementById('pauseBotOnAdminReply').checked;
+      const reader = new FileReader();
+      reader.onload = async () => {
+        await fetch(`/api/sessions/${encodeURIComponent(activePsid)}/send-image`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ data_url: reader.result, filename: file.name, pause_bot: pauseBot })
+        });
+        inputEl.value = '';
+        await loadSessions(false);
+      };
+      reader.readAsDataURL(file);
+    }
+
+    async function openMediaModal() {
+      openModal('mediaModal');
+      await renderMediaSlots();
+    }
+
+    async function renderMediaSlots() {
+      const res = await fetch('/api/media');
+      const data = await res.json();
+      const grid = document.getElementById('mediaSlotsGrid');
+      grid.innerHTML = (data.items || []).map(item => `
+        <div style="border:1px solid #cbd5e1; border-radius:10px; padding:12px; background:#f8fafc; display:flex; flex-direction:column; gap:8px;">
+          <div style="font-weight:700; font-size:14px; color:#1e293b;">${escapeHtml(item.title)}</div>
+          <div style="font-size:12px; color:#64748b;">${escapeHtml(item.subtitle)}</div>
+          <a href="${escapeHtml(item.relative_url)}" target="_blank" style="display:block; text-align:center; background:#fff; padding:6px; border-radius:8px; border:1px solid #e2e8f0;">
+            <img src="${escapeHtml(item.relative_url)}?t=${Date.now()}" style="max-height:180px; max-width:100%; border-radius:6px; object-fit:contain;" />
+          </a>
+          <label class="btn-save-crm" style="text-align:center; background:#558b2f; cursor:pointer; margin-top:auto;">
+            📤 อัปโหลดรูปจริงของคุณทับช่องนี้
+            <input type="file" accept="image/*" style="display:none;" onchange="uploadSlotImage('${item.key}', this)" />
+          </label>
+        </div>
+      `).join('');
+    }
+
+    async function uploadSlotImage(slotKey, inputEl) {
+      if (!inputEl.files || !inputEl.files[0]) return;
+      const file = inputEl.files[0];
+      const reader = new FileReader();
+      reader.onload = async () => {
+        await fetch('/api/media/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ slot_key: slotKey, data_url: reader.result, filename: file.name })
+        });
+        inputEl.value = '';
+        await renderMediaSlots();
+      };
+      reader.readAsDataURL(file);
+    }
+
+    async function sendAdminReply() {
+      if (!activePsid) return;
+      const input = document.getElementById('adminReplyInput');
+      const text = input.value.trim();
+      if (!text) return;
+      const pauseBot = document.getElementById('pauseBotOnAdminReply').checked;
+      input.value = '';
+
+      await fetch(`/api/sessions/${encodeURIComponent(activePsid)}/reply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, pause_bot: pauseBot })
+      });
+      await loadSessions(false);
+    }
+
+    function insertSnippet(text) {
+      const input = document.getElementById('adminReplyInput');
+      input.value = text;
+      input.focus();
+    }
+
+    async function toggleBotEnabled() {
+      if (!activePsid) return;
+      const s = sessions.find(x => x.psid === activePsid);
+      if (!s) return;
+      await fetch(`/api/sessions/${encodeURIComponent(activePsid)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bot_enabled: !s.bot_enabled })
+      });
+      await loadSessions(false);
+    }
+
+    function addQuickTag(tag) {
+      const el = document.getElementById('crmBroadcastTags');
+      const cur = el.value.split(',').map(x => x.trim()).filter(Boolean);
+      if (!cur.includes(tag)) cur.push(tag);
+      el.value = cur.join(', ');
+    }
+
+    function updateDepletionPreview() {
+      const sku = document.getElementById('crmPurchasedSku').value;
+      const qty = Math.max(1, parseInt(document.getElementById('crmPurchasedQty').value || '1', 10));
+      const daysMap = { BSJ60G1: 1, BSJ500G1: 8, BSJ1KG1: 14, BSJ_SET15: 14, BSJ_SET20: 18, BSJ_FAM2: 27, BSJ_BIG3: 42 };
+      const mealsMap = { BSJ60G1: 1, BSJ500G1: 8, BSJ1KG1: 16, BSJ_SET15: 15, BSJ_SET20: 20, BSJ_FAM2: 34, BSJ_BIG3: 51 };
+      const depDay = Math.max(7, 3 + (daysMap[sku] || 14) * qty);
+      const totalMeals = (mealsMap[sku] || 16) * qty;
+      document.getElementById('depletionPreviewText').textContent =
+        `📅 ทานได้ ~${totalMeals} มื้อ: วันที่ 3 เช็กของ | วันที่ 5 ถามรสชาติ | วันที่ ${depDay} ถามข้าวเหลือไหม + โปรลูกค้าเก่า`;
+    }
+
+    async function triggerAfterSales(stage) {
+      if (!activePsid) return;
+      const sku = document.getElementById('crmPurchasedSku').value;
+      const quantity = Math.max(1, parseInt(document.getElementById('crmPurchasedQty').value || '1', 10));
+      await fetch(`/api/sessions/${encodeURIComponent(activePsid)}/after-sales`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stage, sku, quantity })
+      });
+      await loadSessions(false);
+    }
+
+    async function saveCrmDetails() {
+      if (!activePsid) return;
+      const customer_name = document.getElementById('crmCustomerName').value.trim();
+      const state = document.getElementById('crmOrderState').value;
+      const notes = document.getElementById('crmNotes').value;
+      const broadcast_tags = document.getElementById('crmBroadcastTags').value.trim();
+      const purchased_sku = document.getElementById('crmPurchasedSku').value;
+      const purchased_qty = Math.max(1, parseInt(document.getElementById('crmPurchasedQty').value || '1', 10));
+      await fetch(`/api/sessions/${encodeURIComponent(activePsid)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customer_name, state, notes, broadcast_tags, purchased_sku, purchased_qty })
+      });
+      await loadSessions(false);
+    }
+
+    async function previewOrderForJst() {
+      if (!activePsid) return;
+      const box = document.getElementById('jstOrderPreviewBox');
+      const badge = document.getElementById('jstConfirmBadge');
+      const statusEl = document.getElementById('jstActionStatus');
+      box.style.display = 'block';
+      badge.innerHTML = '⏳ กำลังสกัดชื่อ-ที่อยู่-เบอร์โทร และเช็กซ้ำในระบบ JST ERP...';
+      statusEl.innerText = '';
+
+      const res = await fetch(`/api/sessions/${encodeURIComponent(activePsid)}/jst-preview`);
+      const data = await res.json();
+      const o = data.extracted || data.order || {};
+      const dup = data.duplicate_check || {};
+      const recentOrder = (dup.recent_orders && dup.recent_orders[0]) || null;
+      if (dup.exists_recently || dup.exists) {
+        const oid = (recentOrder && recentOrder.order_id) || dup.orderId || '';
+        const st = (recentOrder && recentOrder.status) || dup.statusDisplay || '';
+        badge.innerHTML = `<span style="color:#15803d;">✅ ออเดอร์นี้มีในระบบ JST ERP แล้ว: <b>#${oid}</b> (${escapeHtml(st)}) — ไม่ต้องกดสร้างซ้ำค่ะ</span>`;
+      } else if (data.valid && o.phone && o.raw_address) {
+        badge.innerHTML = '<span style="color:#0f766e;">✅ ข้อมูลครบถ้วนและยังไม่ซ้ำใน JST ERP — กดปุ่มส่งเข้า JST ได้เลยค่ะ!</span>';
+      } else {
+        badge.innerHTML = `<span style="color:#b45309;">⚠️ ตรวจสอบข้อมูลก่อนบันทึก (${escapeHtml(data.reason || 'กรุณาตรวจสอบเบอร์โทรและที่อยู่ค่ะ')})</span>`;
+      }
+      if (o.sku_id) document.getElementById('jstSku').value = o.sku_id;
+      document.getElementById('jstQty').value = o.qty || 1;
+      document.getElementById('jstPayMethod').value = o.is_cod ? 'COD' : 'โอนเงิน';
+      const totalAmt = ((o.unit_price || 0) * (o.qty || 1)) + (o.freight || 0);
+      document.getElementById('jstAmount').value = totalAmt || o.total_amount || 459;
+      document.getElementById('jstPhone').value = o.phone || '';
+      document.getElementById('jstFilterText').value = o.raw_address || '';
+    }
+
+    async function pushSingleOrderToJst(useFormOverrides) {
+      if (!activePsid) return;
+      const box = document.getElementById('jstOrderPreviewBox');
+      const badge = document.getElementById('jstConfirmBadge');
+      const statusEl = document.getElementById('jstActionStatus');
+      box.style.display = 'block';
+      badge.innerHTML = '⏳ กำลังเช็กซ้ำใน JST ERP, แยกจังหวัด/อำเภอ/ตำบล, อัปโหลดสลิป และสร้างออเดอร์เข้า JST...';
+      statusEl.innerText = '⏳ กำลังดำเนินการ...';
+
+      const payload = { force_create: false };
+      if (useFormOverrides) {
+        const isCod = document.getElementById('jstPayMethod').value === 'COD';
+        const qty = Math.max(1, parseInt(document.getElementById('jstQty').value || '1', 10));
+        const totalAmt = parseFloat(document.getElementById('jstAmount').value || '0');
+        const sku = document.getElementById('jstSku').value;
+        const freight = (isCod && (sku === 'BSJ500G1' || sku === 'BSJ60G1') && totalAmt >= 250 && totalAmt <= 330) ? 70 : 0;
+        payload.sku_id = sku;
+        payload.qty = qty;
+        payload.is_cod = isCod;
+        payload.freight = freight;
+        payload.unit_price = Math.max(0, (totalAmt - freight) / qty);
+        payload.phone = document.getElementById('jstPhone').value.trim();
+        payload.raw_address = document.getElementById('jstFilterText').value.trim();
+        payload.explicit_name = document.getElementById('crmCustomerName').value.trim();
+      }
+
+      try {
+        const res = await fetch(`/api/sessions/${encodeURIComponent(activePsid)}/push-jst`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (data.status === 'created') {
+          badge.innerHTML = `<span style="color:#15803d;">🎉 เพิ่มเข้า JST ERP สำเร็จ! เลขออเดอร์ <b>#${data.jst_order_id}</b></span>`;
+          statusEl.innerText = `✅ บันทึกออเดอร์ #${data.jst_order_id} เข้า JST ERP เรียบร้อยแล้วค่ะ!`;
+        } else if (data.status === 'duplicate') {
+          const dupId = data.jst_order_id || (data.existing_orders && data.existing_orders[0] && data.existing_orders[0].order_id) || '';
+          badge.innerHTML = `<span style="color:#15803d;">✅ เช็กซ้ำแล้ว: ออเดอร์นี้มีใน JST ERP แล้ว (<b>#${dupId}</b>) ไม่สร้างซ้ำค่ะ</span>`;
+          statusEl.innerText = `ℹ️ ออเดอร์ #${dupId} มีในระบบแล้ว ไม่สร้างซ้ำค่ะ`;
+        } else {
+          badge.innerHTML = `<span style="color:#dc2626;">❌ ไม่สามารถส่งเข้า JST ได้: ${escapeHtml(data.reason || data.message || 'ข้อมูลไม่ครบ')}</span>`;
+          statusEl.innerText = `⚠️ กรุณาตรวจสอบเบอร์โทรและที่อยู่ในช่องด้านบนแล้วกดปุ่มบันทึกอีกครั้งค่ะ`;
+        }
+        await previewOrderForJst();
+        await loadSessions(false);
+      } catch (e) {
+        statusEl.innerText = '❌ เกิดข้อผิดพลาดในการเชื่อมต่อ JST ERP ค่ะ';
+      }
+    }
+
+    async function sendRoasValue() {
+      if (!activePsid) return;
+      const amount = parseFloat(document.getElementById('jstAmount').value || '0');
+      const statusEl = document.getElementById('jstActionStatus');
+      statusEl.innerText = '⏳ กำลังบันทึกยอดขายส่งค่า ROAS...';
+      const res = await fetch(`/api/sessions/${encodeURIComponent(activePsid)}/send-roas`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount, currency: 'THB' })
+      });
+      const data = await res.json();
+      statusEl.innerText = `✅ บันทึกยอดขาย ${amount} บาท สำหรับค่า ROAS เรียบร้อยแล้วค่ะ!`;
+      await loadSessions(false);
+    }
+
+    function copyJstFilterText() {
+      const txt = document.getElementById('jstFilterText').value;
+      navigator.clipboard.writeText(txt);
+      document.getElementById('jstActionStatus').innerText = '📋 คัดลอกที่อยู่เรียบร้อย! นำไปวางในช่อง "รายละเอียดที่อยู่ -> กรอง" ของ JST ERP ได้เลยค่ะ';
+    }
+
+    function updateSimIdentity() {
+      const plat = document.getElementById('simPlatform').value;
+      const nameEl = document.getElementById('simCustomerName');
+      const idEl = document.getElementById('simUserId');
+      if (plat === 'line') {
+        nameEl.value = 'คุณลูกน้ำ (ทดสอบ LINE)';
+        idEl.value = 'U_test_line_01';
+      } else if (plat === 'facebook') {
+        nameEl.value = 'คุณกานต์ (ทดสอบ FB)';
+        idEl.value = 'FB_test_01';
+      } else if (plat === 'instagram') {
+        nameEl.value = 'คุณแพรว (@praew_ig)';
+        idEl.value = 'IG_test_01';
+      } else {
+        nameEl.value = 'ลูกค้าหน้าเว็บ';
+        idEl.value = 'WEB_test_01';
+      }
+    }
+
+    async function sendSimPreset(text) {
+      document.getElementById('simCustomText').value = text;
+      await sendSimCustom();
+    }
+
+    async function sendSimCustom() {
+      const brand_id = document.getElementById('simBrandId').value;
+      const platform = document.getElementById('simPlatform').value;
+      const customer_name = document.getElementById('simCustomerName').value.trim();
+      const external_user_id = document.getElementById('simUserId').value.trim();
+      const text = document.getElementById('simCustomText').value.trim();
+      if (!text) return;
+
+      const resBox = document.getElementById('simResultBox');
+      resBox.style.display = 'block';
+      resBox.innerHTML = '⏳ น้องบุกกำลังประมวลผลคำตอบ...';
+
+      const res = await fetch('/api/simulate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ brand_id, platform, customer_name, external_user_id, text })
+      });
+      const data = await res.json();
+      document.getElementById('simCustomText').value = '';
+      activePsid = data.session_key;
+
+      if (data.bot_replied) {
+        resBox.innerHTML = `<b>✅ น้องบุกตอบกลับแล้ว (สถานะ: ${stateLabel(data.state)}):</b><br/><div style="margin-top:6px; white-space:pre-wrap; background:#fff; padding:8px; border-radius:6px;">${escapeHtml(data.reply)}</div>`;
+      } else {
+        resBox.innerHTML = `<b>👤 แชทนี้ปิด AI ไว้ (โหมดแอดมินดูแลเอง):</b> ข้อความเข้าสู่หน้า Inbox แล้ว แอดมินสามารถพิมพ์ตอบได้เองเลยค่ะ`;
+      }
+      await loadSessions(false);
+    }
+
+    async function saveAllSettings() {
+      const openai_api_key = document.getElementById('settingOpenAiKey').value.trim();
+      const updatedPages = allPages.map((p, idx) => ({
+        ...p,
+        name: document.getElementById(`page_name_${idx}`).value.trim() || p.name,
+        channels: {
+          ...p.channels,
+          line_channel_access_token: document.getElementById(`page_line_token_${idx}`).value.trim(),
+          fb_page_id: document.getElementById(`page_fb_id_${idx}`).value.trim(),
+          fb_page_access_token: document.getElementById(`page_fb_token_${idx}`).value.trim(),
+        }
+      }));
+
+      await fetch('/api/pages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ openai_api_key: openai_api_key || null, pages: updatedPages })
+      });
+      await loadPagesConfig();
+      closeModal('settingsModal');
+    }
+
+    function openModal(id) { document.getElementById(id).classList.add('open'); }
+    function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+    function escapeHtml(str) {
+      return String(str || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+    }
+
+    initApp();
+  </script>
+</body>
+</html>
