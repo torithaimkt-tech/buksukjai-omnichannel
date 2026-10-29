@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Omnichannel Chat & AI Admin Inbox — ข้าวบุกสุขใจ (รองรับ 5 เพจ)</title>
+  <title>Omnichannel Chat & AI Admin Inbox — ข้าวบุกสุขใจ (รองรับ 4 เพจ)</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Mitr:wght@300;400;500;600&family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -493,7 +493,7 @@
       <div class="brand-logo">🍚</div>
       <div>
         <span class="topbar-title">Omnichannel Chat & AI Admin</span>
-        <span class="topbar-sub">ระบบรวมแชท LINE OA + Facebook + IG (รองรับ 5 เพจ)</span>
+        <span class="topbar-sub">ระบบรวมแชท LINE OA + Facebook + IG (รองรับ 4 เพจ)</span>
       </div>
     </div>
     <div class="topbar-right">
@@ -510,9 +510,9 @@
 
   <!-- 4-Column Main Workspace -->
   <div class="workspace">
-    <!-- Column 1: 5 Pages Selector -->
+    <!-- Column 1: 4 Pages Selector -->
     <aside class="pages-col">
-      <div class="pages-col-title">เพจธุรกิจของคุณ (5 เพจ)</div>
+      <div class="pages-col-title" id="pagesColTitle">เพจธุรกิจของคุณ (4 เพจ)</div>
       <div id="pagesList"></div>
 
       <div style="margin-top:auto; padding:12px; background:rgba(255,255,255,0.05); border-radius:8px; font-size:11.5px; line-height:1.5; color:#94a3b8;">
@@ -753,12 +753,12 @@
       </div>
       <div class="modal-body">
         <p style="font-size:13.5px; color:#334155;">
-          จำลองเหตุการณ์เหมือนมีลูกค้าทักมาจากแอป <b>LINE OA, Facebook หรือ Instagram</b> เข้ามาที่เพจของคุณ บอทจะประมวลผลคำตอบและเปลี่ยนสถานะออเดอร์ให้ดูสดๆ ในหน้า Inbox ทันทีครับ
+          จำลองเหตุการณ์เหมือนมีลูกค้าทักมาจากแอป <b>LINE OA, Facebook หรือ Instagram</b> เข้ามาที่เพจของคุณ บอทจะประมวลผลคำตอบและเปลี่ยนสถานะออเดอร์ให้ดูสดๆ ในหน้า Inbox ทันทีค่ะ
         </p>
 
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
           <div>
-            <label class="form-label">เลือกเพจที่ลูกค้าทักเข้า (1–5)</label>
+            <label class="form-label">เลือกเพจที่ลูกค้าทักเข้า (1–4)</label>
             <select id="simBrandId" class="form-control"></select>
           </div>
           <div>
@@ -807,11 +807,11 @@
     </div>
   </div>
 
-  <!-- Modal 2: 5-Page Settings & Webhook Guide -->
+  <!-- Modal 2: 4-Page Settings & Webhook Guide -->
   <div id="settingsModal" class="modal-backdrop">
     <div class="modal-box">
       <div class="modal-header">
-        <h3 class="font-mitr">⚙️ ตั้งค่าเชื่อม 5 เพจ (LINE OA / Facebook / IG) & OpenAI API</h3>
+        <h3 class="font-mitr">⚙️ ตั้งค่าเชื่อม 4 เพจ (LINE OA / Facebook / IG) & OpenAI API</h3>
         <button class="close-btn" onclick="closeModal('settingsModal')">&times;</button>
       </div>
       <div class="modal-body">
@@ -827,15 +827,15 @@
           <h3>🔗 2. ลิงก์ Webhook สดในเครื่องของคุณตอนนี้ (HTTPS พร้อมใช้งานฟรี!)</h3>
           <div style="font-size:12.5px; color:#334155;">
             <b>🟢 สำหรับวางใน LINE Official Account Manager (ตั้งค่า &gt; Messaging API &gt; Webhook URL):</b>
-            <div class="webhook-box" id="lineWebhookUrlBox">https://nested-entertaining-north-socks.trycloudflare.com/webhook/line/buksukjai</div>
+            <div class="webhook-box" id="lineWebhookUrlBox">https://buksukjai-omnichannel.onrender.com/webhook/line/buksukjai</div>
             <div style="margin-top:8px;"><b>🔵🟣 สำหรับวางใน Facebook Page &amp; Instagram (Meta for Developers &gt; Webhooks):</b></div>
-            <div class="webhook-box" id="metaWebhookUrlBox">https://nested-entertaining-north-socks.trycloudflare.com/webhook/meta</div>
+            <div class="webhook-box" id="metaWebhookUrlBox">https://buksukjai-omnichannel.onrender.com/webhook/meta</div>
             <div style="margin-top:4px; font-size:11.5px; color:#64748b;">Verify Token ของ Meta: <code>changeme</code></div>
           </div>
         </div>
 
         <div class="crm-card">
-          <h3>🏢 3. จัดการชื่อเพจและ Token ทั้ง 5 เพจ (รองรับครบ 5 เพจในแพ็กเกจเดียว)</h3>
+          <h3>🏢 3. จัดการชื่อเพจและ Token ทั้ง 4 เพจ (รองรับครบ 4 เพจในแพ็กเกจเดียว)</h3>
           <div id="settingsPagesContainer" style="display:flex; flex-direction:column; gap:10px; margin-top:8px;"></div>
         </div>
 
@@ -1040,11 +1040,14 @@
         if (metaBox) metaBox.textContent = `${data.public_base_url}/webhook/meta`;
       }
 
-      // Render left sidebar 5 pages
+      // Render left sidebar 4 pages
+      const pageCount = allPages.length || 4;
+      const colTitleEl = document.getElementById('pagesColTitle');
+      if (colTitleEl) colTitleEl.textContent = `เพจธุรกิจของคุณ (${pageCount} เพจ)`;
       const listEl = document.getElementById('pagesList');
       let html = `
         <button class="page-btn ${selectedBrand === 'all' ? 'active' : ''}" onclick="selectBrand('all')">
-          <span><span class="page-slot-num">★</span>รวมทุกเพจ (5 เพจ)</span>
+          <span><span class="page-slot-num">★</span>รวมทุกเพจ (${pageCount} เพจ)</span>
         </button>
       `;
       allPages.forEach(p => {

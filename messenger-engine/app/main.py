@@ -1,5 +1,5 @@
 """Omnichannel AI Chatbot Engine & Pancake-Style Admin Inbox
-(Supports 5 Pages across LINE OA, Facebook Messenger, Instagram DM & Web Chat).
+(Supports 4 Pages across LINE OA, Facebook Messenger, Instagram DM & Web Chat).
 
 Run locally with:
     python -m uvicorn app.main:app --reload --port 8000
@@ -199,7 +199,7 @@ async def lifespan(app: FastAPI):
     _seed_sample_conversations_if_empty()
     _start_local_tunnel_if_available()
     logger.info(
-        "Omnichannel Engine ready — primary brand '%s' (bot: %s), 5-page registry active",
+        "Omnichannel Engine ready — primary brand '%s' (bot: %s), 4-page registry active",
         CONFIG["brand_persona"]["brand_name"],
         CONFIG["brand_persona"]["bot_name"],
     )
@@ -220,7 +220,7 @@ async def lifespan(app: FastAPI):
             pass
 
 
-app = FastAPI(title="Omnichannel AI Chatbot & Admin Inbox (5-Page Edition)", lifespan=lifespan)
+app = FastAPI(title="Omnichannel AI Chatbot & Admin Inbox (4-Page Edition)", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
@@ -384,9 +384,9 @@ async def receive_line_webhook(
             continue
 
         if event_type == "follow":
-            greeting = CONFIG["brand_persona"]["greeting_message"]
-            promo_item = media_generator.get_media_item("promo_3sizes")
-            img_url = f"{PUBLIC_BASE_URL}{promo_item['relative_url']}" if (PUBLIC_BASE_URL and promo_item) else None
+            from .llm import FULL_PROMO_SUMMARY_BUBBLE
+            greeting = f"{CONFIG['brand_persona']['greeting_message']}|||{FULL_PROMO_SUMMARY_BUBBLE}"
+            all_promo_items = media_generator.get_all_promo_items()
             background_tasks.add_task(
                 messenger.send_omnichannel_text,
                 "line",
@@ -394,8 +394,10 @@ async def receive_line_webhook(
                 greeting,
                 brand_id,
                 reply_token,
-                img_url,
-                promo_item["local_path"] if promo_item else None,
+                None,
+                None,
+                all_promo_items,
+                PUBLIC_BASE_URL,
             )
         elif event_type == "message":
             msg_obj = event.get("message", {})
@@ -503,25 +505,16 @@ async def process_omnichannel_message(
 
         reply, new_state, image_key = await LLM.generate(clean_history, user.state)
 
-        # Smart fallback if customer explicitly asked for promo/price/photo but LLM returned 'none'
+        # Smart fallback: whenever customer asks for promo/price/sizes/interest, send ALL 4 promo images ('promo_all') at once!
         explicitly_asked_pic = (not is_attachment_placeholder) and (not is_paid_customer or wants_to_reorder) and any(
-            w in low_txt for w in ("รูป", "ภาพ", "โปร", "ราคา", "สนใจ")
+            w in low_txt for w in ("รูป", "ภาพ", "โปร", "ราคา", "สนใจ", "กี่บาท", "เท่าไหร่", "ขนาด", "ไซส์", "ขายยังไง")
         )
         if is_attachment_placeholder or (is_paid_customer and not wants_to_reorder):
             image_key = "none"
             if is_paid_customer and not wants_to_reorder:
                 new_state = "completed"
-        elif (not image_key or image_key == "none") and explicitly_asked_pic:
-            if any(w in low_txt for w in ("รูปโปร", "ดูโปร", "โปรทั้งหมด", "มีโปรอะไร")):
-                image_key = "promo_all"
-            elif any(w in low_txt for w in ("899", "2 แถม 2", "2แถม2", "ครอบครัว")):
-                image_key = "promo_899"
-            elif any(w in low_txt for w in ("1299", "1,299", "3 แถม 3", "3แถม3")):
-                image_key = "promo_1299"
-            elif any(w in low_txt for w in ("15 ซอง", "20 ซอง", "555", "720", "ซองพกพา")):
-                image_key = "promo_60g_set"
-            else:
-                image_key = "promo_3sizes"
+        elif image_key == "promo_3sizes" or ((not image_key or image_key == "none") and explicitly_asked_pic):
+            image_key = "promo_all"
 
         selected_media_items: list[dict] = []
         if image_key and image_key != "none":

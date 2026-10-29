@@ -221,7 +221,7 @@ def get_full_messages(psid: str, limit: int = 100) -> list[dict]:
 def list_all_sessions(brand_id: str | None = None, platform: str | None = None, state: str | None = None) -> list[dict]:
     """Return all tracked sessions ordered by most recent interaction first, including last message preview."""
     with SessionLocal() as db:
-        stmt = select(UserSession).order_by(UserSession.last_interaction_time.desc())
+        stmt = select(UserSession).where(UserSession.brand_id != "pordisuk").order_by(UserSession.last_interaction_time.desc())
         if brand_id and brand_id != "all":
             stmt = stmt.where(UserSession.brand_id == brand_id)
         if platform and platform != "all":

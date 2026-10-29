@@ -41,9 +41,10 @@ RESPONSE_SCHEMA = {
                 "type": "string",
                 "enum": IMAGE_KEYS,
                 "description": (
-                    "Official brand promo image to send with the reply: 'promo_3sizes' when greeting/presenting general prices, "
-                    "'promo_60g_set' when discussing 60g pouches or 15/20-pack sets, 'promo_899' when discussing 2+2 family promo (899.-), "
-                    "'promo_1299' when discussing 3+3 big promo (1299.-), 'promo_all' when customer asks to see all promo photos, or 'none' otherwise."
+                    "Official brand promo image to send with the reply: ALWAYS use 'promo_all' (sends all 4 promo images at once) "
+                    "whenever customer says 'สนใจ', asks for price, sizes, or promotions; "
+                    "'promo_60g_set' only if asking specifically about 60g pouches; 'promo_899' only if asking specifically about 899.-; "
+                    "'promo_1299' only if asking specifically about 1299.-; or 'none' otherwise."
                 ),
             },
         },
@@ -244,6 +245,78 @@ def enforce_authentic_bank_account(bubbles: list[str], history: list[dict], conf
     return cleaned_bubbles
 
 
+FULL_PROMO_SUMMARY_BUBBLE = (
+    "📌 รวมโปรโมชั่นพิเศษ ข้าวบุกสุขใจ (ครบทุกขนาด) ค่ะ\n\n"
+    "• ซองเล็ก 60 กรัม (ไซส์ทดลอง 1 มื้อ) = โปร 39 บาท\n\n"
+    "• ถุงกลาง 500 กรัม (ทานประจำ 8–10 มื้อ) = โปร 239 บาท\n\n"
+    "• ถุงใหญ่ 1 กก. (ขายดีอันดับ 1 ทานได้ 16–20 มื้อ) = โปร 459 บาท (โอนส่งฟรี! 🔥)\n\n"
+    "• เซ็ตพกพา 15 ซอง (60g × 15 ซอง) = โปร 555 บาท (ส่งฟรี!)\n\n"
+    "• เซ็ตพกพา 20 ซอง (60g × 20 ซอง) = โปร 720 บาท (ส่งฟรี!)\n\n"
+    "• โปรตุน 2 แถม 2 (1 กก. 2 ถุง + แถมฟรี 60g 2 ซอง) = โปร 899 บาท (ส่งฟรี!)\n\n"
+    "• โปรตุน 3 แถม 3 (1 กก. 3 ถุง + แถมฟรี 60g 3 ซอง) = โปร 1,299 บาท (ส่งฟรี!)"
+)
+
+
+def enforce_all_promotions_when_asked(
+    bubbles: list[str],
+    history: list[dict],
+    image_key: str,
+) -> tuple[list[str], str]:
+    """Ensure that whenever a customer asks about price / promotions / sizes / 'สนใจ',
+    we send ALL 4 promo images ('promo_all') AND all 7 promo tiers in a single turn.
+    """
+    user_text = (history[-1].get("content") or "").strip() if history else ""
+    u_low = user_text.lower()
+
+    # Do not inject full promo menu if this is an after-sales system prompt or customer is confirming/paying
+    if "[ข้อมูลสำคัญจากระบบ: ลูกค้าท่านนี้ได้สั่งซื้อ" in user_text:
+        return bubbles, "none"
+
+    non_promo_intents = (
+        "โอนแล้ว", "จ่ายแล้ว", "ชำระแล้ว", "ส่งสลิป", "แนบสลิป", "ยืนยัน", "คอนเฟิร์ม",
+        "ขอเลขบัญชี", "ขอบัญชี", "ขอ บช", "เลขบัญชี", "เลขที่บัญชี", "อย.", "เลข อย",
+    )
+    if any(w in u_low for w in non_promo_intents):
+        return bubbles, image_key
+
+    # Check if customer is placing a specific order already (e.g. "เอา 1 กิโล", "สั่งเซ็ต 899", "รับ 500g")
+    specific_order_words = ("เอา ", "รับ ", "สั่ง ", "สั่งซื้อ ", "เอาขนาด", "รับขนาด", "รับเซ็ต", "เอาโปร")
+    is_specific_order = any(w in u_low for w in specific_order_words) and any(
+        sz in u_low for sz in ("60", "39", "500", "239", "1 กิโล", "1 กก", "1kg", "459", "555", "720", "899", "1299", "1,299", "2 แถม 2", "3 แถม 3")
+    )
+    if is_specific_order:
+        return bubbles, image_key
+
+    general_promo_triggers = (
+        "สนใจ", "ราคา", "ขอราคา", "กี่บาท", "เท่าไหร่", "โปร", "มีโปร", "ดูโปร",
+        "มีขนาด", "ขนาดไหน", "ไซส์ไหน", "ขายยังไง", "ถุงละ", "ซองละ", "สั่งซื้อยังไง",
+    )
+    asked_general_promo = any(w in u_low for w in general_promo_triggers) or image_key in ("promo_3sizes", "promo_all")
+
+    if not asked_general_promo:
+        return bubbles, image_key
+
+    # Always upgrade to promo_all so all 4 official promo images are sent together
+    new_image_key = "promo_all"
+
+    combined = "\n".join(bubbles)
+    required_tiers = ("39", "239", "459", "555", "720", "899", "1,299")
+    tier_hits = sum(1 for t in required_tiers if t in combined or t.replace(",", "") in combined)
+
+    if tier_hits < 5:
+        intro = "สวัสดีค่า 🍚✨ ข้าวบุกสุขใจ (บุก 60% ผสมข้าวหอมมะลิแท้ 40% เพียง 23 kcal เติมน้ำร้อน 10 นาทีพร้อมทาน) น้องบุกส่งรูปและโปรโมชั่นทั้งหมดให้เลือกครบทุกชุดเลยนะคะ"
+        outro = "🚚 สั่งครบ 1 กก. หรือเซ็ตโปร โอนเงินส่งฟรีเลยค่ะ (เก็บปลายทาง +40 บาท / ต่ำกว่า 1 กก. โอน +30 ปลายทาง +70 บาท) คุณลูกค้าสนใจรับโปรไหนดีคะ 😊💚"
+        if not bubbles:
+            bubbles = [intro, FULL_PROMO_SUMMARY_BUBBLE, outro]
+        elif len(bubbles) == 1:
+            bubbles = [bubbles[0], FULL_PROMO_SUMMARY_BUBBLE, outro]
+        else:
+            # Keep the first greeting/answer bubble, replace partial price list with full promo list, keep closing question
+            bubbles = [bubbles[0], FULL_PROMO_SUMMARY_BUBBLE, bubbles[-1] if "สนใจ" in bubbles[-1] or "ดีคะ" in bubbles[-1] else outro]
+
+    return bubbles, new_image_key
+
+
 class LLMEngine:
     def __init__(self, system_prompt: str, config: dict | None = None):
         self.system_prompt = system_prompt
@@ -339,6 +412,7 @@ class LLMEngine:
                 bubbles = split_into_bubbles(data["reply"])
                 bubbles = enforce_authentic_bank_account(bubbles, history, self.config)
                 image_key = data.get("image_key") or "none"
+                bubbles, image_key = enforce_all_promotions_when_asked(bubbles, history, image_key)
                 return "|||".join(bubbles), data["state"], image_key
             except Exception as e:
                 logger.warning("Model %s call failed (%s)", model_name, e)
@@ -550,5 +624,5 @@ class LLMEngine:
             "• โปรตุน 3 แถม 3 = 1,299 บาท (ส่งฟรี!)|||"
             "คุณลูกค้าสนใจลองไซส์ไหนก่อนดีคะ เดี๋ยวน้องบุกดูโปรให้เลยค่า 😊💚",
             current_state,
-            "promo_3sizes",
+            "promo_all",
         )
