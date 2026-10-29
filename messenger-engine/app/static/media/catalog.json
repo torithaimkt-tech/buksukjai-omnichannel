@@ -1,0 +1,26 @@
+{
+  "promo_3sizes": {
+    "key": "promo_3sizes",
+    "title": "โปรพิเศษ 3 ขนาด (39.- / 239.- / 459.-)",
+    "subtitle": "รูปจริงจากโฟลเดอร์ pro buksukjai (ส่งเมื่อลูกค้าทักสนใจ/ถามราคา)",
+    "filename": "promo_3sizes.jpg"
+  },
+  "promo_60g_set": {
+    "key": "promo_60g_set",
+    "title": "โปรซองพกพา 60g (1 ซอง 39.- / 15 ซอง 555.- / 20 ซอง 720.-)",
+    "subtitle": "รูปจริงจากโฟลเดอร์ pro buksukjai (ซองเล็ก 60g / เซ็ต 15–20 ซอง)",
+    "filename": "promo_60g_set.jpg"
+  },
+  "promo_899": {
+    "key": "promo_899",
+    "title": "โปรตุนสุดคุ้ม 2 แถม 2 (899.- ส่งฟรี)",
+    "subtitle": "รูปจริงจากโฟลเดอร์ pro buksukjai (ซื้อ 1 กก. 2 ถุง แถม 60g 2 ถุง)",
+    "filename": "promo_899.jpg"
+  },
+  "promo_1299": {
+    "key": "promo_1299",
+    "title": "โปรตุนสุดคุ้ม 3 แถม 3 (1,299.- ส่งฟรี)",
+    "subtitle": "รูปจริงจากโฟลเดอร์ pro buksukjai (ซื้อ 1 กก. 3 ถุง แถม 60g 3 ถุง)",
+    "filename": "promo_1299.jpg"
+  }
+}

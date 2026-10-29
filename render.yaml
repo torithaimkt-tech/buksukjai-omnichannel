@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: buksukjai-omnichannel
+    runtime: python
+    region: singapore
+    plan: starter
+    rootDir: messenger-engine
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - fromGroup: buksukjai-omnichannel-env

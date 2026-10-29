@@ -1,0 +1,64 @@
+{
+  "pages": [
+    {
+      "brand_id": "buksukjai",
+      "slot": 1,
+      "name": "ข้าวบุกสุขใจ (@602xbpha)",
+      "active": true,
+      "config_file": "config.json",
+      "channels": {
+        "line_channel_secret": "",
+        "line_channel_access_token": "",
+        "fb_page_id": "806129109240845",
+        "fb_page_access_token": "",
+        "ig_account_id": "",
+        "ig_access_token": ""
+      }
+    },
+    {
+      "brand_id": "mrbuk",
+      "slot": 2,
+      "name": "มิสเตอร์บุก (@305lhvvt)",
+      "active": true,
+      "config_file": "config_mrbuk.json",
+      "channels": {
+        "line_channel_secret": "",
+        "line_channel_access_token": "",
+        "fb_page_id": "",
+        "fb_page_access_token": "",
+        "ig_account_id": "",
+        "ig_access_token": ""
+      }
+    },
+    {
+      "brand_id": "pada",
+      "slot": 3,
+      "name": "PADA AI (@506xhsrj)",
+      "active": true,
+      "config_file": "config.json",
+      "channels": {
+        "line_channel_secret": "",
+        "line_channel_access_token": "",
+        "fb_page_id": "",
+        "fb_page_access_token": "",
+        "ig_account_id": "",
+        "ig_access_token": ""
+      }
+    },
+    {
+      "brand_id": "aify",
+      "slot": 4,
+      "name": "AIFY (@599fgktd)",
+      "active": true,
+      "config_file": "config.json",
+      "channels": {
+        "line_channel_secret": "",
+        "line_channel_access_token": "",
+        "fb_page_id": "",
+        "fb_page_access_token": "",
+        "ig_account_id": "",
+        "ig_access_token": ""
+      }
+    }
+  ]
+}
