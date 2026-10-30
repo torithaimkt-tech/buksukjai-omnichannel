@@ -390,6 +390,139 @@ def confirm_orders_in_jst(order_ids: list[int | str]) -> dict[str, Any]:
     return {"status": "ok", "order_ids": clean_ids, "response": resp.json()}
 
 
+def verify_and_auto_confirm_jst_slips(limit: int = 50) -> dict[str, Any]:
+    """Inspect recent bank-transfer orders in JST ERP where MachineAuditStatus is 'Fail' (or status is WaitConfirm).
+
+    Why JST ERP's built-in MachineAudit fails on valid chat slips:
+    1. 'เวลาชำระเงินไม่ตรงกัน' (Payment Time Mismatch): In Facebook/LINE chat commerce, customers always transfer money
+       in chat BEFORE the order is keyed into JST ERP (`payTime < OrderTime`), whereas JST ERP's MachineAudit rule
+       requires `payTime >= OrderTime`.
+    2. 'ใบสั่งซื้อถูกใช้ไปแล้ว <OrderId>' (Duplicate Slip Ref): Occurs when an earlier order was cancelled and re-keyed
+       with the same slip.
+
+    This verifier checks JST ERP's decoded Bank QR result (`platformPayId` & `qrCodeAmount`) + active order status:
+    - Must have a genuine Bank QR transaction reference (`platformPayId` non-empty)
+    - Scanned QR amount (`qrCodeAmount`) must match the order's `PayAmount`
+    - If flagged as duplicate (`ใบสั่งซื้อถูกใช้ไปแล้ว X`), order `X` must be Cancelled (`ยกเลิก`)
+    When all checks pass, automatically calls `confirm_orders_in_jst` so the slip turns Pass (`ตรวจสอบการชำระเงินแล้ว`).
+    """
+    h = _headers(json_body=True)
+    h["Origin"] = "https://asia.jsterp.com"
+    h["Referer"] = "https://asia.jsterp.com/OMS/MiniShopOrder/Index"
+
+    resp = httpx.post(
+        "https://asia.jsterp.com/OMS/MiniShopOrder/NewQueryOrders",
+        headers=h,
+        json={
+            "RequestModel": {"SendFrom": "NewQueryOrders"},
+            "DataPage": {"pageSize": limit, "pageIndex": 1, "total": 0, "sizes": [50, 100]},
+        },
+        timeout=20.0,
+    )
+    resp.raise_for_status()
+    rows_obj = (resp.json() or {}).get("Rows") or {}
+    cols = rows_obj.get("cols") or []
+    raw_rows = rows_obj.get("rows") or []
+
+    all_rows = [dict(zip(cols, r)) for r in raw_rows]
+    cancelled_oids = {
+        str(d.get("OrderId") or "")
+        for d in all_rows
+        if "ยกเลิก" in str(d.get("StatusDisplay") or "") or "Cancel" in str(d.get("Status") or "")
+    }
+
+    auto_confirmed: list[dict[str, Any]] = []
+    rejected: list[dict[str, Any]] = []
+
+    for d in all_rows:
+        oid = str(d.get("OrderId") or "").strip()
+        if not oid or oid in cancelled_oids or d.get("IsCod"):
+            continue
+        status_disp = str(d.get("StatusDisplay") or "")
+        mach_status = str(d.get("MachineAuditStatus") or "")
+        mach_msg = str(d.get("MachineAuditMessage") or "")
+
+        # Check orders that failed MachineAudit or are waiting for payment confirmation
+        if mach_status != "Fail" and "รอตรวจสอบ" not in status_disp and "WaitConfirm" not in str(d.get("StatusCode") or ""):
+            continue
+
+        r_det = httpx.post(
+            "https://asia-web.jsterp.com/MiniShop/OMS/Order/GetOrderDetail",
+            headers=_headers(json_body=True),
+            json={"orderId": oid},
+            timeout=15.0,
+        )
+        det = (r_det.json() or {}).get("data") or {}
+        pays = det.get("pays") or []
+        if not pays:
+            rejected.append({"order_id": oid, "reason": "ไม่มีข้อมูลสลิปในระบบ (pays ว่าง)"})
+            continue
+
+        latest_pay = pays[0]
+        ref_id = str(latest_pay.get("platformPayId") or "").strip()
+        qr_amt = float(latest_pay.get("qrCodeAmount") or 0.0)
+        order_amt = float(d.get("PayAmount") or latest_pay.get("amount") or 0.0)
+        audit_msg = str(latest_pay.get("auditMessage") or mach_msg or "").strip()
+
+        if not ref_id:
+            rejected.append({"order_id": oid, "reason": "ไม่พบรหัสอ้างอิง QR Code ธนาคารบนสลิป (platformPayId ว่าง)"})
+            continue
+
+        if abs(qr_amt - order_amt) > 0.5:
+            rejected.append(
+                {
+                    "order_id": oid,
+                    "reason": f"ยอดเงินใน QR สลิป ({qr_amt:.2f}) ไม่ตรงกับยอดออเดอร์ ({order_amt:.2f})",
+                    "platformPayId": ref_id,
+                }
+            )
+            continue
+
+        # If flagged as 'ใบสั่งซื้อถูกใช้ไปแล้ว <dup_oid>', verify whether <dup_oid> is cancelled
+        m_dup = re.search(r"ใบสั่งซื้อถูกใช้ไปแล้ว\s*(\d+)", audit_msg)
+        if m_dup:
+            dup_oid = m_dup.group(1)
+            if dup_oid not in cancelled_oids and dup_oid != oid:
+                # Query dup_oid directly in case it wasn't in the first 50 rows
+                r_dup = httpx.post(
+                    "https://asia-web.jsterp.com/MiniShop/OMS/Order/GetOrderDetail",
+                    headers=_headers(json_body=True),
+                    json={"orderId": dup_oid},
+                    timeout=10.0,
+                )
+                dup_det = (r_dup.json() or {}).get("data") or {}
+                dup_status = str(dup_det.get("statusDisplay") or dup_det.get("statusCode") or "")
+                if "ยกเลิก" not in dup_status and "Cancel" not in dup_status:
+                    rejected.append(
+                        {
+                            "order_id": oid,
+                            "reason": f"สลิปซ้ำกับออเดอร์ #{dup_oid} ที่ยังไม่ได้ยกเลิก ({dup_status})",
+                            "platformPayId": ref_id,
+                        }
+                    )
+                    continue
+
+        # Passed all genuine slip checks! Auto-confirm in JST ERP
+        confirm_orders_in_jst([oid])
+        auto_confirmed.append(
+            {
+                "order_id": oid,
+                "amount": order_amt,
+                "qr_amount": qr_amt,
+                "platformPayId": ref_id,
+                "overridden_jst_audit_message": audit_msg,
+            }
+        )
+
+    return {
+        "status": "ok",
+        "auto_confirmed_count": len(auto_confirmed),
+        "auto_confirmed": auto_confirmed,
+        "rejected_count": len(rejected),
+        "rejected": rejected,
+    }
+
+
 def recognize_and_clean_address(
     raw_address: str,
     explicit_name: str = "",
@@ -868,7 +1001,9 @@ def create_order_in_jst(
 
     if not is_cod and voucher_id and created_order and created_order.get("order_id"):
         try:
-            confirm_orders_in_jst([created_order["order_id"]])
+            # Wait briefly for JST ERP's async pay-ocr worker to finish scanning the slip, then verify & confirm
+            time.sleep(4.0)
+            verify_and_auto_confirm_jst_slips(limit=25)
         except Exception as exc:
             logger.warning("Auto ConfirmOrder warning for %s: %s", created_order.get("order_id"), exc)
 

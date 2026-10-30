@@ -535,6 +535,9 @@ async def followup_loop(config: dict, public_base_url_getter=None) -> None:
                 await messenger.sync_recent_facebook_conversations("buksukjai", limit=60)
                 await asyncio.to_thread(jst_erp.sync_all_confirmed_orders_to_jst, 2, True)
 
+            # 0.6 Smart Slip Verifier & Auto-Confirm (ตรวจสลิปที่ติด Fail เวลาชำระเงินไม่ตรงกัน แล้วกดยืนยันให้อัตโนมัติ)
+            await asyncio.to_thread(jst_erp.verify_and_auto_confirm_jst_slips, 40)
+
             # 0.7 2-Stage Automated Parcel Tracking Notifier (แจ้งเลขพัสดุเมื่อขนส่งเข้ารับแล้ว & แจ้งเมื่อพัสดุส่งถึงมือลูกค้าพร้อมเวลา)
             from . import parcel_tracker
 
@@ -712,6 +715,10 @@ def _register_jst_routes() -> None:
                 public_base_url=pub_url,
                 dry_run=dry_run,
             )
+
+        @fastapi_app.post("/api/jst/verify-slips")
+        async def api_jst_verify_slips():
+            return await asyncio.to_thread(jst_erp.verify_and_auto_confirm_jst_slips, 50)
 
 
 _register_jst_routes()
