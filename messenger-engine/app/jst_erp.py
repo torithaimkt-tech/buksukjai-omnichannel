@@ -1164,11 +1164,16 @@ def extract_order_from_session(psid: str) -> dict[str, Any]:
     dialogue_complete, dialogue_reason = check_dialogue_completion(msgs, has_verified_slip=bool(slip_image_url))
 
     # 6. Determine COD vs Transfer with strict confirmation check
+    # CRITICAL RULE: If a verified payment slip (`slip_image_url`) exists in the current inquiry,
+    # ALWAYS treat the order as Bank Transfer (`is_cod = False`), even if an earlier message/summary assumed COD!
     is_cod: bool | None = None
     cod_confirmed = False
     transfer_confirmed = False
 
-    if latest_summary:
+    if slip_image_url or "ส่งการชำระเงินจำนวน" in full_text:
+        is_cod = False
+        transfer_confirmed = True
+    elif latest_summary:
         pay_m = re.search(r"ชำระเงิน\s*:\s*([^\n|]+)", latest_summary)
         if pay_m:
             pay_txt = pay_m.group(1)
@@ -1180,8 +1185,11 @@ def extract_order_from_session(psid: str) -> dict[str, Any]:
                 transfer_confirmed = True
 
     if is_cod is None:
-        # Check if customer explicitly chose COD or Transfer in their messages
-        if re.search(r"(เก็บเงินปลายทาง|เก็บปลายทาง|ชำระปลายทาง|ปลายทางค่ะ|ปลายทางครับ|ปลายทางจ้า|แบบปลายทาง|cod)", user_only_text, re.I):
+        # Check if customer explicitly chose COD or Transfer in their messages (NEVER assume COD from address alone!)
+        if re.search(r"(โอนค่ะ|โอนครับ|แบบโอน|โอนเงิน|โอนแล้ว|ส่งการชำระเงินจำนวน)", user_only_text, re.I):
+            is_cod = False
+            transfer_confirmed = True
+        elif re.search(r"(เก็บเงินปลายทาง|เก็บปลายทาง|ชำระปลายทาง|ปลายทางค่ะ|ปลายทางครับ|ปลายทางจ้า|แบบปลายทาง|cod)", user_only_text, re.I):
             is_cod = True
             user_tail = "\n".join(m["content"] for m in msgs[-8:] if m["role"] == "user")
             if (
@@ -1192,9 +1200,6 @@ def extract_order_from_session(psid: str) -> dict[str, Any]:
                 )
             ):
                 cod_confirmed = True
-        elif slip_image_url or re.search(r"(โอนค่ะ|โอนครับ|แบบโอน|โอนเงิน|โอนแล้ว|ส่งการชำระเงินจำนวน)", user_only_text, re.I):
-            is_cod = False
-            transfer_confirmed = True
 
     # 7. Determine SKU, qty, unit_price, freight from current inquiry ONLY (never default to old session SKU)
     sku_id = ""

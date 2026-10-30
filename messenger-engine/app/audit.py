@@ -199,6 +199,34 @@ def audit_outgoing_reply(
         })
         audited_state = proposed_state
 
+    # 5.5 No-Assumed-COD Guardrail & Complaint/Tracking Shield
+    all_user_text = "\n".join(str(m.get("content") or "") for m in history if m.get("role") == "user").lower()
+    user_ever_said_cod = any(w in all_user_text for w in ("ปลายทาง", "cod", "เก็บเงินปลายทาง"))
+    user_ever_said_transfer = any(w in all_user_text for w in ("โอน", "สลิป", "เลขบัญชี", "บช"))
+    reply_joined = "\n".join(bubbles)
+    if (
+        not user_ever_said_cod
+        and not user_ever_said_transfer
+        and any(k in reply_joined for k in ("ยอดชำระปลายทาง", "ชำระเงิน : ปลายทาง", "ค่าส่งเก็บปลายทาง ="))
+    ):
+        bubbles = [
+            "น้องบุกบันทึกชื่อ-ที่อยู่และเบอร์โทรจัดส่งไว้ให้เรียบร้อยแล้วค่ะ 📝\n\n"
+            "คุณลูกค้าสะดวกชำระแบบ โอนเงิน (บัญชีไทยพาณิชย์ SCB 304-407545-5 ชื่อบัญชี บริษัท ดิจิสท์ ฮับ จำกัด) "
+            "หรือรับเป็น เก็บเงินปลายทาง (COD) ดีคะ แจ้งน้องบุกได้เลยนะคะ 😊🙏",
+            "3044075455",
+        ]
+        audited_state = "pending_payment"
+        audited_image_key = "none"
+        auto_fixes.append("ป้องกันการสรุปเป็น COD ไปเองโดยที่ลูกค้ายังไม่เลือกวิธีชำระเงิน (ถามลูกค้าพร้อมแนบเลขบัญชีเผื่อลูกค้าโอนตามมา)")
+
+    is_tracking_complaint = any(
+        w in u_low for w in ("ยังไม่ได้รับของ", "โอนเงินไปแล้วตั้งแต่", "ช่วยเช็คการส่ง", "เช็คการส่ง", "ตามของ", "ส่งของหรือยัง")
+    )
+    if is_tracking_complaint:
+        audited_image_key = "none"
+        audited_state = "pending_payment"
+        auto_fixes.append("ตรวจพบข้อความติดตามพัสดุ/ทวงของ — บล็อกการส่งโปรโมชั่นและไม่สรุปเป็นออเดอร์ใหม่")
+
     # 6. Order Confirmation Gate Audit (ห้ามข้ามเป็น completed ถ้าลูกค้ายังไม่ยืนยันหรือยังไม่มีสลิป)
     if not is_paid_or_starred and audited_state == "completed":
         has_user_slip = any(
