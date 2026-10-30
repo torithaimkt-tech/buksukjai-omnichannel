@@ -378,8 +378,25 @@ async def receive_line_webhook(
     for event in payload.get("events", []):
         event_type = event.get("type")
         source = event.get("source", {})
+        source_type = source.get("type", "user")
         user_id = source.get("userId")
         reply_token = event.get("replyToken")
+
+        # Handle LINE Group / Multi-person Room events OR dedicated workbot (@934ndvfs GENIUS POINT) separately
+        if brand_id == "workbot" or source_type in ("group", "room"):
+            group_id = source.get("groupId") or source.get("roomId") or user_id
+            if group_id:
+                background_tasks.add_task(
+                    _handle_line_group_event,
+                    brand_id="workbot" if brand_id == "workbot" else brand_id,
+                    group_id=group_id,
+                    group_type=source_type,
+                    event_type=event_type or "",
+                    event=event,
+                    reply_token=reply_token,
+                )
+            continue
+
         if not user_id:
             continue
 
@@ -423,6 +440,81 @@ async def receive_line_webhook(
                 )
 
     return {"status": "ok"}
+
+
+async def _handle_line_group_event(
+    brand_id: str,
+    group_id: str,
+    group_type: str,
+    event_type: str,
+    event: dict,
+    reply_token: str | None = None,
+) -> None:
+    import asyncio
+    import re
+    from datetime import datetime, timedelta, timezone
+    from . import daily_sheet_report
+
+    if event_type == "leave":
+        daily_sheet_report.unregister_line_group(group_id)
+        return
+
+    daily_sheet_report.register_line_group(group_id, brand_id=brand_id, group_type=group_type)
+    psid = database.make_session_key(brand_id, "line_group", group_id)
+
+    if event_type in ("join", "follow"):
+        welcome_text = (
+            "สวัสดีค่ะ ขออนุญาตรายงานตัวเข้ากลุ่มงานนะคะ 🙏\n"
+            "บันทึกกลุ่มนี้สำหรับแจ้งสรุปยอดประจำวันเรียบร้อยแล้วค่ะ\n"
+            "• ทุกเช้าเวลา 07:00 น. (หลังคีย์ออเดอร์เสร็จ) บอทจะส่งสรุปยอดขายแต่ละช่องทาง ยอดโอน/COD และสรุปจำนวนสินค้าที่ตัดสต็อกโกดัง (60 กรัม / 500 กรัม / 1 กิโลกรัม) ของเมื่อวานให้ในกลุ่มนี้อัตโนมัติค่ะ\n"
+            "• หากต้องการดูสรุปยอดทันที สามารถพิมพ์คำว่า สรุปยอด ในกลุ่มได้เลยนะคะ"
+        )
+        database.log_message(psid, "bot", welcome_text, sender_label="บอทสรุปยอดกลุ่มงาน")
+        await messenger.send_omnichannel_text("line", group_id, welcome_text, brand_id, reply_token)
+        return
+
+    if event_type == "memberJoined":
+        joined_members = event.get("joined", {}).get("members", [])
+        database.log_message(psid, "user", f"[มีสมาชิกใหม่เข้าร่วมกลุ่มไลน์งาน {len(joined_members)} ท่านค่ะ]", sender_label="ระบบกลุ่มไลน์")
+        return
+
+    if event_type == "memberLeft":
+        left_members = event.get("left", {}).get("members", [])
+        database.log_message(psid, "user", f"[มีสมาชิกออกจากกลุ่มไลน์งาน {len(left_members)} ท่านค่ะ]", sender_label="ระบบกลุ่มไลน์")
+        return
+
+    if event_type == "message":
+        msg_obj = event.get("message", {})
+        if msg_obj.get("type") != "text":
+            return
+        text = (msg_obj.get("text") or "").strip()
+        if not text:
+            return
+        sender_uid = (event.get("source") or {}).get("userId") or "สมาชิกในกลุ่ม"
+        database.log_message(psid, "user", text, sender_label=f"สมาชิกกลุ่ม ({sender_uid[-6:]})")
+
+        trigger_keywords = ("สรุปยอด", "เช็กยอด", "เช็คยอด", "รายงานยอด", "ยอดขายเมื่อวาน", "ลงทะเบียนกลุ่ม", "ทดสอบบอท", "เทสบอท")
+        if any(k in text for k in trigger_keywords):
+            bkk_tz = timezone(timedelta(hours=7))
+            now_bkk = datetime.now(bkk_tz)
+            m_date = re.search(r"(202\d-\d{2}-\d{2})", text)
+            if m_date:
+                target_date = m_date.group(1)
+            elif "วันนี้" in text:
+                target_date = now_bkk.strftime("%Y-%m-%d")
+            else:
+                target_date = (now_bkk - timedelta(days=1)).strftime("%Y-%m-%d")
+
+            res = await asyncio.to_thread(
+                daily_sheet_report.send_daily_summary_to_line_groups,
+                target_date,
+                brand_id,
+                group_id,
+                reply_token,
+                False,
+            )
+            if res.get("summary_text"):
+                database.log_message(psid, "bot", res["summary_text"], sender_label="บอทสรุปยอดกลุ่มงาน")
 
 
 # --- Unified Message Processor (AI + Human Handover) ----------------------------
@@ -1055,6 +1147,64 @@ async def api_sync_facebook(limit: int = 50):
         "paid_customers_detected": paid_count,
         "customers": synced,
     }
+
+
+@app.get("/api/reports/daily-sales")
+async def api_get_daily_sales_report(date: str | None = None):
+    import asyncio
+    from datetime import datetime, timedelta, timezone
+    from . import daily_sheet_report
+    bkk_tz = timezone(timedelta(hours=7))
+    target_date = date or (datetime.now(bkk_tz) - timedelta(days=1)).strftime("%Y-%m-%d")
+    return await asyncio.to_thread(daily_sheet_report.load_or_build_daily_report, target_date)
+
+
+@app.get("/api/reports/daily-sales.csv")
+async def api_get_daily_sales_csv(date: str | None = None):
+    import asyncio, csv, io
+    from datetime import datetime, timedelta, timezone
+    from . import daily_sheet_report
+    bkk_tz = timezone(timedelta(hours=7))
+    target_date = date or (datetime.now(bkk_tz) - timedelta(days=1)).strftime("%Y-%m-%d")
+    rep = await asyncio.to_thread(daily_sheet_report.load_or_build_daily_report, target_date)
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    for row in rep["sheet_rows"]:
+        writer.writerow(row)
+    return Response(content=buf.getvalue(), media_type="text/csv; charset=utf-8")
+
+
+@app.get("/api/line-groups")
+async def api_get_line_groups():
+    from . import daily_sheet_report
+    cfg = daily_sheet_report.load_line_group_config()
+    return {
+        "status": "ok",
+        "groups": cfg.get("groups", []),
+        "group_meta": cfg.get("group_meta", {}),
+        "last_7am_report_date": cfg.get("last_7am_report_date", ""),
+        "last_7am_sent_at": cfg.get("last_7am_sent_at", ""),
+    }
+
+
+@app.post("/api/line-groups/send-summary")
+async def api_send_line_group_summary(
+    date: str | None = None,
+    group_id: str | None = None,
+    brand_id: str = "workbot",
+):
+    import asyncio
+    from . import daily_sheet_report
+    if group_id:
+        daily_sheet_report.register_line_group(group_id, brand_id=brand_id)
+    return await asyncio.to_thread(
+        daily_sheet_report.send_daily_summary_to_line_groups,
+        date,
+        brand_id,
+        group_id,
+        None,
+        False,
+    )
 
 
 @app.get("/health")

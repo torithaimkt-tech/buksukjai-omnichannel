@@ -490,12 +490,33 @@ async def followup_loop(config: dict, public_base_url_getter=None) -> None:
             # 0. Sync real Facebook conversation history & paid order status first!
             await messenger.sync_recent_facebook_conversations("buksukjai", limit=35)
 
-            # 0.5 Daily 06:00 AM Batch Keying into JST ERP (คีย์ข้อมูลวันละ 1 ครั้ง ตอน 06:00 น. เวลาไทย รวบรวมออเดอร์ของเมื่อวาน)
+            # 0.2 Daily 01:00 AM Sales & Stock Reconciliation Summary
+            from . import daily_sheet_report
+            should_rep, yest_date = daily_sheet_report.should_run_daily_1am_report()
+            if should_rep:
+                await asyncio.to_thread(daily_sheet_report.load_or_build_daily_report, yest_date)
+
+            # 0.5 Daily 06:00 AM Batch Keying into JST ERP
             importlib.reload(jst_erp)
             if jst_erp.should_run_daily_6am_sync():
                 logger.info("Running Daily 06:00 AM (BKK) JST ERP Batch Order Sync...")
                 await messenger.sync_recent_facebook_conversations("buksukjai", limit=60)
                 await asyncio.to_thread(jst_erp.sync_all_confirmed_orders_to_jst, 2, True)
+                await asyncio.to_thread(daily_sheet_report.load_or_build_daily_report, yest_date)
+
+            # 0.65 Daily 07:00 AM LINE Work Group Report
+            importlib.reload(daily_sheet_report)
+            should_line_7am, yest_7am = daily_sheet_report.should_run_daily_7am_line_report()
+            if should_line_7am:
+                logger.info("Running Daily 07:00 AM (BKK) LINE Work Group Summary for %s...", yest_7am)
+                await asyncio.to_thread(
+                    daily_sheet_report.send_daily_summary_to_line_groups,
+                    yest_7am,
+                    "workbot",
+                    None,
+                    None,
+                    True,
+                )
 
             # 1. Ghost / Silent Lead Re-engagement Bot (Stage 1: 1h, Stage 2: 6h, Stage 3: 20h)
             re_cfg = get_reengage_config()
