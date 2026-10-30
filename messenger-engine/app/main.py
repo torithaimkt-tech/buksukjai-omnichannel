@@ -985,6 +985,34 @@ async def api_audit_session(psid: str):
     return audit.audit_session_for_jst(psid)
 
 
+@app.get("/api/jst/status")
+async def api_jst_status():
+    """Check JST ERP connection and configuration."""
+    from . import jst_erp
+    cookie = jst_erp.get_jst_cookie()
+    return {
+        "status": "ok",
+        "configured": bool(cookie),
+        "shop_id": jst_erp.JST_SHOP_ID,
+        "scb_account": jst_erp.JST_SCB_ACCOUNT,
+        "known_skus": list(jst_erp.KNOWN_SKUS.keys()),
+    }
+
+
+@app.post("/api/sessions/{psid:path}/push-jst")
+async def api_push_session_to_jst(psid: str, force: bool = False):
+    """Run Layer-2 Audit + push confirmed customer order to JST ERP."""
+    from . import jst_erp
+    return jst_erp.sync_session_to_jst(psid, force_create=force)
+
+
+@app.post("/api/jst/sync-all")
+async def api_sync_all_jst(days_lookback: int = 2):
+    """Audit and sync all recent completed orders to JST ERP."""
+    from . import jst_erp
+    return jst_erp.sync_all_confirmed_orders_to_jst(days_lookback=days_lookback)
+
+
 @app.post("/api/reload")
 async def api_hot_reload():
     """Hot-reload config.json, prompt_engine, media_generator, database, followup, audit, and llm in memory without restarting the tunnel."""
