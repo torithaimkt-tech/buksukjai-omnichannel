@@ -1329,6 +1329,7 @@ def extract_order_from_session(psid: str) -> dict[str, Any]:
     )
     remark_tag = f" (#BUY{int(total_amount)})" if total_amount > 0 else ""
 
+    has_fb_payment_record = ("ส่งการชำระเงินจำนวน" in full_text) or ("ทำเครื่องหมายคำสั่งซื้อว่าชำระเงินแล้ว" in full_text)
     base_info: dict[str, Any] = {
         "psid": psid,
         "customer_name": customer_name,
@@ -1345,7 +1346,7 @@ def extract_order_from_session(psid: str) -> dict[str, Any]:
         "payment_label": payment_label,
         "customer_confirmed_cod": cod_confirmed,
         "has_slip": bool(slip_image_url),
-        "has_admin_buy_summary": bool(latest_summary and buy_tags),
+        "has_admin_buy_summary": bool(has_fb_payment_record),
         "slip_url": slip_image_url,
         "slip_image_url": slip_image_url,
         "dialogue_complete": dialogue_complete,
@@ -1378,7 +1379,8 @@ def extract_order_from_session(psid: str) -> dict[str, Any]:
             "valid": False,
             "reason": "ออเดอร์เก็บเงินปลายทาง (COD) ยังไม่ได้รับการคอนเฟิร์มขั้นสุดท้ายจากลูกค้าค่ะ",
         }
-    if not is_cod and not slip_image_url and not (latest_summary and buy_tags):
+    has_fb_payment_record = ("ส่งการชำระเงินจำนวน" in full_text) or ("ทำเครื่องหมายคำสั่งซื้อว่าชำระเงินแล้ว" in full_text)
+    if not is_cod and not slip_image_url and not has_fb_payment_record:
         return {
             **base_info,
             "valid": False,

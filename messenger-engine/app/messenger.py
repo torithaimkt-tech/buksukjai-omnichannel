@@ -704,7 +704,8 @@ def _apply_facebook_sync_to_db(info: dict, brand_id: str = "buksukjai") -> dict:
     if info.get("is_paid"):
         paid_dt = info.get("paid_at") or datetime.now(timezone.utc)
         days_elapsed = (datetime.now(timezone.utc) - paid_dt).total_seconds() / 86400.0
-        target_stage = max(user.after_sales_stage or 0, 2 if days_elapsed >= 6 else 0)
+        # Prevent repeated after-sales blasts across container restarts by marking historical orders (>2 days) as stage 3
+        target_stage = max(user.after_sales_stage or 0, 3 if days_elapsed >= 2 else 0)
         new_tags = database._add_tag_str(user.broadcast_tags or "", "ชำระเงินแล้ว")
         new_tags = database._add_tag_str(new_tags, "⭐ ติดดาว (ซื้อแล้ว)")
         with database.SessionLocal() as db:
