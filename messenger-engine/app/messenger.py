@@ -469,25 +469,104 @@ def _infer_sku_and_qty_from_text(combined_text: str) -> tuple[str, int]:
     # Strip long digit sequences (phone numbers, tracking numbers, bank accounts) so '0989913650' never matches '899'
     cleaned = re.sub(r"\+?\d[\d\s-]{7,}\d", " ", combined_text)
     low = cleaned.lower()
-    if any(k in low for k in ("1,299", "1299", "3 แถม 3", "3แถม3")):
-        return "BSJ_BIG3", 1
-    if any(k in low for k in ("899", "2 แถม 2", "2แถม2")):
-        return "BSJ_FAM2", 1
-    if any(k in low for k in ("720", "20 ซอง", "20 ถุง", "20ถุง")):
-        return "BSJ_SET20", 1
-    if any(k in low for k in ("555", "15 ซอง", "15 ถุง", "15ถุง")):
-        return "BSJ_SET15", 1
+
+    # Check explicit admin summary 'ขนาด :' first if present
+    size_m = re.search(r"ขนาด\s*:\s*([^\n|]+)", low)
+    if size_m:
+        sz = re.sub(r"\s+", "", size_m.group(1))
+        if "3kg" in sz or "3แถม3" in sz:
+            return "BSJ1KG3_60G3", 1
+        if "2kg" in sz or "2แถม2" in sz:
+            return "BSJ1KG2_60G2", 1
+        bag60 = re.search(r"60g(\d+)(?:ถุง|ซอง)", sz)
+        if bag60:
+            n = int(bag60.group(1))
+            if n == 20:
+                return "BSJ60G20", 1
+            if n == 15:
+                return "BSJ60G15", 1
+            if n == 10:
+                return "BSJ60G10", 1
+            if n == 30:
+                return "BSJ60G10", 3
+            if n == 5:
+                return "BSJ60G5", 1
+            if n == 3:
+                return "BSJ60G3", 1
+            return "BSJ60G1", n
+        if "1kg" in sz:
+            return "BSJ1KG1", 1
+        if "500g" in sz:
+            return "BSJ500G1", 1
+
+    if any(k in low for k in ("1,299", "1299", "1,339", "1339", "3 แถม 3", "3แถม3", "3kgแถม")):
+        return "BSJ1KG3_60G3", 1
+    if any(k in low for k in ("899", "939", "969", "2 แถม 2", "2แถม2", "2kgแถม")):
+        return "BSJ1KG2_60G2", 1
+    if any(k in low for k in ("1,110", "1110", "1,150", "1150", "30 ซอง", "30 ถุง", "30ถุง", "30ซอง", "30ชอง")):
+        return "BSJ60G10", 3
+    m_custom_60 = re.search(r"\b(\d{1,2})\s*(?:ซอง|ชอง|ถุง)\b", low)
+    if m_custom_60 and "1 ก" not in low and "1kg" not in low and "500" not in low:
+        n_bags = int(m_custom_60.group(1))
+        if n_bags == 20:
+            return "BSJ60G20", 1
+        if n_bags == 15:
+            return "BSJ60G15", 1
+        if n_bags == 10:
+            return "BSJ60G10", 1
+        if n_bags == 30:
+            return "BSJ60G10", 3
+        if n_bags == 5:
+            return "BSJ60G5", 1
+        if n_bags == 3:
+            return "BSJ60G3", 1
+        if n_bags > 1:
+            return "BSJ60G1", n_bags
+    if any(k in low for k in ("720", "760", "20 ซอง", "20 ถุง", "20ถุง")):
+        return "BSJ60G20", 1
+    if any(k in low for k in ("555", "595", "15 ซอง", "15 ถุง", "15ถุง")):
+        return "BSJ60G15", 1
+    if any(k in low for k in ("390", "420", "10 ซอง", "10 ถุง", "10ถุง")):
+        return "BSJ60G10", 1
+    if any(k in low for k in ("225", "195", "199", "5 ซอง", "5 ถุง", "5ถุง")):
+        return "BSJ60G5", 1
     if any(k in low for k in ("500g", "500 กรัม", "ครึ่งโล", "269", "239", "309")):
         return "BSJ500G1", 1
-    if any(k in low for k in ("1kg", "1 kg", "1 กก", "1กิโล", "459", "499")):
+    if any(k in low for k in ("1kg", "1 kg", "1 กก", "1กิโล", "459", "499", "529")):
         return "BSJ1KG1", 1
     if any(k in low for k in ("60g", "60 กรัม")):
         return "BSJ60G1", 1
     return "BSJ1KG1", 1
 
 
+NEW_INQUIRY_BOUNDARY_MARKERS = (
+    "ตอบกลับโฆษณา",
+    "กำลังตอบกลับความคิดเห็น",
+    "เริ่มต้นใช้งาน",
+)
+
+PENDING_ADMIN_QUESTION_PATTERNS = (
+    r"สะดวกชำระแบบโอนเงินหรือแบบเก็บปลายทาง",
+    r"สะดวกแบบโอนหรือเก็บปลายทาง",
+    r"สะดวกโอนหรือปลายทาง",
+    r"รับแบบโอนหรือปลายทาง",
+    r"สะดวกชำระแบบไหน",
+    r"สะดวกชำระช่องทางไหน",
+    r"สนใจรับขนาดไหน",
+    r"สนใจโปรไหน",
+    r"รับชุดไหนดีคะ",
+    r"รับกี่ถุงดีคะ",
+    r"รับกี่ซองดีคะ",
+    r"ขอทราบชื่อ.*ที่อยู่",
+    r"รบกวนขอชื่อ.*ที่อยู่",
+    r"รบกวนขอรหัสไปรษณีย์",
+    r"พิมพ์คำว่า\s*[\"']?ยืนยัน",
+)
+
+
 def analyze_facebook_conversation_dict(conv: dict, page_id: str = "806129109240845") -> dict | None:
-    """Inspect a Graph API conversation object to extract customer name, paid status, SKU, and admin takeover."""
+    """Inspect a Graph API conversation object to extract customer name, current vs historical paid status, SKU, and admin takeover."""
+    import re
     from datetime import datetime, timezone
 
     parts = conv.get("participants", {}).get("data", [])
@@ -503,13 +582,36 @@ def analyze_facebook_conversation_dict(conv: dict, page_id: str = "8061291092408
         return None
 
     messages = conv.get("messages", {}).get("data", [])
+    chron_msgs = list(reversed(messages))
+
+    # 1. Isolate the current inquiry window from older historical purchases
+    current_start_idx = 0
+    prev_dt = None
+    for idx, m in enumerate(chron_msgs):
+        msg_txt = str(m.get("message") or "")
+        created_str = m.get("created_time") or ""
+        msg_dt = None
+        if created_str:
+            try:
+                msg_dt = datetime.fromisoformat(created_str.replace("+0000", "+00:00"))
+            except Exception:
+                msg_dt = None
+        if prev_dt and msg_dt and (msg_dt - prev_dt).total_seconds() > 72 * 3600:
+            current_start_idx = idx
+        elif idx > 0 and any(bm in msg_txt for bm in NEW_INQUIRY_BOUNDARY_MARKERS):
+            current_start_idx = idx
+        if msg_dt:
+            prev_dt = msg_dt
+
     is_starred = (cust_id in STARRED_META_PSIDS) or (cust_name.strip() in STARRED_META_NAMES)
-    is_paid = is_starred
+    has_historical_paid = is_starred
+    is_paid_current = False
     paid_at_dt = None
     human_admin_active = False
-    order_texts: list[str] = []
+    current_order_texts: list[str] = []
+    historical_order_texts: list[str] = []
 
-    for m in messages:
+    for idx, m in enumerate(chron_msgs):
         msg_txt = str(m.get("message") or "")
         low_txt = msg_txt.lower()
         created_str = m.get("created_time") or ""
@@ -524,24 +626,57 @@ def analyze_facebook_conversation_dict(conv: dict, page_id: str = "8061291092408
         has_paid_marker = is_order_summary or any(mk in low_txt for mk in PAID_ORDER_MARKERS)
 
         if has_paid_marker:
-            is_paid = True
             is_starred = True
-            order_texts.append(msg_txt)
+            if idx < current_start_idx:
+                has_historical_paid = True
+                historical_order_texts.append(msg_txt)
+            else:
+                is_paid_current = True
+                current_order_texts.append(msg_txt)
             if msg_dt and (paid_at_dt is None or msg_dt > paid_at_dt):
                 paid_at_dt = msg_dt
 
         if any(mk in low_txt for mk in HUMAN_ADMIN_MARKERS):
-            order_texts.append(msg_txt)
+            if idx >= current_start_idx:
+                current_order_texts.append(msg_txt)
             if msg_dt:
                 hours_ago = (datetime.now(timezone.utc) - msg_dt).total_seconds() / 3600.0
                 if hours_ago <= 24:
                     human_admin_active = True
 
-    sku, qty = _infer_sku_and_qty_from_text("\n".join(order_texts))
+    # 2. Check if the current inquiry has an unanswered admin question at the end
+    current_msgs = chron_msgs[current_start_idx:]
+    has_unanswered_question = False
+    last_question_idx = -1
+    last_summary_idx = -1
+    for i, m in enumerate(current_msgs):
+        sender_id = str((m.get("from") or {}).get("id") or "")
+        m_txt = str(m.get("message") or "")
+        if ("เพจ : ข้าวบุก สุขใจ" in m_txt and "จัดส่ง" in m_txt) or "#BUY" in m_txt:
+            last_summary_idx = i
+        if sender_id == page_id:
+            if any(re.search(pat, m_txt) for pat in PENDING_ADMIN_QUESTION_PATTERNS):
+                last_question_idx = i
+
+    if last_question_idx != -1 and last_question_idx > last_summary_idx:
+        # Check if the customer replied after the question
+        customer_replied_after = any(
+            str((m.get("from") or {}).get("id") or "") == cust_id
+            and bool(str(m.get("message") or "").strip())
+            for m in current_msgs[last_question_idx + 1 :]
+        )
+        if not customer_replied_after:
+            has_unanswered_question = True
+            is_paid_current = False
+
+    target_texts = current_order_texts or [str(m.get("message") or "") for m in current_msgs] or historical_order_texts
+    sku, qty = _infer_sku_and_qty_from_text("\n".join(target_texts))
     return {
         "external_user_id": cust_id,
         "customer_name": cust_name,
-        "is_paid": is_paid,
+        "is_paid": is_paid_current,
+        "has_historical_paid": has_historical_paid,
+        "has_unanswered_question": has_unanswered_question,
         "is_starred": is_starred,
         "paid_at": paid_at_dt,
         "purchased_sku": sku,
@@ -566,10 +701,9 @@ def _apply_facebook_sync_to_db(info: dict, brand_id: str = "buksukjai") -> dict:
         customer_name=info.get("customer_name") or "",
     )
 
-    if info.get("is_paid") or info.get("is_starred"):
+    if info.get("is_paid"):
         paid_dt = info.get("paid_at") or datetime.now(timezone.utc)
         days_elapsed = (datetime.now(timezone.utc) - paid_dt).total_seconds() / 86400.0
-        # If historical order is >= 6 days old, mark stage=2 so we don't send late Day-3/Day-5 checks
         target_stage = max(user.after_sales_stage or 0, 2 if days_elapsed >= 6 else 0)
         new_tags = database._add_tag_str(user.broadcast_tags or "", "ชำระเงินแล้ว")
         new_tags = database._add_tag_str(new_tags, "⭐ ติดดาว (ซื้อแล้ว)")
@@ -586,6 +720,20 @@ def _apply_facebook_sync_to_db(info: dict, brand_id: str = "buksukjai") -> dict:
                 row.purchased_at = paid_dt
                 row.after_sales_stage = target_stage
                 db.commit()
+    elif info.get("is_starred"):
+        # Past customer who is starred (⭐), but their current inquiry is still open or awaiting confirmation!
+        new_tags = database._add_tag_str(user.broadcast_tags or "", "⭐ ติดดาว (ซื้อแล้ว)")
+        with database.SessionLocal() as db:
+            row = db.get(database.UserSession, session_key)
+            if row is not None:
+                row.is_starred = True
+                if info.get("customer_name"):
+                    row.customer_name = info["customer_name"]
+                row.broadcast_tags = new_tags
+                if info.get("has_unanswered_question") or info.get("human_admin_active"):
+                    row.state = "pending_payment"
+                    row.bot_enabled = False
+                db.commit()
     elif info.get("human_admin_active"):
         database.set_bot_enabled(session_key, False)
         if info.get("customer_name"):
@@ -598,6 +746,7 @@ def _apply_facebook_sync_to_db(info: dict, brand_id: str = "buksukjai") -> dict:
         "customer_name": info.get("customer_name"),
         "is_paid": info.get("is_paid"),
         "is_starred": info.get("is_starred"),
+        "has_unanswered_question": info.get("has_unanswered_question"),
         "purchased_sku": info.get("purchased_sku"),
         "paid_at": info["paid_at"].isoformat() if info.get("paid_at") else None,
         "human_admin_active": info.get("human_admin_active"),

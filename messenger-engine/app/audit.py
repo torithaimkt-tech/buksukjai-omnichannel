@@ -267,7 +267,37 @@ def audit_session_for_jst(psid: str) -> dict[str, Any]:
     checks: list[dict[str, Any]] = []
     issues: list[str] = []
 
-    # 1. Phone check
+    # 0. Dialogue Completion Audit ("ตรวจว่าลูกค้าตอบประโยคคำถามของเราจนครบแล้วจริง ๆ")
+    dialogue_ok = bool(extracted.get("dialogue_complete"))
+    dialogue_reason = extracted.get("dialogue_reason") or "ยังสนทนาไม่จบขั้นตอนค่ะ"
+    checks.append({
+        "name": "ตรวจว่าลูกค้าตอบประโยคคำถามของร้านจนครบแล้วจริง ๆ (Dialogue Completion)",
+        "value": dialogue_reason,
+        "status": "ok" if dialogue_ok else "fail",
+    })
+    if not dialogue_ok:
+        issues.append(dialogue_reason)
+
+    # 1. Exact SKU & Quantity Match Audit
+    sku_id = extracted.get("sku_id", "")
+    qty = int(extracted.get("qty") or 1)
+    total_amt = float(extracted.get("total_amount") or 0)
+    sku_matches_chat = bool(extracted.get("sku_matches_chat", True))
+    sku_mismatch_reason = extracted.get("sku_mismatch_reason") or ""
+    sku_ok = bool(sku_id and total_amt >= 39 and sku_matches_chat)
+    checks.append({
+        "name": "ตรวจสอบรหัสสินค้า (SKU), จำนวนถุง และยอดเงินให้ตรงกับที่ลูกค้าสั่งจริง",
+        "value": (
+            f"{sku_id} x {qty} ({extracted.get('item_name', '')}) = {total_amt:.0f} บาท ({extracted.get('payment_label', '')})"
+            if sku_ok
+            else (sku_mismatch_reason or "ยังไม่พบสรุปยอดสินค้าและราคาที่ยืนยันแล้วในรอบปัจจุบันค่ะ")
+        ),
+        "status": "ok" if sku_ok else "fail",
+    })
+    if not sku_ok:
+        issues.append(sku_mismatch_reason or "รหัสสินค้า/จำนวน หรือยอดเงินในรอบปัจจุบันยังไม่ชัดเจนค่ะ")
+
+    # 2. Phone check
     phone = extracted.get("phone", "")
     phone_ok = bool(re.fullmatch(r"0[689]\d{8}", phone))
     checks.append({
@@ -278,18 +308,23 @@ def audit_session_for_jst(psid: str) -> dict[str, Any]:
     if not phone_ok:
         issues.append("ยังไม่มีเบอร์โทรศัพท์มือถือ 10 หลักที่ถูกต้อง")
 
-    # 2. Address check
+    # 3. Address & Recipient Name check
     addr = extracted.get("parsed_address") or {}
-    addr_ok = bool(addr.get("state") and addr.get("city") and addr.get("district"))
+    rec_name = (addr.get("receiver_name") or "").strip()
+    addr_ok = bool(rec_name and addr.get("state") and addr.get("city") and addr.get("district"))
     checks.append({
-        "name": "ที่อยู่จัดส่ง (ตำบล / อำเภอ / จังหวัด / รหัสไปรษณีย์)",
-        "value": f"{addr.get('district', '')} {addr.get('city', '')} {addr.get('state', '')} {addr.get('post_code', '')}".strip() or "ไม่สมบูรณ์",
+        "name": "ชื่อผู้รับ & ที่อยู่จัดส่ง (ตำบล / อำเภอ / จังหวัด / รหัสไปรษณีย์)",
+        "value": (
+            f"ผู้รับ: {rec_name or 'ไม่ระบุ'} | ต.{addr.get('district', '-')} อ.{addr.get('city', '-')} จ.{addr.get('state', '-')} {addr.get('post_code', '')}".strip()
+            if addr
+            else "ไม่สมบูรณ์"
+        ),
         "status": "ok" if addr_ok else "fail",
     })
     if not addr_ok:
-        issues.append("ที่อยู่ยังไม่ครบ (ต้องมี ตำบล/แขวง, อำเภอ/เขต และจังหวัด)")
+        issues.append("ชื่อผู้รับหรือที่อยู่ยังไม่ครบถ้วน (ต้องมี ชื่อผู้รับ, ตำบล/แขวง, อำเภอ/เขต และจังหวัด)")
 
-    # 3. Payment Method & Slip Integrity Check
+    # 4. Payment Method & Slip Integrity Check
     is_cod = bool(extracted.get("is_cod"))
     slip_url = extracted.get("slip_url") or ""
     has_slip = bool(extracted.get("has_slip") and slip_url)
@@ -312,20 +347,10 @@ def audit_session_for_jst(psid: str) -> dict[str, Any]:
         checks.append({
             "name": "ตรวจสอบการคอนเฟิร์มเก็บเงินปลายทาง (COD) กับลูกค้า",
             "value": "ลูกค้ายืนยัน COD ชัดเจนแล้ว" if cod_confirmed else "ลูกค้าระบุ COD แต่ยังไม่ครบเงื่อนไขยืนยัน",
-            "status": "ok" if cod_confirmed else "warn",
+            "status": "ok" if cod_confirmed else "fail",
         })
         if not cod_confirmed:
             issues.append("ออเดอร์ COD ต้องได้รับการคอนเฟิร์มยอดปลายทางจากลูกค้าก่อนส่งเข้าคลัง")
-
-    # 4. Price & SKU Sanity Check
-    sku_id = extracted.get("sku_id", "")
-    total_amt = extracted.get("total_amount", 0)
-    sku_ok = bool(sku_id and total_amt >= 39)
-    checks.append({
-        "name": "ตรวจสอบรหัสสินค้า (SKU) และยอดเงินสุทธิ",
-        "value": f"{sku_id} ({extracted.get('item_name', '')}) = {total_amt} บาท ({extracted.get('payment_label', '')})",
-        "status": "ok" if sku_ok else "fail",
-    })
 
     # 5. Star Status Check
     is_starred = bool(getattr(user, "is_starred", False) or user.state == "completed")
@@ -347,6 +372,7 @@ def audit_session_for_jst(psid: str) -> dict[str, Any]:
         "psid": psid,
         "customer_name": user.customer_name,
         "passed": passed,
+        "ready_for_jst": passed,
         "issues": issues,
         "checks": checks,
         "extracted": extracted,
