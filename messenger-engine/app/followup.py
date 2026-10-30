@@ -496,7 +496,8 @@ async def run_auto_reengage_scan(public_base_url: str = "") -> dict:
 
 
 async def followup_loop(config: dict, public_base_url_getter=None) -> None:
-    check_minutes = float(os.getenv("FOLLOWUP_CHECK_MINUTES", "15"))
+    check_minutes = float(os.getenv("FOLLOWUP_CHECK_MINUTES", "10"))
+    render_health_url = os.getenv("RENDER_EXTERNAL_URL", "https://buksukjai-omnichannel.onrender.com") + "/health"
 
     logger.info(
         "Follow-up, Ghost Re-engagement & After-Sales scheduler running: checking every %s min",
@@ -504,7 +505,16 @@ async def followup_loop(config: dict, public_base_url_getter=None) -> None:
     )
     while True:
         try:
+            import httpx
+
             pub_url = public_base_url_getter() if public_base_url_getter else os.getenv("PUBLIC_BASE_URL", "")
+
+            # Keep Render cloud container warm 24/7 even when the user's PC is turned off
+            try:
+                async with httpx.AsyncClient(timeout=8.0) as _ka_client:
+                    await _ka_client.get(render_health_url)
+            except Exception:
+                pass
 
             # 0. Sync real Facebook conversation history & paid order status first!
             await messenger.sync_recent_facebook_conversations("buksukjai", limit=35)

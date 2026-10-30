@@ -240,14 +240,14 @@ def save_daily_sync_state(updates: dict[str, Any]) -> dict[str, Any]:
 
 
 def should_run_daily_6am_sync() -> bool:
-    """Return True only when Thailand time (UTC+7) is in the 06:00 AM window (06:00–06:59)
+    """Return True when Thailand time (UTC+7) has reached >= 06:00 AM
     and today's daily batch has not yet run.
     """
     if not AUTO_SYNC_ENABLED:
         return False
     bkk_tz = timezone(timedelta(hours=7))
     now_bkk = datetime.now(bkk_tz)
-    if now_bkk.hour != DAILY_BATCH_HOUR_BKK:
+    if now_bkk.hour < DAILY_BATCH_HOUR_BKK:
         return False
     today_str = now_bkk.strftime("%Y-%m-%d")
     st = get_daily_sync_state()

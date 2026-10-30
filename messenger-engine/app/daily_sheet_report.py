@@ -239,10 +239,10 @@ def build_daily_sales_sheet_rows(target_date: str) -> dict[str, Any]:
 
 
 def should_run_daily_1am_report() -> tuple[bool, str]:
-    """Return `(True, yesterday_str)` if current Bangkok hour is 01:00 and yesterday's report hasn't been generated yet."""
+    """Return `(True, yesterday_str)` if current Bangkok hour is >= 01:00 and yesterday's report hasn't been generated yet."""
     now_bkk = datetime.now(BKK_TZ)
     yesterday_str = (now_bkk - timedelta(days=1)).strftime("%Y-%m-%d")
-    if now_bkk.hour != DAILY_REPORT_HOUR_BKK:
+    if now_bkk.hour < DAILY_REPORT_HOUR_BKK:
         return False, yesterday_str
     state: dict[str, Any] = {}
     if REPORT_STATE_FILE.exists():

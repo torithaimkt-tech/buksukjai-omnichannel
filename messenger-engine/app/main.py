@@ -1097,6 +1097,40 @@ async def api_sync_facebook(limit: int = 50):
     }
 
 
+@app.get("/api/reports/daily-sales")
+async def api_get_daily_sales_report(date: str | None = None):
+    """Return daily sales & SKU stock reconciliation report JSON (defaults to yesterday in Bangkok time)."""
+    import asyncio
+    from datetime import datetime, timedelta, timezone
+    from . import daily_sheet_report
+
+    bkk_tz = timezone(timedelta(hours=7))
+    target_date = date or (datetime.now(bkk_tz) - timedelta(days=1)).strftime("%Y-%m-%d")
+    rep = await asyncio.to_thread(daily_sheet_report.build_daily_sales_sheet_rows, target_date)
+    await asyncio.to_thread(daily_sheet_report.save_daily_report_snapshot, rep)
+    return rep
+
+
+@app.get("/api/reports/daily-sales.csv")
+async def api_get_daily_sales_csv(date: str | None = None):
+    """Return UTF-8 CSV for Google Sheets `=IMPORTDATA(...)` or direct cloud sync (defaults to yesterday in Bangkok time)."""
+    import asyncio
+    import csv
+    import io
+    from datetime import datetime, timedelta, timezone
+    from . import daily_sheet_report
+
+    bkk_tz = timezone(timedelta(hours=7))
+    target_date = date or (datetime.now(bkk_tz) - timedelta(days=1)).strftime("%Y-%m-%d")
+    rep = await asyncio.to_thread(daily_sheet_report.build_daily_sales_sheet_rows, target_date)
+    await asyncio.to_thread(daily_sheet_report.save_daily_report_snapshot, rep, False)
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    for row in rep["sheet_rows"]:
+        writer.writerow(row)
+    return Response(content=buf.getvalue(), media_type="text/csv; charset=utf-8")
+
+
 @app.get("/health")
 async def health():
     return {
