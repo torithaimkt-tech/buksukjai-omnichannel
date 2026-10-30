@@ -547,14 +547,10 @@ async def process_omnichannel_message(
             media_items=selected_media_items,
             public_base_url=PUBLIC_BASE_URL,
         )
-        # Auto-push to JST ERP immediately when order transitions to completed!
+        # Queue confirmed orders for the Daily 06:00 AM JST ERP Batch (no immediate real-time push during the day)
         if new_state == "completed" and user.state != "completed":
-            try:
-                from . import jst_erp as _jst_mod
-                if _jst_mod.is_auto_sync_enabled():
-                    asyncio.create_task(asyncio.to_thread(_jst_mod.sync_session_to_jst, session_key))
-            except Exception as _jst_err:
-                logger.warning("Auto JST push warning for %s: %s", session_key, _jst_err)
+            database.update_session_meta(session_key, state="completed", is_starred=True)
+            logger.info("Order %s marked completed + starred ⭐ — queued for Daily 06:00 AM JST ERP Batch", session_key)
         logger.info(
             "Replied to %s [%s/%s] (%d images + %d bubbles, img=%s, state: %s -> %s)",
             session_key,

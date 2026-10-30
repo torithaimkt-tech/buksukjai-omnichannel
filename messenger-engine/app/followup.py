@@ -490,10 +490,12 @@ async def followup_loop(config: dict, public_base_url_getter=None) -> None:
             # 0. Sync real Facebook conversation history & paid order status first!
             await messenger.sync_recent_facebook_conversations("buksukjai", limit=35)
 
-            # 0.5 Auto-push newly confirmed orders into JST ERP (checks duplicates before saving!)
+            # 0.5 Daily 06:00 AM Batch Keying into JST ERP (คีย์ข้อมูลวันละ 1 ครั้ง ตอน 06:00 น. เวลาไทย รวบรวมออเดอร์ของเมื่อวาน)
             importlib.reload(jst_erp)
-            if jst_erp.is_auto_sync_enabled():
-                await asyncio.to_thread(jst_erp.sync_all_confirmed_orders_to_jst, 2)
+            if jst_erp.should_run_daily_6am_sync():
+                logger.info("Running Daily 06:00 AM (BKK) JST ERP Batch Order Sync...")
+                await messenger.sync_recent_facebook_conversations("buksukjai", limit=60)
+                await asyncio.to_thread(jst_erp.sync_all_confirmed_orders_to_jst, 2, True)
 
             # 1. Ghost / Silent Lead Re-engagement Bot (Stage 1: 1h, Stage 2: 6h, Stage 3: 20h)
             re_cfg = get_reengage_config()
@@ -608,6 +610,7 @@ def _register_jst_routes() -> None:
                 "has_cookie": bool(jst_erp.get_jst_cookie()),
                 "shop_id": jst_erp.JST_SHOP_ID,
                 "warehouse_id": jst_erp.JST_WAREHOUSE_ID,
+                **jst_erp.get_daily_sync_state(),
             }
 
         @fastapi_app.post("/api/jst/config")

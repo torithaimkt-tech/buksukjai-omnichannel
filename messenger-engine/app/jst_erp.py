@@ -202,6 +202,58 @@ def set_auto_sync_enabled(enabled: bool) -> None:
     AUTO_SYNC_ENABLED = bool(enabled)
 
 
+DAILY_BATCH_HOUR_BKK: int = 6
+JST_SYNC_STATE_PATH: str = os.path.join(os.path.dirname(os.path.dirname(__file__)), "jst_sync_state.json")
+
+
+def get_daily_sync_state() -> dict[str, Any]:
+    import json
+    default_state = {
+        "sync_mode": "daily_6am",
+        "daily_hour_bkk": DAILY_BATCH_HOUR_BKK,
+        "schedule_description": "คีย์ข้อมูลวันละ 1 ครั้ง ตอน 06:00 น. (รวบรวมออเดอร์ของเมื่อวาน)",
+        "last_daily_sync_date": "",
+        "last_daily_sync_at": "",
+        "last_created_count": 0,
+        "last_duplicate_skipped_count": 0,
+    }
+    if os.path.exists(JST_SYNC_STATE_PATH):
+        try:
+            with open(JST_SYNC_STATE_PATH, "r", encoding="utf-8") as f:
+                saved = json.load(f)
+            default_state.update(saved)
+        except Exception:
+            pass
+    return default_state
+
+
+def save_daily_sync_state(updates: dict[str, Any]) -> dict[str, Any]:
+    import json
+    st = get_daily_sync_state()
+    st.update(updates)
+    try:
+        with open(JST_SYNC_STATE_PATH, "w", encoding="utf-8") as f:
+            json.dump(st, f, ensure_ascii=False, indent=2)
+    except Exception as exc:
+        logger.warning("Failed to save JST daily sync state: %s", exc)
+    return st
+
+
+def should_run_daily_6am_sync() -> bool:
+    """Return True only when Thailand time (UTC+7) is in the 06:00 AM window (06:00–06:59)
+    and today's daily batch has not yet run.
+    """
+    if not AUTO_SYNC_ENABLED:
+        return False
+    bkk_tz = timezone(timedelta(hours=7))
+    now_bkk = datetime.now(bkk_tz)
+    if now_bkk.hour != DAILY_BATCH_HOUR_BKK:
+        return False
+    today_str = now_bkk.strftime("%Y-%m-%d")
+    st = get_daily_sync_state()
+    return st.get("last_daily_sync_date") != today_str
+
+
 def _headers(json_body: bool = True) -> dict[str, str]:
     h = {
         "Cookie": get_jst_cookie(),
@@ -1367,8 +1419,13 @@ def sync_session_to_jst(
     return res
 
 
-def sync_all_confirmed_orders_to_jst(days_lookback: int = 2) -> dict[str, Any]:
-    """Scan all completed orders from the last `days_lookback` days, check JST ERP for duplicates, and push missing ones."""
+def sync_all_confirmed_orders_to_jst(days_lookback: int = 2, mark_daily_batch: bool = False) -> dict[str, Any]:
+    """Scan all completed orders from the last `days_lookback` days (yesterday's confirmed orders),
+    run Layer-1 Pre-Keying Chat Audit & duplicate check against JST ERP, push missing ones,
+    and run Layer-2 Post-Keying JST Reconciliation Audit.
+    """
+    bkk_tz = timezone(timedelta(hours=7))
+    now_bkk = datetime.now(bkk_tz)
     cutoff = datetime.now(timezone.utc) - timedelta(days=days_lookback)
     with SessionLocal() as db:
         sessions = (
@@ -1381,6 +1438,7 @@ def sync_all_confirmed_orders_to_jst(days_lookback: int = 2) -> dict[str, Any]:
 
     results = {
         "scanned": len(psids),
+        "batch_time_bkk": now_bkk.strftime("%Y-%m-%d %H:%M:%S"),
         "created": [],
         "duplicate_skipped": [],
         "incomplete_skipped": [],
@@ -1417,5 +1475,13 @@ def sync_all_confirmed_orders_to_jst(days_lookback: int = 2) -> dict[str, Any]:
         results["post_keying_reconcile"] = _audit_mod.audit_jst_orders_against_chat(days_lookback=1, auto_clean=True)
     except Exception as exc:
         logger.warning("Post-keying reconcile audit failed: %s", exc)
+
+    if mark_daily_batch:
+        save_daily_sync_state({
+            "last_daily_sync_date": now_bkk.strftime("%Y-%m-%d"),
+            "last_daily_sync_at": now_bkk.strftime("%Y-%m-%d %H:%M:%S"),
+            "last_created_count": len(results["created"]),
+            "last_duplicate_skipped_count": len(results["duplicate_skipped"]),
+        })
 
     return results
