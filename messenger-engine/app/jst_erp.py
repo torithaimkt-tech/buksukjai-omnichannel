@@ -26,9 +26,12 @@ from typing import Any
 import httpx
 from dotenv import load_dotenv
 
+from pathlib import Path
+
 from app.config_loader import get_page_by_brand_id
 from app.database import SessionLocal, UserSession, get_full_messages
 
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 load_dotenv()
 logger = logging.getLogger(__name__)
 

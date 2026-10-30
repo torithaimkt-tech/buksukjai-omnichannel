@@ -525,8 +525,7 @@ async def followup_loop(config: dict, public_base_url_getter=None) -> None:
             should_rep, yest_date = daily_sheet_report.should_run_daily_1am_report()
             if should_rep:
                 logger.info("Running Daily 01:00 AM (BKK) Sales & Stock Summary for %s...", yest_date)
-                rep = await asyncio.to_thread(daily_sheet_report.build_daily_sales_sheet_rows, yest_date)
-                await asyncio.to_thread(daily_sheet_report.save_daily_report_snapshot, rep)
+                await asyncio.to_thread(daily_sheet_report.load_or_build_daily_report, yest_date)
 
             # 0.5 Daily 06:00 AM Batch Keying into JST ERP (คีย์ข้อมูลวันละ 1 ครั้ง ตอน 06:00 น. เวลาไทย รวบรวมออเดอร์ของเมื่อวาน)
             importlib.reload(jst_erp)
@@ -534,9 +533,25 @@ async def followup_loop(config: dict, public_base_url_getter=None) -> None:
                 logger.info("Running Daily 06:00 AM (BKK) JST ERP Batch Order Sync...")
                 await messenger.sync_recent_facebook_conversations("buksukjai", limit=60)
                 await asyncio.to_thread(jst_erp.sync_all_confirmed_orders_to_jst, 2, True)
+                # Refresh Google Sheet after 06:00 AM keying finishes
+                await asyncio.to_thread(daily_sheet_report.load_or_build_daily_report, yest_date)
 
             # 0.6 Smart Slip Verifier & Auto-Confirm (ตรวจสลิปที่ติด Fail เวลาชำระเงินไม่ตรงกัน แล้วกดยืนยันให้อัตโนมัติ)
             await asyncio.to_thread(jst_erp.verify_and_auto_confirm_jst_slips, 40)
+
+            # 0.65 Daily 07:00 AM LINE Work Group Report (แจ้งสรุปยอดขายแต่ละช่องทาง โอน/COD และตัดสต็อกโกดังในกลุ่มไลน์งานหลังคีย์เสร็จ)
+            importlib.reload(daily_sheet_report)
+            should_line_7am, yest_7am = daily_sheet_report.should_run_daily_7am_line_report()
+            if should_line_7am:
+                logger.info("Running Daily 07:00 AM (BKK) LINE Work Group Summary for %s...", yest_7am)
+                await asyncio.to_thread(
+                    daily_sheet_report.send_daily_summary_to_line_groups,
+                    yest_7am,
+                    "buksukjai",
+                    None,
+                    None,
+                    True,
+                )
 
             # 0.7 2-Stage Automated Parcel Tracking Notifier (แจ้งเลขพัสดุเมื่อขนส่งเข้ารับแล้ว & แจ้งเมื่อพัสดุส่งถึงมือลูกค้าพร้อมเวลา)
             from . import parcel_tracker
