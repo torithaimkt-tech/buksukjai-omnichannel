@@ -1111,11 +1111,12 @@ def extract_order_from_session(psid: str) -> dict[str, Any]:
 
     # 1. Check if there is an explicit Admin Order Summary block in the current inquiry
     admin_summaries = [
-        m["content"]
-        for m in msgs
+        (idx, m["content"])
+        for idx, m in enumerate(msgs)
         if ("เพจ :" in m["content"] or "เพจ:" in m["content"]) and "จัดส่ง" in m["content"]
     ]
-    latest_summary = admin_summaries[-1] if admin_summaries else ""
+    last_summary_idx = admin_summaries[-1][0] if admin_summaries else -1
+    latest_summary = admin_summaries[-1][1] if admin_summaries else ""
 
     # 2. Extract phone number (supports 08xxxxxxxx, 08x-xxx-xxxx, and +66936179424)
     phone = ""
@@ -1164,6 +1165,11 @@ def extract_order_from_session(psid: str) -> dict[str, Any]:
 
     # 4. Extract & verify slip image URL
     slip_image_url = fb_slip_url
+    last_slip_idx = -1
+    for idx in range(len(msgs) - 1, -1, -1):
+        if msgs[idx]["role"] == "user" and "[IMAGE:" in msgs[idx]["content"]:
+            last_slip_idx = idx
+            break
     if not slip_image_url:
         pay_ctx_idx = -1
         for idx, m in enumerate(msgs):
@@ -1183,7 +1189,19 @@ def extract_order_from_session(psid: str) -> dict[str, Any]:
                     ok, _ = verify_image_is_payment_slip(image_url=candidate_url)
                     if ok:
                         slip_image_url = candidate_url
+                        last_slip_idx = idx
                         break
+
+    # If the admin's final summary AFTER the customer's image explicitly states "ชำระเงิน : ปลายทาง"
+    # and the customer never claimed to transfer money, that earlier image was a promo/chat screenshot, not a slip!
+    if (
+        slip_image_url
+        and latest_summary
+        and last_summary_idx > last_slip_idx
+        and re.search(r"ชำระเงิน\s*:\s*ปลายทาง", latest_summary)
+        and not re.search(r"(โอนแล้ว|สลิป|ส่งการชำระเงินจำนวน)", user_only_text, re.I)
+    ):
+        slip_image_url = ""
 
     # 5. Audit Dialogue Completion ("ตรวจว่าลูกค้าตอบประโยคคำถามของเราจนครบแล้วจริง ๆ")
     dialogue_complete, dialogue_reason = check_dialogue_completion(msgs, has_verified_slip=bool(slip_image_url))
