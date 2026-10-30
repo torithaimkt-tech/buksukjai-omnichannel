@@ -372,6 +372,24 @@ def cancel_orders_in_jst(
     return {"status": "ok", "order_ids": clean_ids, "response": resp.json()}
 
 
+def confirm_orders_in_jst(order_ids: list[int | str]) -> dict[str, Any]:
+    """Approve/confirm payment (`ตรวจสอบการชำระเงินแล้ว` -> `/OMS/MiniShopOrder/ConfirmOrder`) for verified bank-transfer orders in JST ERP."""
+    clean_ids = [str(x).strip() for x in order_ids if str(x).strip().isdigit()]
+    if not clean_ids:
+        return {"status": "error", "message": "ไม่พบ OrderId ที่ต้องการยืนยันการชำระเงินค่ะ"}
+    h = _headers(json_body=True)
+    h["Origin"] = "https://asia.jsterp.com"
+    h["Referer"] = "https://asia.jsterp.com/OMS/MiniShopOrder/Index"
+    resp = httpx.post(
+        "https://asia.jsterp.com/OMS/MiniShopOrder/ConfirmOrder",
+        headers=h,
+        json={"OrderIds": clean_ids},
+        timeout=20.0,
+    )
+    resp.raise_for_status()
+    return {"status": "ok", "order_ids": clean_ids, "response": resp.json()}
+
+
 def recognize_and_clean_address(
     raw_address: str,
     explicit_name: str = "",
@@ -848,6 +866,12 @@ def create_order_in_jst(
     verify_info = check_duplicate_order(phone, within_days=1)
     created_order = verify_info["recent_orders"][0] if verify_info["recent_orders"] else None
 
+    if not is_cod and voucher_id and created_order and created_order.get("order_id"):
+        try:
+            confirm_orders_in_jst([created_order["order_id"]])
+        except Exception as exc:
+            logger.warning("Auto ConfirmOrder warning for %s: %s", created_order.get("order_id"), exc)
+
     return {
         "status": "created",
         "message": "สร้างคำสั่งซื้อในระบบ JST ERP สำเร็จค่ะ",
@@ -1140,11 +1164,16 @@ def extract_order_from_session(psid: str) -> dict[str, Any]:
     dialogue_complete, dialogue_reason = check_dialogue_completion(msgs, has_verified_slip=bool(slip_image_url))
 
     # 6. Determine COD vs Transfer with strict confirmation check
+    # CRITICAL RULE: If a verified payment slip (`slip_image_url`) exists in the current inquiry,
+    # ALWAYS treat the order as Bank Transfer (`is_cod = False`), even if an earlier message/summary assumed COD!
     is_cod: bool | None = None
     cod_confirmed = False
     transfer_confirmed = False
 
-    if latest_summary:
+    if slip_image_url or "ส่งการชำระเงินจำนวน" in full_text:
+        is_cod = False
+        transfer_confirmed = True
+    elif latest_summary:
         pay_m = re.search(r"ชำระเงิน\s*:\s*([^\n|]+)", latest_summary)
         if pay_m:
             pay_txt = pay_m.group(1)
@@ -1156,8 +1185,11 @@ def extract_order_from_session(psid: str) -> dict[str, Any]:
                 transfer_confirmed = True
 
     if is_cod is None:
-        # Check if customer explicitly chose COD or Transfer in their messages
-        if re.search(r"(เก็บเงินปลายทาง|เก็บปลายทาง|ชำระปลายทาง|ปลายทางค่ะ|ปลายทางครับ|ปลายทางจ้า|แบบปลายทาง|cod)", user_only_text, re.I):
+        # Check if customer explicitly chose COD or Transfer in their messages (NEVER assume COD from address alone!)
+        if re.search(r"(โอนค่ะ|โอนครับ|แบบโอน|โอนเงิน|โอนแล้ว|ส่งการชำระเงินจำนวน)", user_only_text, re.I):
+            is_cod = False
+            transfer_confirmed = True
+        elif re.search(r"(เก็บเงินปลายทาง|เก็บปลายทาง|ชำระปลายทาง|ปลายทางค่ะ|ปลายทางครับ|ปลายทางจ้า|แบบปลายทาง|cod)", user_only_text, re.I):
             is_cod = True
             user_tail = "\n".join(m["content"] for m in msgs[-8:] if m["role"] == "user")
             if (
@@ -1168,9 +1200,6 @@ def extract_order_from_session(psid: str) -> dict[str, Any]:
                 )
             ):
                 cod_confirmed = True
-        elif slip_image_url or re.search(r"(โอนค่ะ|โอนครับ|แบบโอน|โอนเงิน|โอนแล้ว|ส่งการชำระเงินจำนวน)", user_only_text, re.I):
-            is_cod = False
-            transfer_confirmed = True
 
     # 7. Determine SKU, qty, unit_price, freight from current inquiry ONLY (never default to old session SKU)
     sku_id = ""
