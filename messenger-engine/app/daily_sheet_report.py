@@ -598,7 +598,7 @@ def load_or_build_daily_report(target_date: str) -> dict[str, Any]:
 
 def send_daily_summary_to_line_groups(
     target_date: str | None = None,
-    brand_id: str = "buksukjai",
+    brand_id: str = "workbot",
     target_group_id: str | None = None,
     reply_token: str | None = None,
     mark_7am_done: bool = False,

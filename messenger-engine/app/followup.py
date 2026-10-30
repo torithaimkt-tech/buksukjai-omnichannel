@@ -547,7 +547,7 @@ async def followup_loop(config: dict, public_base_url_getter=None) -> None:
                 await asyncio.to_thread(
                     daily_sheet_report.send_daily_summary_to_line_groups,
                     yest_7am,
-                    "buksukjai",
+                    "workbot",
                     None,
                     None,
                     True,

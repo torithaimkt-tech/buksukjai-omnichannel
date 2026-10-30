@@ -81,6 +81,36 @@ def load_pages_registry() -> list[dict]:
                 ch["fb_page_id"] = os.getenv("FB_PAGE_ID", "806129109240845")
             if not ch.get("fb_page_access_token"):
                 ch["fb_page_access_token"] = os.getenv("PAGE_ACCESS_TOKEN", "")
+        elif p.get("brand_id") == "workbot":
+            ch = p.setdefault("channels", {})
+            if not ch.get("line_channel_secret"):
+                ch["line_channel_secret"] = os.getenv("WORKBOT_LINE_CHANNEL_SECRET", "31c6946f80249c4ce55213c996d97cf9")
+            if not ch.get("line_channel_access_token"):
+                ch["line_channel_access_token"] = os.getenv(
+                    "WORKBOT_LINE_CHANNEL_ACCESS_TOKEN",
+                    "eDkS5MNncETiXi7yvVJ4Cj4kGwKvZ7qfN94SV5uexiHVzNpc0QpoYdKwlrWEPHpKlJqPWnEmMCNxl+iVcCrUB5r7vDHLsbrZ1UJSTKZp5vtT7EJvo5NC2ZKAfb1AkO0E/3bQ2r+OoZPJTkah2HSR/AdB04t89/1O/w1cDnyilFU=",
+                )
+    if not any(p.get("brand_id") == "workbot" for p in pages):
+        pages.append(
+            {
+                "brand_id": "workbot",
+                "slot": len(pages) + 1,
+                "name": "GENIUS POINT (@934ndvfs)",
+                "active": True,
+                "config_file": "config.json",
+                "channels": {
+                    "line_channel_secret": os.getenv("WORKBOT_LINE_CHANNEL_SECRET", "31c6946f80249c4ce55213c996d97cf9"),
+                    "line_channel_access_token": os.getenv(
+                        "WORKBOT_LINE_CHANNEL_ACCESS_TOKEN",
+                        "eDkS5MNncETiXi7yvVJ4Cj4kGwKvZ7qfN94SV5uexiHVzNpc0QpoYdKwlrWEPHpKlJqPWnEmMCNxl+iVcCrUB5r7vDHLsbrZ1UJSTKZp5vtT7EJvo5NC2ZKAfb1AkO0E/3bQ2r+OoZPJTkah2HSR/AdB04t89/1O/w1cDnyilFU=",
+                    ),
+                    "fb_page_id": "",
+                    "fb_page_access_token": "",
+                    "ig_account_id": "",
+                    "ig_access_token": "",
+                },
+            }
+        )
     return pages
 
 

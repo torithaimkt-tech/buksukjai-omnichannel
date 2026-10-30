@@ -382,13 +382,14 @@ async def receive_line_webhook(
         user_id = source.get("userId")
         reply_token = event.get("replyToken")
 
-        # Handle LINE Group / Multi-person Room events separately (Work Group Bot mode — never spam customer sales pitches!)
-        if source_type in ("group", "room"):
-            group_id = source.get("groupId") or source.get("roomId")
+        # Handle LINE Group / Multi-person Room events OR dedicated workbot (@934ndvfs GENIUS POINT) separately
+        # (Work Group Bot mode — never spam customer sales pitches!)
+        if brand_id == "workbot" or source_type in ("group", "room"):
+            group_id = source.get("groupId") or source.get("roomId") or user_id
             if group_id:
                 background_tasks.add_task(
                     _handle_line_group_event,
-                    brand_id=brand_id,
+                    brand_id="workbot" if brand_id == "workbot" else brand_id,
                     group_id=group_id,
                     group_type=source_type,
                     event_type=event_type or "",
