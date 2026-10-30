@@ -628,19 +628,47 @@ class SaveSettingsRequest(BaseModel):
     pages: list[dict] | None = None
 
 
+_LAST_FB_BULK_SYNC_TS: float = 0.0
+_LAST_FB_THREAD_SYNC: dict[str, float] = {}
+
+
 @app.get("/api/sessions")
 async def api_list_sessions(
     brand_id: str = "all",
     platform: str = "all",
     state: str = "all",
 ):
-    return database.list_all_sessions(brand_id=brand_id, platform=platform, state=state)
+    import time
+
+    global _LAST_FB_BULK_SYNC_TS
+    rows = database.list_all_sessions(brand_id=brand_id, platform=platform, state=state)
+    now = time.time()
+    has_empty_fb = any(r.get("platform") == "facebook" and not r.get("last_message") for r in rows[:15])
+    if has_empty_fb and (now - _LAST_FB_BULK_SYNC_TS > 60):
+        _LAST_FB_BULK_SYNC_TS = now
+        target_brand = brand_id if (brand_id and brand_id != "all") else "buksukjai"
+        await messenger.sync_recent_facebook_conversations(target_brand, limit=40)
+        rows = database.list_all_sessions(brand_id=brand_id, platform=platform, state=state)
+    return rows
 
 
 @app.get("/api/sessions/{psid:path}/messages")
-async def api_get_messages(psid: str):
+async def api_get_messages(psid: str, sync: bool = False):
+    import time
+
     database.update_session_meta(psid, clear_unread=True)
-    return database.get_full_messages(psid)
+    msgs = database.get_full_messages(psid)
+    if ":facebook:" in psid:
+        now = time.time()
+        last_sync = _LAST_FB_THREAD_SYNC.get(psid, 0.0)
+        if not msgs or sync or (now - last_sync > 45):
+            _LAST_FB_THREAD_SYNC[psid] = now
+            parts = psid.split(":", 2)
+            if len(parts) == 3:
+                b_id, _, ext_id = parts
+                await messenger.sync_facebook_user_thread(ext_id, brand_id=b_id)
+                msgs = database.get_full_messages(psid)
+    return msgs
 
 
 @app.patch("/api/sessions/{psid:path}")

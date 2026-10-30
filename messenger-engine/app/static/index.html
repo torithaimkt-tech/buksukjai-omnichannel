@@ -1195,7 +1195,7 @@
               >${s.is_starred ? '★' : '☆'}</button>
             </div>
           </div>
-          <div class="conv-preview">${escapeHtml(s.last_message || 'เริ่มบทสนทนา...')}</div>
+          <div class="conv-preview">${escapeHtml(s.last_message && s.last_message.startsWith('[IMAGE:') ? '📷 [ส่งรูปภาพ]' : (s.last_message || 'เริ่มบทสนทนา...'))}</div>
           <div class="conv-meta">
             <div style="display:flex; align-items:center; gap:4px;">
               <span class="state-badge state-${s.state}">${stateLabel(s.state)}</span>
@@ -1218,8 +1218,18 @@
       await loadSessions(false);
     }
 
+    let _lastRenderedPsid = null;
+    let _lastRenderedMsgCount = 0;
+
     async function selectConversation(psid) {
       activePsid = psid;
+      await loadSessions(false);
+    }
+
+    async function forceSyncActiveMessages(psid, ev) {
+      if (ev) ev.stopPropagation();
+      await fetch(`/api/sessions/${encodeURIComponent(psid)}/messages?sync=true`);
+      _lastRenderedPsid = null;
       await loadSessions(false);
     }
 
@@ -1227,6 +1237,7 @@
       const s = sessions.find(x => x.psid === psid);
       if (!s) return;
 
+      const isSwitch = (_lastRenderedPsid !== psid);
       const pageObj = allPages.find(p => p.brand_id === s.brand_id);
       const pageName = pageObj ? pageObj.name : s.brand_id;
 
@@ -1238,6 +1249,7 @@
       document.getElementById('activeChatSub').textContent = `เพจ: ${pageName} | รหัสลูกค้า: ${s.external_user_id}`;
       document.getElementById('headerQuickStatus').innerHTML = `
         <div style="display:flex; align-items:center; gap:8px;">
+          ${s.platform === 'facebook' ? `<button type="button" onclick="forceSyncActiveMessages('${s.psid}', event)" style="padding:4px 10px; border-radius:99px; font-size:11.5px; font-weight:700; cursor:pointer; border:1px solid #bfdbfe; background:#eff6ff; color:#1d4ed8;">🔄 ดึงแชท FB ล่าสุด</button>` : ''}
           <button
             type="button"
             onclick="toggleStar('${s.psid}', event)"
@@ -1247,14 +1259,18 @@
         </div>
       `;
 
-      // Update right CRM column
-      document.getElementById('crmCustomerName').value = s.customer_name || '';
-      document.getElementById('crmOrderState').value = s.state || 'browsing';
-      document.getElementById('crmNotes').value = s.notes || '';
-      document.getElementById('crmBroadcastTags').value = s.broadcast_tags || '';
-      document.getElementById('crmPurchasedSku').value = s.purchased_sku || 'BSJ1KG1';
-      document.getElementById('crmPurchasedQty').value = s.purchased_qty || 1;
-      updateDepletionPreview();
+      // Update right CRM column only when switching customer or when inputs are not focused
+      const activeEl = document.activeElement;
+      const crmFocused = activeEl && ['crmCustomerName', 'crmOrderState', 'crmNotes', 'crmBroadcastTags', 'crmPurchasedSku', 'crmPurchasedQty'].includes(activeEl.id);
+      if (isSwitch || !crmFocused) {
+        document.getElementById('crmCustomerName').value = s.customer_name || '';
+        document.getElementById('crmOrderState').value = s.state || 'browsing';
+        document.getElementById('crmNotes').value = s.notes || '';
+        document.getElementById('crmBroadcastTags').value = s.broadcast_tags || '';
+        document.getElementById('crmPurchasedSku').value = s.purchased_sku || 'BSJ1KG1';
+        document.getElementById('crmPurchasedQty').value = s.purchased_qty || 1;
+        updateDepletionPreview();
+      }
       loadSessionReengageStatus(psid);
 
       const botBtn = document.getElementById('botToggleBtn');
@@ -1269,6 +1285,15 @@
       const res = await fetch(`/api/sessions/${encodeURIComponent(psid)}/messages`);
       const messages = await res.json();
       const chatBox = document.getElementById('chatMessages');
+      const shouldScroll = isSwitch || (messages.length !== _lastRenderedMsgCount);
+      _lastRenderedPsid = psid;
+      _lastRenderedMsgCount = messages.length;
+
+      if (messages.length === 0) {
+        chatBox.innerHTML = `<div style="padding:32px; text-align:center; color:#64748b; font-size:13px;">ยังไม่มีข้อความในระบบ กดปุ่ม <b>🔄 ดึงแชท FB ล่าสุด</b> ด้านบนเพื่อดึงประวัติแชทได้ทันทีค่ะ</div>`;
+        return;
+      }
+
       chatBox.innerHTML = messages.map(m => {
         const raw = String(m.content || '');
         let bubbleHtml = '';
@@ -1288,7 +1313,9 @@
           </div>
         `;
       }).join('');
-      chatBox.scrollTop = chatBox.scrollHeight;
+      if (shouldScroll) {
+        chatBox.scrollTop = chatBox.scrollHeight;
+      }
     }
 
     async function sendPresetImage(imageKey) {
