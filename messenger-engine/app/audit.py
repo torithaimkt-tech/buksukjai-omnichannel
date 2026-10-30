@@ -328,6 +328,7 @@ def audit_session_for_jst(psid: str) -> dict[str, Any]:
     is_cod = bool(extracted.get("is_cod"))
     slip_url = extracted.get("slip_url") or ""
     has_slip = bool(extracted.get("has_slip") and slip_url)
+    has_admin_buy_tag = bool(extracted.get("has_admin_buy_summary"))
     cod_confirmed = bool(extracted.get("customer_confirmed_cod"))
 
     if not is_cod:
@@ -335,10 +336,14 @@ def audit_session_for_jst(psid: str) -> dict[str, Any]:
             has_slip
             and "/static/media/promo_" not in slip_url
             and "39178562_1505197616293642" not in slip_url
-        )
+        ) or has_admin_buy_tag
         checks.append({
             "name": "ตรวจสอบสลิปโอนเงินจริงของลูกค้า (ห้ามใช้รูปโปรโมชั่นแทนสลิป)",
-            "value": "พบสลิปจริงจากฝั่งลูกค้า" if slip_is_authentic else "ไม่พบสลิปโอนเงิน",
+            "value": (
+                "พบสลิปจริงจากฝั่งลูกค้า"
+                if (has_slip and "/static/media/promo_" not in slip_url)
+                else ("แอดมินตรวจรับสลิปและปิดแท็ก #BUY แล้ว" if has_admin_buy_tag else "ไม่พบสลิปโอนเงิน")
+            ),
             "status": "ok" if slip_is_authentic else "fail",
         })
         if not slip_is_authentic:
@@ -376,4 +381,165 @@ def audit_session_for_jst(psid: str) -> dict[str, Any]:
         "issues": issues,
         "checks": checks,
         "extracted": extracted,
+    }
+
+
+def audit_jst_orders_against_chat(days_lookback: int = 1, auto_clean: bool = False) -> dict[str, Any]:
+    """Run Post-Keying Audit (Audit ชั้นที่ 2 สำหรับออเดอร์):
+    Pulls active manual orders from JST ERP (`NewQueryOrders`) and cross-checks them against:
+      1. Duplicate Active Orders per Customer Phone / Name
+      2. Actual Facebook Chat Confirmation & Dialogue Completion
+      3. Exact SKU, Quantity & Total Pay Amount Match between Chat and JST ERP
+      4. Complete Address (Province / District) & Slip Audit Status
+    """
+    from datetime import timedelta
+    import httpx
+    from . import jst_erp
+
+    bkk_tz = timezone(timedelta(hours=7))
+    now_bkk = datetime.now(bkk_tz)
+    start_str = (now_bkk - timedelta(days=max(0, days_lookback))).strftime("%Y-%m-%d 00:00:00")
+    end_str = now_bkk.strftime("%Y-%m-%d 23:59:59")
+
+    payload = {
+        "RequestModel": {
+            "SendFrom": "NewQueryOrders",
+            "OrderTimeStart": start_str,
+            "OrderTimeEnd": end_str,
+        },
+        "DataPage": {"pageSize": 100, "pageIndex": 1, "total": 0, "sizes": [50, 100, 200, 500]},
+    }
+    resp = httpx.post(
+        "https://asia.jsterp.com/OMS/MiniShopOrder/NewQueryOrders",
+        headers=jst_erp._headers(json_body=True),
+        json=payload,
+        timeout=20.0,
+    )
+    resp.raise_for_status()
+    rows_obj = (resp.json() or {}).get("Rows") or {}
+    cols = rows_obj.get("cols") or []
+    raw_rows = rows_obj.get("rows") or []
+
+    active_manual_orders: list[dict[str, Any]] = []
+    for row in raw_rows:
+        d = dict(zip(cols, row))
+        st = str(d.get("StatusDisplay") or d.get("SocialStatusDisplay") or "")
+        if "ยกเลิก" in st or "Cancel" in str(d.get("Status") or ""):
+            continue
+        if str(d.get("SaveType") or "") != "ManualOrder" and str(d.get("CreatorName") or "") != "buksukjai":
+            continue
+        skus_raw = d.get("MergeSkus") or d.get("Skus") or []
+        sku_code = ""
+        sku_qty = 1
+        if isinstance(skus_raw, list) and skus_raw and isinstance(skus_raw[0], list) and len(skus_raw[0]) >= 9:
+            sku_code = str(skus_raw[0][1] or "")
+            sku_qty = int(skus_raw[0][8] or 1)
+        active_manual_orders.append({
+            "order_id": str(d.get("OrderId") or ""),
+            "order_time": str(d.get("OrderTime") or ""),
+            "status": st,
+            "receiver_name": str(d.get("ReceiverName") or "").strip(),
+            "phone": jst_erp.normalize_thai_phone(str(d.get("ReceiverMobileEn") or d.get("ReceiverMobile") or "")),
+            "province": str(d.get("ReceiverProvince") or "").strip(),
+            "city": str(d.get("ReceiverCity") or "").strip(),
+            "address": str(d.get("ReceiverAddress") or "").strip(),
+            "sku_id": sku_code,
+            "qty": sku_qty,
+            "pay_amount": float(d.get("PayAmount") or 0.0),
+            "is_cod": bool(d.get("IsCod")),
+            "seller_remark": str(d.get("SellerRemark") or "").strip(),
+            "tracking_no": str(d.get("LogisticsTrackingNumber") or "").strip(),
+            "machine_audit": str(d.get("MachineAuditMessage") or "").strip(),
+        })
+
+    # Group by phone / receiver_name to detect duplicate active orders
+    by_phone: dict[str, list[dict[str, Any]]] = {}
+    for o in active_manual_orders:
+        key = o["phone"] or o["receiver_name"]
+        if key:
+            by_phone.setdefault(key, []).append(o)
+
+    duplicates: list[dict[str, Any]] = []
+    for key, orders_list in by_phone.items():
+        if len(orders_list) > 1:
+            duplicates.append({
+                "customer_key": key,
+                "count": len(orders_list),
+                "order_ids": [x["order_id"] for x in orders_list],
+                "orders": orders_list,
+            })
+
+    # Cross-check against local sessions
+    sessions = database.list_all_sessions(brand_id="buksukjai", platform="facebook")
+    mismatches: list[dict[str, Any]] = []
+    verified_orders: list[dict[str, Any]] = []
+    auto_cancelled_ids: list[str] = []
+
+    for o in active_manual_orders:
+        order_issues: list[str] = []
+        unconfirmed_in_chat = False
+        if not o["province"] or not o["city"]:
+            order_issues.append("ที่อยู่ใน JST ขาดข้อมูลจังหวัดหรือเขต/อำเภอ")
+        if "ใบสั่งซื้อถูกใช้ไปแล้ว" in o["machine_audit"]:
+            order_issues.append(f"แจ้งเตือนสลิปซ้ำใน JST: {o['machine_audit']}")
+
+        # Match session by FB remark or customer name
+        matched_psid = ""
+        for s in sessions:
+            cname = (s.get("customer_name") or "").strip()
+            if cname and (cname in o["seller_remark"] or cname == o["receiver_name"]):
+                matched_psid = s["psid"]
+                break
+
+        if matched_psid:
+            chat_audit = audit_session_for_jst(matched_psid)
+            ext = chat_audit["extracted"]
+            if not ext.get("dialogue_complete"):
+                unconfirmed_in_chat = True
+                order_issues.append(f"ในแชทลูกค้ายังยืนยันไม่ครบ: {ext.get('dialogue_reason')}")
+            chat_amt = float(ext.get("total_amount") or 0.0)
+            if chat_amt > 0 and abs(chat_amt - o["pay_amount"]) > 1.0:
+                order_issues.append(f"ยอดเงินใน JST ({o['pay_amount']:.0f}฿) ไม่ตรงกับยอดในแชท ({chat_amt:.0f}฿)")
+            chat_sku = str(ext.get("sku_id") or "")
+            if chat_sku and o["sku_id"] and chat_sku != o["sku_id"]:
+                order_issues.append(f"รหัสสินค้าใน JST ({o['sku_id']}) ไม่ตรงกับในแชท ({chat_sku})")
+
+        if auto_clean and unconfirmed_in_chat and not o["tracking_no"] and "จัดส่งแล้ว" not in o["status"]:
+            try:
+                jst_erp.cancel_orders_in_jst([o["order_id"]], "Audit ชั้นที่ 2 ยกเลิกอัตโนมัติ: ลูกค้ายังยืนยันไม่ครบในแชทค่ะ")
+                auto_cancelled_ids.append(o["order_id"])
+            except Exception as exc:
+                logger.warning("Auto-cancel unconfirmed order %s failed: %s", o["order_id"], exc)
+
+        if order_issues:
+            mismatches.append({**o, "issues": order_issues})
+        else:
+            verified_orders.append(o)
+
+    if auto_clean and duplicates:
+        for grp in duplicates:
+            orders_list = grp["orders"]
+            # If one order is manual/admin (empty remark or has tracking) and another is an unshipped FB bot duplicate, cancel the bot duplicate
+            has_primary = any((not x["seller_remark"].startswith("FB:")) or bool(x["tracking_no"]) for x in orders_list)
+            if has_primary:
+                for x in orders_list:
+                    if x["seller_remark"].startswith("FB:") and not x["tracking_no"] and "จัดส่งแล้ว" not in x["status"]:
+                        if x["order_id"] not in auto_cancelled_ids:
+                            try:
+                                jst_erp.cancel_orders_in_jst([x["order_id"]], "Audit ชั้นที่ 2 ยกเลิกอัตโนมัติ: ออเดอร์ซ้ำกับใบหลักของแอดมินค่ะ")
+                                auto_cancelled_ids.append(x["order_id"])
+                            except Exception as exc:
+                                logger.warning("Auto-cancel duplicate order %s failed: %s", x["order_id"], exc)
+
+    return {
+        "passed": len(duplicates) == 0 and len(mismatches) == 0,
+        "window": f"{start_str} -> {end_str}",
+        "total_active_manual_orders": len(active_manual_orders),
+        "duplicate_groups_count": len(duplicates),
+        "duplicates": duplicates,
+        "mismatch_orders_count": len(mismatches),
+        "mismatches": mismatches,
+        "verified_orders_count": len(verified_orders),
+        "verified_orders": verified_orders,
+        "auto_cancelled_order_ids": auto_cancelled_ids,
     }

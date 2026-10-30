@@ -1264,6 +1264,7 @@ def extract_order_from_session(psid: str) -> dict[str, Any]:
         "payment_label": payment_label,
         "customer_confirmed_cod": cod_confirmed,
         "has_slip": bool(slip_image_url),
+        "has_admin_buy_summary": bool(latest_summary and buy_tags),
         "slip_url": slip_image_url,
         "slip_image_url": slip_image_url,
         "dialogue_complete": dialogue_complete,
@@ -1296,7 +1297,7 @@ def extract_order_from_session(psid: str) -> dict[str, Any]:
             "valid": False,
             "reason": "ออเดอร์เก็บเงินปลายทาง (COD) ยังไม่ได้รับการคอนเฟิร์มขั้นสุดท้ายจากลูกค้าค่ะ",
         }
-    if not is_cod and not slip_image_url:
+    if not is_cod and not slip_image_url and not (latest_summary and buy_tags):
         return {
             **base_info,
             "valid": False,
@@ -1410,5 +1411,11 @@ def sync_all_confirmed_orders_to_jst(days_lookback: int = 2) -> dict[str, Any]:
         except Exception as exc:
             logger.error("Error syncing session %s to JST: %s", psid, exc)
             results["errors"].append({"psid": psid, "error": str(exc)})
+
+    try:
+        from . import audit as _audit_mod
+        results["post_keying_reconcile"] = _audit_mod.audit_jst_orders_against_chat(days_lookback=1, auto_clean=True)
+    except Exception as exc:
+        logger.warning("Post-keying reconcile audit failed: %s", exc)
 
     return results
