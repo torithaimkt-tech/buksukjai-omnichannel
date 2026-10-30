@@ -212,27 +212,12 @@ def audit_outgoing_reply(
     user_ever_said_transfer = any(w in all_user_text for w in ("โอน", "สลิป", "เลขบัญชี", "บช"))
     reply_joined = "\n".join(bubbles)
 
-    # A) FDA / เลข อย. & Halal Strict Brand-Specific Protocol
-    # CRITICAL RULE: Only Mr.Buk (`brand_id == "mrbuk"`) has complete Halal & FDA (อย. 13-4-06169-6-0001) documents!
-    # Buk Sukjai (`brand_id == "buksukjai"`) does NOT have Halal or FDA yet!
+    # A) FDA / เลข อย. Strict Protocol (เรามีใบรับรองฮาลาลแน่นอน แต่ อย. ยังอยู่ระหว่างดำเนินการขอเลขชัดเจน)
     is_fda_oy_question = any(
         w in u_low for w in ("อย.", "เลข อย", "มี อย", "ใบ อย", "ผ่าน อย", "ขอเลขอย", "มีอยไหม", "มีอย.ไหม", "มีอยมั้ย")
     )
-    is_halal_question = any(
-        w in u_low for w in ("ฮาลาล", "halal", "อิสลาม", "มุสลิม")
-    )
-    if brand_id == "mrbuk" and (is_fda_oy_question or is_halal_question):
-        bubbles = [
-            "ข้าวบุกหอมมะลิ มิสเตอร์บุก (Mr.Buk) มีเลขสารบบ อย. ถูกต้องครบถ้วน (เลขที่ 13-4-06169-6-0001) และมีเอกสารรับรองมาตรฐานฮาลาล (Halal) ครบถ้วนค่ะ พี่น้องมุสลิม เจ และมังสวิรัติสามารถทานได้อย่างมั่นใจและปลอดภัย 100% เลยค่ะ 😊💚"
-        ]
-        auto_fixes.append("ยืนยันข้อมูลเลข อย. (13-4-06169-6-0001) และเอกสารฮาลาลครบถ้วนสำหรับแบรนด์ Mr.Buk")
-    elif brand_id != "mrbuk" and (is_fda_oy_question or is_halal_question):
-        if is_halal_question and not is_fda_oy_question:
-            bubbles = [
-                "ข้าวบุกสุขใจทำจากพืชธรรมชาติ 100% (หัวบุกผสมข้าวหอมมะลิแท้ ไม่มีส่วนผสมของเนื้อสัตว์และแอลกอฮอล์ ทานเจและมังสวิรัติได้ค่ะ)",
-                "แต่สำหรับเอกสารรับรองเครื่องหมายฮาลาล (Halal) และเลข อย. ปัจจุบันทางแบรนด์ข้าวบุกสุขใจยังอยู่ระหว่างดำเนินการขอในประเทศไทยนะคะ พอได้รับเอกสารเรียบร้อยแล้วแอดมินจะรีบมาอัปเดตให้ทราบทันทีเลยนะคะ 🙏",
-            ]
-        elif "สารกันบูด" in u_low:
+    if is_fda_oy_question:
+        if "สารกันบูด" in u_low:
             bubbles = [
                 "ข้าวบุกสุขใจผ่านกระบวนการอบแห้งฆ่าเชื้อด้วยความร้อนสูงตามมาตรฐานโรงงาน ไม่ใส่สารกันบูดและไม่เจือสีสังเคราะห์ค่ะ",
                 "ส่วนเรื่องเลข อย. ตอนนี้ทางร้านยังอยู่ระหว่างดำเนินการขอเลข อย. ค่ะคุณลูกค้า เนื่องจากขั้นตอนขอ อย. ในประเทศไทยใช้ระยะเวลาค่อนข้างนาน พอได้เลขเรียบร้อยแล้วแอดมินจะรีบมาอัปเดตให้ทราบทันทีเลยนะคะ 🙏",
@@ -245,17 +230,11 @@ def audit_outgoing_reply(
         audited_state = "browsing"
         try:
             database.set_bot_enabled(psid, False)
-            updated_tags = database._add_tag_str(getattr(user_session, "broadcast_tags", "") or "", "ถาม อย./ฮาลาล (รอแอดมิน)")
+            updated_tags = database._add_tag_str(getattr(user_session, "broadcast_tags", "") or "", "ถาม อย. (รอแอดมิน)")
             database.update_session_meta(psid=psid, broadcast_tags=updated_tags)
         except Exception:
             pass
-        auto_fixes.append("ตรวจพบคำถามเรื่อง อย./ฮาลาล ในเพจข้าวบุกสุขใจ — ตอบตามความจริงโดยไม่เคลมฮาลาล/อย. ไม่แนบโปรโมชั่นปิดการขาย และสลับให้แอดมินดูแลต่ออัตโนมัติ")
-    elif brand_id != "mrbuk" and ("ฮาลาลทานได้" in reply_joined or "มีฮาลาล" in reply_joined or "ผ่านฮาลาล" in reply_joined):
-        bubbles = [
-            b.replace(" / ฮาลาลทานได้", "").replace("ฮาลาลทานได้", "มังสวิรัติทานได้").replace("มีฮาลาล", "เป็นสูตรเจ/มังสวิรัติ")
-            for b in bubbles
-        ]
-        auto_fixes.append("บล็อกการเคลมฮาลาลในเพจข้าวบุกสุขใจ (มีเฉพาะ Mr.Buk เท่านั้นที่มีเอกสารฮาลาลและ อย. ครบถ้วน)")
+        auto_fixes.append("ตรวจพบคำถามเรื่อง อย. — ตอบตามสคริปต์มาตรฐานโดยไม่แนบโปรโมชั่นปิดการขาย และสลับให้แอดมินดูแลต่ออัตโนมัติ")
 
     # B) Post-Summary Cancellation Shield (ลูกค้าพิมพ์ขอยกเลิก / ไม่เอาแล้ว / ยังไม่รับ)
     is_cancel_request = (
