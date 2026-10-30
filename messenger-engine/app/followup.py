@@ -509,6 +509,15 @@ async def followup_loop(config: dict, public_base_url_getter=None) -> None:
             # 0. Sync real Facebook conversation history & paid order status first!
             await messenger.sync_recent_facebook_conversations("buksukjai", limit=35)
 
+            # 0.2 Daily 01:00 AM Sales & Stock Reconciliation Summary (สรุปยอดขายของเมื่อวานทุกวันเวลา 01:00 น.)
+            from . import daily_sheet_report
+
+            should_rep, yest_date = daily_sheet_report.should_run_daily_1am_report()
+            if should_rep:
+                logger.info("Running Daily 01:00 AM (BKK) Sales & Stock Summary for %s...", yest_date)
+                rep = await asyncio.to_thread(daily_sheet_report.build_daily_sales_sheet_rows, yest_date)
+                await asyncio.to_thread(daily_sheet_report.save_daily_report_snapshot, rep)
+
             # 0.5 Daily 06:00 AM Batch Keying into JST ERP (คีย์ข้อมูลวันละ 1 ครั้ง ตอน 06:00 น. เวลาไทย รวบรวมออเดอร์ของเมื่อวาน)
             importlib.reload(jst_erp)
             if jst_erp.should_run_daily_6am_sync():
