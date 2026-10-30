@@ -372,6 +372,24 @@ def cancel_orders_in_jst(
     return {"status": "ok", "order_ids": clean_ids, "response": resp.json()}
 
 
+def confirm_orders_in_jst(order_ids: list[int | str]) -> dict[str, Any]:
+    """Approve/confirm payment (`ตรวจสอบการชำระเงินแล้ว` -> `/OMS/MiniShopOrder/ConfirmOrder`) for verified bank-transfer orders in JST ERP."""
+    clean_ids = [str(x).strip() for x in order_ids if str(x).strip().isdigit()]
+    if not clean_ids:
+        return {"status": "error", "message": "ไม่พบ OrderId ที่ต้องการยืนยันการชำระเงินค่ะ"}
+    h = _headers(json_body=True)
+    h["Origin"] = "https://asia.jsterp.com"
+    h["Referer"] = "https://asia.jsterp.com/OMS/MiniShopOrder/Index"
+    resp = httpx.post(
+        "https://asia.jsterp.com/OMS/MiniShopOrder/ConfirmOrder",
+        headers=h,
+        json={"OrderIds": clean_ids},
+        timeout=20.0,
+    )
+    resp.raise_for_status()
+    return {"status": "ok", "order_ids": clean_ids, "response": resp.json()}
+
+
 def recognize_and_clean_address(
     raw_address: str,
     explicit_name: str = "",
@@ -847,6 +865,12 @@ def create_order_in_jst(
 
     verify_info = check_duplicate_order(phone, within_days=1)
     created_order = verify_info["recent_orders"][0] if verify_info["recent_orders"] else None
+
+    if not is_cod and voucher_id and created_order and created_order.get("order_id"):
+        try:
+            confirm_orders_in_jst([created_order["order_id"]])
+        except Exception as exc:
+            logger.warning("Auto ConfirmOrder warning for %s: %s", created_order.get("order_id"), exc)
 
     return {
         "status": "created",
