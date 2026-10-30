@@ -535,6 +535,12 @@ async def followup_loop(config: dict, public_base_url_getter=None) -> None:
                 await messenger.sync_recent_facebook_conversations("buksukjai", limit=60)
                 await asyncio.to_thread(jst_erp.sync_all_confirmed_orders_to_jst, 2, True)
 
+            # 0.7 2-Stage Automated Parcel Tracking Notifier (แจ้งเลขพัสดุเมื่อขนส่งเข้ารับแล้ว & แจ้งเมื่อพัสดุส่งถึงมือลูกค้าพร้อมเวลา)
+            from . import parcel_tracker
+
+            importlib.reload(parcel_tracker)
+            await parcel_tracker.check_and_send_parcel_tracking_updates(public_base_url=pub_url)
+
             # 1. Ghost / Silent Lead Re-engagement Bot (Stage 1: 1h, Stage 2: 6h, Stage 3: 20h)
             re_cfg = get_reengage_config()
             if re_cfg.get("auto_enabled", True):
@@ -689,6 +695,23 @@ def _register_jst_routes() -> None:
             await messenger.sync_recent_facebook_conversations("buksukjai", limit=40)
             pub_url = getattr(main_mod, "PUBLIC_BASE_URL", "")
             return await run_auto_reengage_scan(public_base_url=pub_url)
+
+    if "/api/jst/sync-tracking" not in existing_paths:
+        @fastapi_app.get("/api/jst/tracking-status")
+        async def api_jst_tracking_status():
+            from . import parcel_tracker
+
+            return parcel_tracker.get_tracking_state()
+
+        @fastapi_app.post("/api/jst/sync-tracking")
+        async def api_jst_sync_tracking(dry_run: bool = False):
+            from . import parcel_tracker
+
+            pub_url = getattr(main_mod, "PUBLIC_BASE_URL", "")
+            return await parcel_tracker.check_and_send_parcel_tracking_updates(
+                public_base_url=pub_url,
+                dry_run=dry_run,
+            )
 
 
 _register_jst_routes()
