@@ -110,6 +110,9 @@ def build_daily_sales_sheet_rows(target_date: str) -> dict[str, Any]:
 
     tot_transfer = 0.0
     tot_cod = 0.0
+    tot_facebook = 0.0
+    tot_tiktok = 0.0
+    tot_shopee = 0.0
     tot_1kg = 0
     tot_500g = 0
     tot_60g = 0
@@ -131,6 +134,12 @@ def build_daily_sales_sheet_rows(target_date: str) -> dict[str, Any]:
         save_type = str(o.get("SaveType") or "")
         plat_id = str(o.get("PlatformId") or "")
         channel = "Facebook" if save_type == "ManualOrder" else (plat_id or "TikTok")
+        if channel.lower() == "facebook":
+            tot_facebook += amt
+        elif channel.lower() == "shopee":
+            tot_shopee += amt
+        else:
+            tot_tiktok += amt
 
         first_en = str(o.get("ReceiverFirstNameEn") or "").strip()
         last_en = str(o.get("ReceiverLastNameEn") or "").strip()
@@ -197,6 +206,15 @@ def build_daily_sales_sheet_rows(target_date: str) -> dict[str, Any]:
     # Blank separator row
     table_rows.append(["", "", "", "", "", "", "", "", "", "", ""])
 
+    # Channel Sales Summary in separate cells (Label in Col H, Amount in Col I under จำนวนเงิน)
+    table_rows.append(["", "", "", "", "", "", "", "Facebook", round(tot_facebook, 2), "", ""])
+    table_rows.append(["", "", "", "", "", "", "", "TikTok", round(tot_tiktok, 2), "", ""])
+    if tot_shopee > 0:
+        table_rows.append(["", "", "", "", "", "", "", "Shopee", round(tot_shopee, 2), "", ""])
+
+    # Blank separator row
+    table_rows.append(["", "", "", "", "", "", "", "", "", "", ""])
+
     # Payment Summary in separate cells (Label in Col H, Amount in Col I under จำนวนเงิน)
     table_rows.append(["", "", "", "", "", "", "", "โอน", round(tot_transfer, 2), "", ""])
     table_rows.append(["", "", "", "", "", "", "", "COD", round(tot_cod, 2), "", ""])
@@ -209,6 +227,9 @@ def build_daily_sales_sheet_rows(target_date: str) -> dict[str, Any]:
         "tot_500g": tot_500g,
         "tot_60g": tot_60g,
         "tot_pieces": tot_pieces,
+        "tot_facebook": round(tot_facebook, 2),
+        "tot_tiktok": round(tot_tiktok, 2),
+        "tot_shopee": round(tot_shopee, 2),
         "tot_transfer": round(tot_transfer, 2),
         "tot_cod": round(tot_cod, 2),
         "grand_total": grand_total,
@@ -257,11 +278,12 @@ def save_daily_report_snapshot(report: dict[str, Any], sync_google_sheet: bool =
         for row in report["sheet_rows"]:
             writer.writerow(row)
 
-    if sync_google_sheet and shutil.which("gdrive"):
+    gdrive_bin = shutil.which("gdrive")
+    if sync_google_sheet and gdrive_bin:
         try:
             subprocess.run(
                 [
-                    "gdrive",
+                    gdrive_bin,
                     "mutate",
                     "update",
                     GOOGLE_SHEET_FILE_ID,
