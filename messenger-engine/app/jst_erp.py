@@ -984,6 +984,31 @@ def check_dialogue_completion(msgs: list[dict[str, str]], has_verified_slip: boo
     if not user_msgs:
         return False, "ลูกค้ายังไม่ได้ส่งข้อความตอบกลับในรอบปัจจุบันค่ะ"
 
+    # Check if customer explicitly cancelled the order or stated this is an exchange/return in recent messages
+    recent_user_tail = "\n".join(user_msgs[-3:]).lower()
+    if "ไม่ยกเลิก" not in recent_user_tail and any(
+        w in recent_user_tail
+        for w in (
+            "ขอยกเลิก",
+            "ยกเลิกก่อน",
+            "ยกเลิกค่ะ",
+            "ยกเลิกคะ",
+            "ยกเลิกครับ",
+            "ยกเลิกนะ",
+            "ไม่เอาแล้ว",
+            "ไม่รับแล้ว",
+            "ยังไม่รับค่ะ",
+            "ยังไม่รับนะคะ",
+            "ถ้าบวกเพิ่มไม่รับ",
+            "แพงไปเรายกเลิก",
+            "ส่งสินค้าไปเปลี่ยน",
+            "ส่งสินึ้าไปเปลี่ยน",
+            "ไม่ได้สั่งสินค้าใหม่",
+            "แคนเซิล",
+        )
+    ):
+        return False, "ลูกค้าแจ้งขอยกเลิกคำสั่งซื้อหรือเป็นเคสส่งเปลี่ยนสินค้าในแชทค่ะ"
+
     # Find the index of the latest official Admin Order Summary ("เพจ : ข้าวบุก สุขใจ ... จัดส่ง : ...")
     last_summary_idx = -1
     for i, m in enumerate(msgs):

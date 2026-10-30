@@ -472,6 +472,18 @@ async def process_omnichannel_message(
         wants_to_reorder = any(
             w in low_txt for w in ("สั่งเพิ่ม", "ซื้อเพิ่ม", "สั่งอีก", "เอาอีก", "โปรลูกค้าเก่า", "สั่งซื้อเพิ่ม")
         )
+        wants_to_cancel = (
+            "ไม่ยกเลิก" not in low_txt
+            and any(
+                w in low_txt
+                for w in ("ขอยกเลิก", "ยกเลิกก่อน", "ยกเลิกค่ะ", "ยกเลิกคะ", "ยกเลิกครับ", "ยกเลิกนะ", "ไม่เอาแล้ว", "ไม่รับแล้ว", "ยังไม่รับ", "แคนเซิล", "cancel")
+            )
+        ) or low_txt in ("ยกเลิก", "cancel")
+        if wants_to_cancel:
+            is_paid_customer = False
+            database.update_session_meta(session_key, state="browsing", is_starred=False)
+            user.state = "browsing"
+            user.is_starred = False
 
         # If customer already completed an order and just sends a comma, dot, thank-you, or attachment, stay silent!
         if is_paid_customer and not wants_to_reorder:

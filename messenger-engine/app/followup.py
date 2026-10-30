@@ -283,12 +283,31 @@ def get_session_reengage_status(psid: str) -> dict:
         or "ชำระเงินแล้ว" in tags_str
         or "ติดดาว" in tags_str
         or "สั่งซื้อสำเร็จ" in tags_str
+        or "ยกเลิกออเดอร์" in tags_str
+        or "ถาม อย." in tags_str
         or "#JST_ORDER:" in notes_str
     ):
         return {
             "psid": psid,
             "eligible": False,
-            "reason": "ลูกค้าติดดาว ⭐ (สั่งซื้อ/ชำระเงินเรียบร้อยแล้ว — ห้ามขุดซ้ำ)",
+            "reason": "ลูกค้าติดดาว ⭐ / ชำระเงินแล้ว / หรือยกเลิกออเดอร์แล้ว — ระบบบล็อกไม่ให้ทักขุดซ้ำค่ะ",
+            "state": user.state,
+            "current_stage": 0,
+            "hours_silent": 0.0,
+        }
+
+    # Also check message history for customer slip attachment, transfer confirmation, or cancellation
+    user_texts_joined = "\n".join(
+        str(m.get("content") or "") for m in msgs if m.get("role") == "user"
+    ).lower()
+    if any(
+        k in user_texts_joined
+        for k in ("[image:", "โอนแล้ว", "ส่งสลิป", "แนบสลิป", "ส่งการชำระเงินจำนวน", "ขอยกเลิก", "ไม่เอาแล้ว", "ยกเลิกค่ะ", "ยกเลิกครับ")
+    ):
+        return {
+            "psid": psid,
+            "eligible": False,
+            "reason": "ตรวจพบสลิปโอนเงินหรือข้อความขอยกเลิกในประวัติแชท — ป้องกันการทักขุดซ้ำค่ะ",
             "state": user.state,
             "current_stage": 0,
             "hours_silent": 0.0,
