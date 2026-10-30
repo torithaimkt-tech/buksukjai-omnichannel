@@ -981,8 +981,14 @@ async def api_audit_report(limit: int = 50):
 
 @app.get("/api/sessions/{psid:path}/audit")
 async def api_audit_session(psid: str):
-    """Run Layer-2 Pre-JST Order Audit on a specific customer session."""
+    """Run Layer-1 Pre-Keying Order Audit on a specific customer session."""
     return audit.audit_session_for_jst(psid)
+
+
+@app.get("/api/audit/jst-reconcile")
+async def api_audit_jst_reconcile(days_lookback: int = 2):
+    """Run Layer-2 Post-Keying Reconciliation Audit (cross-checks active JST ERP orders against Facebook chats)."""
+    return audit.audit_jst_orders_against_chat(days_lookback=days_lookback)
 
 
 @app.get("/api/jst/status")

@@ -68,8 +68,9 @@ def load_pages_registry() -> list[dict]:
         ]
     with open(target_path, encoding="utf-8") as f:
         data = json.load(f)
-    pages = data.get("pages", [])
-    for p in pages:
+    pages = [p for p in data.get("pages", []) if p.get("brand_id") != "pordisuk"]
+    for idx, p in enumerate(pages, start=1):
+        p["slot"] = idx
         if p.get("brand_id") == "buksukjai":
             ch = p.setdefault("channels", {})
             if not ch.get("line_channel_secret"):
