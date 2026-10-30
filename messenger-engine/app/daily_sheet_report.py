@@ -232,16 +232,48 @@ def should_run_daily_1am_report() -> tuple[bool, str]:
     return state.get("last_report_date") != yesterday_str, yesterday_str
 
 
-def save_daily_report_snapshot(report: dict[str, Any]) -> Path:
-    """Save the daily report JSON & TSV snapshot for local download and Google Sheets sync."""
+GOOGLE_SHEET_FILE_ID = "1mMO_aZnaCaDskrJMreJiaonFqna-WNKBhOoozAWxIhE"
+
+
+def save_daily_report_snapshot(report: dict[str, Any], sync_google_sheet: bool = True) -> Path:
+    """Save the daily report JSON, TSV & CSV snapshot, and auto-update the connected Google Sheet via gdrive CLI."""
+    import csv
+    import shutil
+    import subprocess
+
     out_dir = Path(__file__).resolve().parent.parent / "reports"
     out_dir.mkdir(parents=True, exist_ok=True)
     target_date = report["target_date"]
     json_path = out_dir / f"daily_sales_{target_date}.json"
     tsv_path = out_dir / f"daily_sales_{target_date}.tsv"
+    csv_path = out_dir / f"daily_sales_{target_date}.csv"
+
     json_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     tsv_lines = ["\t".join(str(c) for c in r) for r in report["sheet_rows"]]
     tsv_path.write_text("\n".join(tsv_lines), encoding="utf-8")
+
+    with open(csv_path, "w", encoding="utf-8", newline="") as f:
+        writer = csv.writer(f)
+        for row in report["sheet_rows"]:
+            writer.writerow(row)
+
+    if sync_google_sheet and shutil.which("gdrive"):
+        try:
+            subprocess.run(
+                [
+                    "gdrive",
+                    "mutate",
+                    "update",
+                    GOOGLE_SHEET_FILE_ID,
+                    str(csv_path),
+                    "--mime-type",
+                    "application/vnd.google-apps.spreadsheet",
+                ],
+                check=False,
+                timeout=30,
+            )
+        except Exception as exc:
+            logger.warning("gdrive sheet update warning: %s", exc)
 
     REPORT_STATE_FILE.write_text(
         json.dumps(
@@ -250,10 +282,11 @@ def save_daily_report_snapshot(report: dict[str, Any]) -> Path:
                 "generated_at": datetime.now(BKK_TZ).isoformat(),
                 "order_count": report["order_count"],
                 "grand_total": report["grand_total"],
+                "google_sheet_id": GOOGLE_SHEET_FILE_ID,
             },
             ensure_ascii=False,
             indent=2,
         ),
         encoding="utf-8",
     )
-    return tsv_path
+    return csv_path
