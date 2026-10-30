@@ -1,5 +1,5 @@
 """Omnichannel AI Chatbot Engine & Pancake-Style Admin Inbox
-(Supports 5 Pages across LINE OA, Facebook Messenger, Instagram DM & Web Chat).
+(Supports 4 Pages across LINE OA, Facebook Messenger, Instagram DM & Web Chat).
 
 Run locally with:
     python -m uvicorn app.main:app --reload --port 8000
@@ -18,7 +18,7 @@ from pydantic import BaseModel
 
 load_dotenv()
 
-from . import database, followup, media_generator, messenger  # noqa: E402
+from . import audit, database, followup, media_generator, messenger  # noqa: E402
 from .config_loader import (  # noqa: E402
     get_page_by_brand_id,
     load_config,
@@ -199,7 +199,7 @@ async def lifespan(app: FastAPI):
     _seed_sample_conversations_if_empty()
     _start_local_tunnel_if_available()
     logger.info(
-        "Omnichannel Engine ready — primary brand '%s' (bot: %s), 5-page registry active",
+        "Omnichannel Engine ready — primary brand '%s' (bot: %s), 4-page registry active",
         CONFIG["brand_persona"]["brand_name"],
         CONFIG["brand_persona"]["bot_name"],
     )
@@ -220,7 +220,7 @@ async def lifespan(app: FastAPI):
             pass
 
 
-app = FastAPI(title="Omnichannel AI Chatbot & Admin Inbox (5-Page Edition)", lifespan=lifespan)
+app = FastAPI(title="Omnichannel AI Chatbot & Admin Inbox (4-Page Edition)", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
@@ -384,9 +384,9 @@ async def receive_line_webhook(
             continue
 
         if event_type == "follow":
-            greeting = CONFIG["brand_persona"]["greeting_message"]
-            promo_item = media_generator.get_media_item("promo_3sizes")
-            img_url = f"{PUBLIC_BASE_URL}{promo_item['relative_url']}" if (PUBLIC_BASE_URL and promo_item) else None
+            from .llm import FULL_PROMO_SUMMARY_BUBBLE
+            greeting = f"{CONFIG['brand_persona']['greeting_message']}|||{FULL_PROMO_SUMMARY_BUBBLE}"
+            all_promo_items = media_generator.get_all_promo_items()
             background_tasks.add_task(
                 messenger.send_omnichannel_text,
                 "line",
@@ -394,8 +394,10 @@ async def receive_line_webhook(
                 greeting,
                 brand_id,
                 reply_token,
-                img_url,
-                promo_item["local_path"] if promo_item else None,
+                None,
+                None,
+                all_promo_items,
+                PUBLIC_BASE_URL,
             )
         elif event_type == "message":
             msg_obj = event.get("message", {})
@@ -503,51 +505,43 @@ async def process_omnichannel_message(
 
         reply, new_state, image_key = await LLM.generate(clean_history, user.state)
 
-        # Smart fallback if customer explicitly asked for promo/price/photo but LLM returned 'none'
+        # Smart fallback: whenever customer asks for promo/price/sizes/interest, send ALL 4 promo images ('promo_all') at once!
         explicitly_asked_pic = (not is_attachment_placeholder) and (not is_paid_customer or wants_to_reorder) and any(
-            w in low_txt for w in ("รูป", "ภาพ", "โปร", "ราคา", "สนใจ")
+            w in low_txt for w in ("รูป", "ภาพ", "โปร", "ราคา", "สนใจ", "กี่บาท", "เท่าไหร่", "ขนาด", "ไซส์", "ขายยังไง")
         )
         if is_attachment_placeholder or (is_paid_customer and not wants_to_reorder):
             image_key = "none"
             if is_paid_customer and not wants_to_reorder:
                 new_state = "completed"
-        elif (not image_key or image_key == "none") and explicitly_asked_pic:
-            if any(w in low_txt for w in ("รูปโปร", "ดูโปร", "โปรทั้งหมด", "มีโปรอะไร")):
-                image_key = "promo_all"
-            elif any(w in low_txt for w in ("899", "2 แถม 2", "2แถม2", "ครอบครัว")):
-                image_key = "promo_899"
-            elif any(w in low_txt for w in ("1299", "1,299", "3 แถม 3", "3แถม3")):
-                image_key = "promo_1299"
-            elif any(w in low_txt for w in ("15 ซอง", "20 ซอง", "555", "720", "ซองพกพา")):
-                image_key = "promo_60g_set"
-            else:
-                image_key = "promo_3sizes"
+        elif image_key == "promo_3sizes" or ((not image_key or image_key == "none") and explicitly_asked_pic):
+            image_key = "promo_all"
 
-        selected_media_items: list[dict] = []
-        if image_key and image_key != "none":
-            candidates = media_generator.resolve_media_items(image_key)
-            recent_assistant_msgs = [
-                m.get("content", "") for m in history[-8:] if m.get("role") == "assistant"
-            ]
-            for item in candidates:
-                marker = f"[IMAGE:{item['relative_url']}]"
-                if explicitly_asked_pic or marker not in recent_assistant_msgs:
-                    selected_media_items.append(item)
+        # Layer-1 Automated Pre-Send Audit (ตรวจสอบความถูกต้อง 7 ข้อก่อนส่งให้ลูกค้าจริง)
+        bubbles, new_state, selected_media_items, audit_report = audit.audit_outgoing_reply(
+            psid=session_key,
+            brand_id=brand_id,
+            user_session=user,
+            history=clean_history,
+            raw_reply=reply,
+            proposed_state=new_state,
+            proposed_image_key=image_key,
+            config=CONFIG,
+        )
 
         # 1. Log promo image(s) FIRST in Admin Inbox DB
         for item in selected_media_items:
             database.log_message(session_key, "assistant", f"[IMAGE:{item['relative_url']}]")
 
         # 2. Then log the 1–2 short accompanying text bubbles right after
-        bubbles = split_into_bubbles(reply)
         for b in bubbles:
             database.log_message(session_key, "assistant", b)
 
+        audited_reply_text = "|||".join(bubbles)
         database.update_state(session_key, new_state)
         await messenger.send_omnichannel_text(
             platform=platform,
             external_user_id=external_user_id,
-            text=reply,
+            text=audited_reply_text,
             brand_id=brand_id,
             reply_token=reply_token,
             media_items=selected_media_items,
@@ -580,6 +574,7 @@ async def process_omnichannel_message(
             "image_url": selected_media_items[0]["relative_url"] if selected_media_items else None,
             "images": [it["relative_url"] for it in selected_media_items],
             "state": new_state,
+            "audit": audit_report,
         }
     except Exception:
         logger.exception("Failed to process message from %s", session_key)
@@ -972,10 +967,57 @@ async def api_save_pages(body: SaveSettingsRequest):
     return await api_get_pages()
 
 
+@app.get("/api/audit/report")
+async def api_audit_report(limit: int = 50):
+    """Return recent Layer-1 (Pre-Send Chat) and Layer-2 (Pre-JST Order) automated audit logs."""
+    events = audit.get_recent_audit_events(limit=limit)
+    return {
+        "status": "ok",
+        "total_events": len(events),
+        "auto_fixed_count": sum(1 for e in events if e.get("auto_fixed")),
+        "events": events,
+    }
+
+
+@app.get("/api/sessions/{psid:path}/audit")
+async def api_audit_session(psid: str):
+    """Run Layer-2 Pre-JST Order Audit on a specific customer session."""
+    return audit.audit_session_for_jst(psid)
+
+
+@app.get("/api/jst/status")
+async def api_jst_status():
+    """Check JST ERP connection and configuration."""
+    from . import jst_erp
+    cookie = jst_erp.get_jst_cookie()
+    return {
+        "status": "ok",
+        "configured": bool(cookie),
+        "shop_id": jst_erp.JST_SHOP_ID,
+        "scb_account": jst_erp.JST_SCB_ACCOUNT,
+        "known_skus": list(jst_erp.KNOWN_SKUS.keys()),
+    }
+
+
+@app.post("/api/sessions/{psid:path}/push-jst")
+async def api_push_session_to_jst(psid: str, force: bool = False):
+    """Run Layer-2 Audit + push confirmed customer order to JST ERP."""
+    from . import jst_erp
+    return jst_erp.sync_session_to_jst(psid, force_create=force)
+
+
+@app.post("/api/jst/sync-all")
+async def api_sync_all_jst(days_lookback: int = 2):
+    """Audit and sync all recent completed orders to JST ERP."""
+    from . import jst_erp
+    return jst_erp.sync_all_confirmed_orders_to_jst(days_lookback=days_lookback)
+
+
 @app.post("/api/reload")
 async def api_hot_reload():
-    """Hot-reload config.json, prompt_engine, media_generator, database, followup, and llm in memory without restarting the tunnel."""
+    """Hot-reload config.json, prompt_engine, media_generator, database, followup, audit, and llm in memory without restarting the tunnel."""
     import importlib
+    from . import audit as _audit_mod
     from . import database as _db_mod
     from . import followup as _fu_mod
     from . import llm as _llm_mod
@@ -990,6 +1032,7 @@ async def api_hot_reload():
     importlib.reload(_mg_mod)
     importlib.reload(_msg_mod)
     importlib.reload(_fu_mod)
+    importlib.reload(_audit_mod)
     _db_mod.init_db()
     _mg_mod.load_media_catalog()
     split_into_bubbles = _llm_mod.split_into_bubbles

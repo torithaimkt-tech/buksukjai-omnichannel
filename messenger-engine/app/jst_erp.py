@@ -24,10 +24,12 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
+from dotenv import load_dotenv
 
 from app.config_loader import get_page_by_brand_id
 from app.database import SessionLocal, UserSession, get_full_messages
 
+load_dotenv()
 logger = logging.getLogger(__name__)
 
 
@@ -88,6 +90,39 @@ KNOWN_SKUS: dict[str, dict[str, Any]] = {
         "isCombined": False,
         "skuType": "Normal",
     },
+    "BSJ60G3": {
+        "itemId": "BSJ60G3",
+        "skuId": "BSJ60G3",
+        "name": "โปร 60g 3ถุง",
+        "pic": "",
+        "price": 140.0,
+        "originPrice": 140.0,
+        "propertyShortName": "",
+        "isCombined": True,
+        "skuType": "Combine",
+    },
+    "BSJ60G5": {
+        "itemId": "BSJ60G5",
+        "skuId": "BSJ60G5",
+        "name": "โปร 60g 5ถุง",
+        "pic": "",
+        "price": 199.0,
+        "originPrice": 199.0,
+        "propertyShortName": "",
+        "isCombined": True,
+        "skuType": "Combine",
+    },
+    "BSJ60G10": {
+        "itemId": "BSJ60G10",
+        "skuId": "BSJ60G10",
+        "name": "โปร 60g 10ถุง",
+        "pic": "",
+        "price": 390.0,
+        "originPrice": 390.0,
+        "propertyShortName": "",
+        "isCombined": True,
+        "skuType": "Combine",
+    },
     "BSJ60G15": {
         "itemId": "BSJ60G15",
         "skuId": "BSJ60G15",
@@ -110,6 +145,17 @@ KNOWN_SKUS: dict[str, dict[str, Any]] = {
         "isCombined": True,
         "skuType": "Combine",
     },
+    "BSJ1KG3": {
+        "itemId": "BSJ1KG3",
+        "skuId": "BSJ1KG3",
+        "name": "โปร 1kg 3ถุง",
+        "pic": "",
+        "price": 1299.0,
+        "originPrice": 1299.0,
+        "propertyShortName": "",
+        "isCombined": True,
+        "skuType": "Combine",
+    },
     "BSJ1KG2_60G2": {
         "itemId": "BSJ1KG2_60G2",
         "skuId": "BSJ1KG2_60G2",
@@ -121,10 +167,24 @@ KNOWN_SKUS: dict[str, dict[str, Any]] = {
         "isCombined": True,
         "skuType": "Combine",
     },
+    "BSJ1KG3_60G3": {
+        "itemId": "BSJ1KG3_60G3",
+        "skuId": "BSJ1KG3_60G3",
+        "name": "โปร 1kg 3ถุง + 60g 3ถุง",
+        "pic": "",
+        "price": 1299.0,
+        "originPrice": 1299.0,
+        "propertyShortName": "",
+        "isCombined": True,
+        "skuType": "Combine",
+    },
 }
 
 
 def get_jst_cookie() -> str:
+    global _RUNTIME_COOKIE
+    if not _RUNTIME_COOKIE:
+        _RUNTIME_COOKIE = os.getenv("JST_ERP_COOKIE", "").strip()
     return _RUNTIME_COOKIE
 
 
@@ -239,16 +299,62 @@ def check_duplicate_order(phone: str, within_days: int = 3) -> dict[str, Any]:
     }
 
 
+def cancel_orders_in_jst(
+    order_ids: list[int | str],
+    cancel_reason: str = "คีย์ออเดอร์ซ้ำหรือลูกค้ายังยืนยันไม่ครบค่ะ",
+) -> dict[str, Any]:
+    """Cancel one or more orders in JST ERP (`/OMS/Order/CancelOrders`)."""
+    clean_ids = [int(x) for x in order_ids if str(x).strip().isdigit()]
+    if not clean_ids:
+        return {"status": "error", "message": "ไม่พบ OrderId ที่ต้องการยกเลิกค่ะ"}
+    h = _headers(json_body=True)
+    h["Origin"] = "https://asia.jsterp.com"
+    h["Referer"] = "https://asia.jsterp.com/OMS/Order/OrderManage"
+    resp = httpx.post(
+        "https://asia.jsterp.com/OMS/Order/CancelOrders",
+        headers=h,
+        json={"OrderIds": clean_ids, "CancelReason": cancel_reason},
+        timeout=20.0,
+    )
+    resp.raise_for_status()
+    return {"status": "ok", "order_ids": clean_ids, "response": resp.json()}
+
+
 def recognize_and_clean_address(
     raw_address: str,
     explicit_name: str = "",
     explicit_phone: str = "",
 ) -> dict[str, str]:
     """Use JST ERP's `AddresseeRecognition` API and clean up Thai name vs street address."""
+    cleaned_input = (raw_address or "").strip()
+    # Normalize common Thai typos and strip conversational prefixes before recognition
+    cleaned_input = cleaned_input.replace("แขลง", "แขวง")
+    cleaned_input = re.sub(
+        r"(?:^|\n|\|)\s*(?:จัดส่งที่นี่นะครับ|จัดส่งที่นี่นะคะ|จัดส่งที่นี่|ที่อยู่จัดส่ง|ส่งที่|ชื่อ-ที่อยู่|ชื่อผู้รับ|ผู้รับ|ชื่อ|ที่อยู่|เบอร์โทรศัพท์|เบอร์โทร|เบอร์|โทร\.?|มือถือ)\s*[:：]?\s*",
+        " ",
+        cleaned_input,
+    )
+    cleaned_input = re.sub(r"\b(?:โทร\.?|เบอร์โทร|เบอร์|มือถือ)\s*[:：]?\s*(?=0|\+66)", " ", cleaned_input)
+    # If customer wrote แขวง/เขต + 10xxx postal code without mentioning กรุงเทพ, append กรุงเทพมหานคร so JST recognizes it
+    if ("เขต" in cleaned_input or "แขวง" in cleaned_input) and re.search(r"\b10\d{3}\b", cleaned_input):
+        if "กรุงเทพ" not in cleaned_input and "กทม" not in cleaned_input:
+            cleaned_input = f"{cleaned_input} กรุงเทพมหานคร"
+
+    # Extract trailing recipient name after phone number if present (e.g., "... 12130 0909187907 วรรณา")
+    trailing_name_hint = ""
+    m_trail = re.search(
+        r"(?:\+66\s*0?|0)[689]\d[\s\-]?\d{3}[\s\-]?\d{4}\s+([ก-๙a-zA-Z][ก-๙a-zA-Z\s\.]{1,35})$",
+        cleaned_input.strip(),
+    )
+    if m_trail:
+        cand = m_trail.group(1).strip()
+        if not re.search(r"(ตำบล|อำเภอ|จังหวัด|แขวง|เขต|ถนน|ซอย|หมู่)", cand):
+            trailing_name_hint = cand
+
     resp = httpx.post(
         "https://asia-web.jsterp.com/MiniShop/Recipient/Address/AddresseeRecognition",
         headers=_headers(json_body=True),
-        json={"addressTxt": raw_address},
+        json={"addressTxt": cleaned_input},
         timeout=15.0,
     )
     resp.raise_for_status()
@@ -263,10 +369,22 @@ def recognize_and_clean_address(
     rec_name = (rec.get("receiverFirstName") or "").strip()
     rec_detail = (rec.get("receiverAddress") or "").strip()
 
-    rec_detail = re.sub(r"\b(แขวง|เขต|ตำบล|อำเภอ|จังหวัด|ต\.|อ\.|จ\.|รหัส|เบอร์|โทร)\s*(?=\s|$)", "", rec_detail).strip()
+    # Fallback subdistrict extraction if AddresseeRecognition missed ตำบล/ต./แขวง
+    if not district:
+        m_sub = re.search(r"(?:ตำบล|ต\.|แขวง)\s*([ก-๙]{2,25})", cleaned_input)
+        if m_sub:
+            district = m_sub.group(1).strip()
+        elif "คูบางหลวง" in cleaned_input:
+            district = "คูบางหลวง"
+
+    rec_detail = re.sub(
+        r"\b(จัดส่งที่นี่นะครับ|จัดส่งที่นี่นะคะ|ที่อยู่จัดส่ง|แขวง|เขต|ตำบล|อำเภอ|จังหวัด|ต\.|อ\.|จ\.|รหัส|เบอร์|โทร|ชื่อ)\s*(?=\s|$)",
+        "",
+        rec_detail,
+    ).strip()
     rec_detail = re.sub(r"\s{2,}", " ", rec_detail).strip()
 
-    addr_markers = r"(หมู่บ้าน|มบ\.|อาคาร|คอนโด|บริษัท|ร้าน|บ้านเลขที่|\d+/\d+|ซ\.|ซอย|ถ\.|ถนน|ม\.\d+|หมู่\s*\d+)"
+    addr_markers = r"(หมู่บ้าน|มบ\.|อาคาร|คอนโด|บริษัท|ร้าน|บ้านเลขที่|\d+/\d+|\b\d+\s+ม\.|ซ\.|ซอย|ถ\.|ถนน|ม\.\d+|หมู่\s*\d+)"
     if explicit_name.strip():
         first_name = explicit_name.strip()
     elif re.search(addr_markers, rec_name):
@@ -279,6 +397,11 @@ def recognize_and_clean_address(
             first_name = rec_name
     else:
         first_name = rec_name
+
+    first_name = re.sub(r"^(?:ชื่อผู้รับ|ผู้รับ|ชื่อ|จัดส่งที่นี่นะครับ|จัดส่งที่นี่นะคะ)\s*[:：]?\s*", "", first_name).strip()
+    if not first_name and trailing_name_hint:
+        first_name = trailing_name_hint
+        rec_detail = re.sub(re.escape(trailing_name_hint) + r"\s*$", "", rec_detail).strip()
 
     return {
         "receiverFirstName": first_name,
@@ -688,16 +811,43 @@ def create_order_in_jst(
     }
 
 
+def _slice_to_current_inquiry_fb(raw_messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Slice chronological FB Graph API messages to the current active inquiry (after latest ad click or >72h gap)."""
+    current_start_idx = 0
+    prev_dt = None
+    boundary_markers = ("ตอบกลับโฆษณา", "กำลังตอบกลับความคิดเห็น", "เริ่มต้นใช้งาน")
+    for idx, m in enumerate(raw_messages):
+        txt = str(m.get("message") or "")
+        created_str = m.get("created_time") or ""
+        msg_dt = None
+        if created_str:
+            try:
+                msg_dt = datetime.fromisoformat(created_str.replace("+0000", "+00:00"))
+            except Exception:
+                msg_dt = None
+        if prev_dt and msg_dt and (msg_dt - prev_dt).total_seconds() > 72 * 3600:
+            current_start_idx = idx
+        elif idx > 0 and any(bm in txt for bm in boundary_markers):
+            # If the message immediately preceding 'ตอบกลับโฆษณา' was sent within 120 seconds, include it too
+            if prev_dt and msg_dt and abs((msg_dt - prev_dt).total_seconds()) <= 120:
+                current_start_idx = max(0, idx - 1)
+            else:
+                current_start_idx = idx
+        if msg_dt:
+            prev_dt = msg_dt
+    return raw_messages[current_start_idx:]
+
+
 def _fetch_fb_thread_messages_and_slip(external_user_id: str, brand_id: str = "buksukjai") -> tuple[list[dict[str, str]], str]:
-    """Query Facebook Graph API for a specific customer's thread messages and latest verified slip image URL."""
+    """Query Facebook Graph API for a specific customer's CURRENT inquiry messages and verified slip image URL."""
     fb_msgs: list[dict[str, str]] = []
     latest_slip = ""
     try:
         page = get_page_by_brand_id(brand_id)
         if not page:
             return fb_msgs, latest_slip
-        token = page.get("channels", {}).get("fb_page_access_token", "")
-        page_id = str(page.get("channels", {}).get("fb_page_id", "806129109240845"))
+        token = page.get("channels", {}).get("fb_page_access_token") or os.getenv("PAGE_ACCESS_TOKEN", "")
+        page_id = str(page.get("channels", {}).get("fb_page_id") or "806129109240845")
         if not token or not external_user_id:
             return fb_msgs, latest_slip
         r = httpx.get(
@@ -712,8 +862,12 @@ def _fetch_fb_thread_messages_and_slip(external_user_id: str, brand_id: str = "b
         data = (r.json() or {}).get("data") or []
         if not data:
             return fb_msgs, latest_slip
-        raw_messages = list(reversed(data[0].get("messages", {}).get("data", [])))
-        seen_payment_context = False
+        all_chron_messages = list(reversed(data[0].get("messages", {}).get("data", [])))
+        raw_messages = _slice_to_current_inquiry_fb(all_chron_messages)
+        seen_payment_context = any(
+            re.search(r"(#BUY|ชำระเงิน\s*:\s*โอน|โอนเงิน|โอนแล้ว|แจ้งสลิป|304-407545-5|3044075455)", str(m.get("message") or ""))
+            for m in raw_messages
+        )
         total_msgs = len(raw_messages)
         for idx, m in enumerate(raw_messages):
             sender_id = str((m.get("from") or {}).get("id") or "")
@@ -721,11 +875,14 @@ def _fetch_fb_thread_messages_and_slip(external_user_id: str, brand_id: str = "b
             txt = str(m.get("message") or "").strip()
             if txt:
                 fb_msgs.append({"role": role, "content": txt})
-                if role != "user" and re.search(r"(304-407545-5|3044075455|ดิจิสท์|เลขบัญชี|ยอดชำระ|ยอดรวมทั้งหมด|โอนแล้วแจ้งสลิป)", txt):
+                if re.search(
+                    r"(304-407545-5|3044075455|ดิจิสท์|เลขบัญชี|ยอดชำระ|ยอดรวมทั้งหมด|โอนแล้วแจ้งสลิป|ยอดโอน|โอนเงิน)",
+                    txt,
+                ):
                     seen_payment_context = True
             if role == "user":
-                # Ignore any image sent at the very beginning before bank/payment context (e.g. ad/promo screenshots)
-                if not seen_payment_context and idx < max(1, total_msgs - 6):
+                # Ignore ad/promo screenshots attached to the very first ad-click message unless payment context exists
+                if not seen_payment_context and idx == 0 and total_msgs > 2:
                     continue
                 for att in m.get("attachments", {}).get("data", []):
                     img_data = att.get("image_data") or {}
@@ -736,13 +893,89 @@ def _fetch_fb_thread_messages_and_slip(external_user_id: str, brand_id: str = "b
                         ok, _ = verify_image_is_payment_slip(image_url=url, width_hint=w, height_hint=h)
                         if ok:
                             latest_slip = url
+                            fb_msgs.append({"role": "user", "content": f"[IMAGE:{url}]"})
     except Exception as exc:
         logger.warning("Failed to fetch FB thread for %s: %s", external_user_id, exc)
     return fb_msgs, latest_slip
 
 
+def check_dialogue_completion(msgs: list[dict[str, str]], has_verified_slip: bool = False) -> tuple[bool, str]:
+    """Audit whether the customer has actually finished answering all questions from the shop in the current inquiry."""
+    if not msgs:
+        return False, "ไม่มีข้อความสนทนาในรอบปัจจุบันค่ะ"
+
+    user_msgs = [m["content"].strip() for m in msgs if m.get("role") == "user" and m.get("content", "").strip()]
+    if not user_msgs:
+        return False, "ลูกค้ายังไม่ได้ส่งข้อความตอบกลับในรอบปัจจุบันค่ะ"
+
+    # Find the index of the latest official Admin Order Summary ("เพจ : ข้าวบุก สุขใจ ... จัดส่ง : ...")
+    last_summary_idx = -1
+    for i, m in enumerate(msgs):
+        c = m.get("content") or ""
+        if ("เพจ :" in c or "เพจ:" in c) and "จัดส่ง" in c:
+            last_summary_idx = i
+
+    question_rules = [
+        (
+            "payment_method",
+            r"(สะดวกชำระแบบโอนเงินหรือแบบเก็บปลายทาง|สะดวกแบบโอนหรือเก็บปลายทาง|สะดวกโอนหรือปลายทาง|รับแบบโอนหรือปลายทาง|สะดวกชำระแบบไหน|สะดวกชำระช่องทางไหน)",
+            "ร้านถามวิธีชำระเงิน (โอน/ปลายทาง) แต่ลูกค้ายังไม่ได้ตอบยืนยันค่ะ",
+        ),
+        (
+            "product_choice",
+            r"(สนใจรับขนาดไหน|สนใจโปรไหน|รับชุดไหนดีคะ|รับขนาดไหนดีคะ|รับกี่ถุงดีคะ|รับกี่ซองดีคะ)",
+            "ร้านถามขนาด/โปรโมชั่นที่ต้องการ แต่ลูกค้ายังไม่ได้ตอบเลือกสินค้าค่ะ",
+        ),
+        (
+            "address_request",
+            r"(ขอทราบชื่อ.*ที่อยู่|แจ้งชื่อ.*ที่อยู่|รบกวนขอชื่อ.*ที่อยู่|รบกวนขอรหัสไปรษณีย์|ขอเบอร์โทร)",
+            "ร้านขอชื่อ-ที่อยู่หรือเบอร์โทรเพิ่มเติม แต่ลูกค้ายังไม่ได้ตอบกลับค่ะ",
+        ),
+        (
+            "final_confirm",
+            r"(พิมพ์คำว่า\s*[\"']?ยืนยัน|รบกวนคอนเฟิร์ม|ยืนยันรับยอดปลายทาง)",
+            "ร้านขอให้ลูกค้าคอนเฟิร์มคำสั่งซื้อ แต่ลูกค้ายังไม่ได้ตอบยืนยันค่ะ",
+        ),
+    ]
+
+    for i in range(len(msgs) - 1, last_summary_idx, -1):
+        m = msgs[i]
+        if m.get("role") == "user":
+            continue
+        admin_txt = m.get("content") or ""
+        for q_type, pat, fail_msg in question_rules:
+            if re.search(pat, admin_txt):
+                # Check customer replies after this question
+                replies_after = [
+                    r.get("content", "").strip()
+                    for r in msgs[i + 1 :]
+                    if r.get("role") == "user" and r.get("content", "").strip()
+                ]
+                if not replies_after and not (q_type == "payment_method" and has_verified_slip):
+                    snippet = re.sub(r"\s+", " ", admin_txt).strip()[:80]
+                    return False, f"{fail_msg} (คำถามล่าสุด: \"{snippet}\")"
+                joined_replies = "\n".join(replies_after)
+                if q_type == "payment_method" and not has_verified_slip:
+                    if not re.search(
+                        r"(โอน|ปลายทาง|cod|เก็บเงิน|สลิป|\[IMAGE:|\b0[689]\d{8}\b)",
+                        joined_replies,
+                        re.I,
+                    ):
+                        return False, fail_msg
+                elif q_type == "final_confirm" and not has_verified_slip:
+                    if not re.search(
+                        r"(ยืนยัน|คอนเฟิร์ม|confirm|ตกลง|โอเค|ok|ถูกต้อง|ตามนี้|ค่ะ|ครับ|ส่งเลย|รับค่ะ)",
+                        joined_replies,
+                        re.I,
+                    ):
+                        return False, fail_msg
+                break
+
+    return True, "ลูกค้าตอบคำถามและยืนยันข้อมูลครบถ้วนแล้วค่ะ"
+
+
 def extract_order_from_session(psid: str) -> dict[str, Any]:
-    """Automatically extract SKU, price, shipping, COD/Transfer, recipient address, and slip URL from session history."""
+    """Automatically extract SKU, price, shipping, COD/Transfer, recipient address, slip URL, and dialogue audit from session history."""
     with SessionLocal() as db:
         session = db.get(UserSession, psid)
         if not session:
@@ -751,23 +984,31 @@ def extract_order_from_session(psid: str) -> dict[str, Any]:
         external_user_id = session.external_user_id
         brand_id = session.brand_id
         platform = session.platform
-        purchased_sku = session.purchased_sku or "BSJ1KG1"
-        purchased_qty = session.purchased_qty or 1
         notes = session.notes or ""
 
-    msgs = get_full_messages(psid, limit=40)
+    local_msgs = get_full_messages(psid, limit=40)
     fb_slip_url = ""
+    msgs: list[dict[str, str]] = []
+
     if platform == "facebook" and external_user_id and not external_user_id.startswith("FB_"):
         fb_msgs, fb_slip_url = _fetch_fb_thread_messages_and_slip(external_user_id, brand_id=brand_id)
         if fb_msgs:
-            existing_set = {m["content"].strip() for m in msgs if m.get("content")}
-            for fm in fb_msgs:
-                if fm["content"] not in existing_set:
-                    msgs.append(fm)
+            # Use the current-inquiry-sliced FB thread as authoritative so old orders from weeks ago never leak in
+            msgs = list(fb_msgs)
+
+    if not msgs:
+        # Slice local_msgs to the latest inquiry boundary marker
+        start_idx = 0
+        boundary_markers = ("ตอบกลับโฆษณา", "กำลังตอบกลับความคิดเห็น", "เริ่มต้นใช้งาน")
+        for idx, m in enumerate(local_msgs):
+            if idx > 0 and any(bm in (m.get("content") or "") for bm in boundary_markers):
+                start_idx = idx
+        msgs = local_msgs[start_idx:]
 
     full_text = "\n".join(m["content"] for m in msgs if m.get("content"))
+    user_only_text = "\n".join(m["content"] for m in msgs if m.get("role") == "user" and m.get("content"))
 
-    # 1. Check if there is an explicit Admin Order Summary block ("เพจ : ข้าวบุก สุขใจ ... จัดส่ง : ...")
+    # 1. Check if there is an explicit Admin Order Summary block in the current inquiry
     admin_summaries = [
         m["content"]
         for m in msgs
@@ -785,10 +1026,68 @@ def extract_order_from_session(psid: str) -> dict[str, Any]:
     if phone_matches:
         phone = normalize_thai_phone(phone_matches[-1])
 
-    if not phone:
-        return {"valid": False, "reason": "ยังไม่พบเบอร์โทรศัพท์ 10 หลักของลูกค้าในแชทค่ะ"}
+    # 3. Extract raw_address and run recognition for preview/audit
+    raw_address = ""
+    if latest_summary:
+        am = re.search(r"จัดส่ง\s*:\s*(.+)", latest_summary, flags=re.DOTALL)
+        if am:
+            raw_address = am.group(1).strip()
+            raw_address = re.sub(r"#BUY\d+.*$", "", raw_address, flags=re.DOTALL).strip()
+    if not raw_address:
+        for m in reversed(msgs):
+            if m["role"] == "user":
+                c = m["content"]
+                if re.search(r"\b\d{5}\b", c) or re.search(r"0[689]\d{8}", re.sub(r"\D", "", c)):
+                    raw_address = c.strip()
+                    break
+    if not raw_address:
+        rec_m = re.findall(r"ผู้รับ:\s*([^\n]+)\n+•\s*ที่อยู่:\s*([^\n]+)", full_text)
+        if rec_m:
+            raw_address = f"{rec_m[-1][0]} {rec_m[-1][1]}"
 
-    # 3. Determine COD vs Transfer with strict confirmation check
+    parsed_address: dict[str, str] = {}
+    if raw_address:
+        try:
+            rec_addr = recognize_and_clean_address(raw_address, explicit_phone=phone)
+            parsed_address = {
+                "receiver_name": rec_addr.get("receiverFirstName", ""),
+                "mobile": rec_addr.get("receiverMobile", ""),
+                "state": rec_addr.get("receiverProvince", ""),
+                "city": rec_addr.get("receiverCity", ""),
+                "district": rec_addr.get("receiverDistrict", ""),
+                "post_code": rec_addr.get("receiverZip", ""),
+                "detail": rec_addr.get("receiverAddress", ""),
+            }
+        except Exception as exc:
+            logger.warning("Address recognition preview failed for %s: %s", psid, exc)
+
+    # 4. Extract & verify slip image URL
+    slip_image_url = fb_slip_url
+    if not slip_image_url:
+        pay_ctx_idx = -1
+        for idx, m in enumerate(msgs):
+            if m["role"] != "user" and re.search(
+                r"(304-407545-5|3044075455|ดิจิสท์|เลขบัญชี|ยอดชำระ|โอนแล้วแจ้งสลิป|ยอดโอน)", m["content"]
+            ):
+                pay_ctx_idx = idx
+                break
+        for idx in range(len(msgs) - 1, -1, -1):
+            m = msgs[idx]
+            if m["role"] == "user" and "[IMAGE:" in m["content"]:
+                if pay_ctx_idx != -1 and idx < pay_ctx_idx and idx < max(1, len(msgs) - 6):
+                    continue
+                im = re.search(r"\[IMAGE:(https?://[^\]]+)\]", m["content"])
+                if im:
+                    candidate_url = im.group(1)
+                    ok, _ = verify_image_is_payment_slip(image_url=candidate_url)
+                    if ok:
+                        slip_image_url = candidate_url
+                        break
+
+    # 5. Audit Dialogue Completion ("ตรวจว่าลูกค้าตอบประโยคคำถามของเราจนครบแล้วจริง ๆ")
+    dialogue_complete, dialogue_reason = check_dialogue_completion(msgs, has_verified_slip=bool(slip_image_url))
+
+    # 6. Determine COD vs Transfer with strict confirmation check
     is_cod: bool | None = None
     cod_confirmed = False
     transfer_confirmed = False
@@ -804,145 +1103,207 @@ def extract_order_from_session(psid: str) -> dict[str, Any]:
                 is_cod = False
                 transfer_confirmed = True
 
-    recent_tail = "\n".join(m["content"] for m in msgs[-15:])
     if is_cod is None:
-        has_cod_choice = bool(
-            re.search(r"(เก็บเงินปลายทาง|เก็บปลายทาง|ชำระปลายทาง|ยอดชำระเก็บปลายทาง|ค่าส่งเก็บปลายทาง|ปลายทางค่ะ|ปลายทางครับ)", recent_tail)
-            and not re.search(r"(โอนค่ะ|โอนครับ|โอนเงิน|โอนนะ|ยอดชำระโอน)", recent_tail.split("ปลายทาง")[-1])
-        )
-        has_transfer_choice = bool(
-            re.search(r"(โอนค่ะ|โอนครับ|แบบโอน|โอนเงิน|ยอดชำระโอนเงิน|แจ้งสลิป|ส่งการชำระเงินจำนวน|transfer request)", full_text, re.I)
-        )
-        if has_cod_choice:
+        # Check if customer explicitly chose COD or Transfer in their messages
+        if re.search(r"(เก็บเงินปลายทาง|เก็บปลายทาง|ชำระปลายทาง|ปลายทางค่ะ|ปลายทางครับ|ปลายทางจ้า|แบบปลายทาง|cod)", user_only_text, re.I):
             is_cod = True
-            # Require explicit confirmation from customer or admin summary for COD
             user_tail = "\n".join(m["content"] for m in msgs[-8:] if m["role"] == "user")
-            if re.search(r"(ยืนยัน|ตกลง|โอเค|ok|ค่ะ|ครับ|ตามนี้|ส่งได้เลย)", user_tail, re.I) or "#BUY" in full_text:
+            if (
+                dialogue_complete
+                and (
+                    re.search(r"(ยืนยัน|ตกลง|โอเค|ok|ค่ะ|ครับ|ตามนี้|ส่งได้เลย|เก็บปลายทาง|ปลายทาง)", user_tail, re.I)
+                    or "#BUY" in full_text
+                )
+            ):
                 cod_confirmed = True
-        elif has_transfer_choice:
+        elif slip_image_url or re.search(r"(โอนค่ะ|โอนครับ|แบบโอน|โอนเงิน|โอนแล้ว|ส่งการชำระเงินจำนวน)", user_only_text, re.I):
             is_cod = False
             transfer_confirmed = True
 
-    if is_cod is None:
-        return {
-            "valid": False,
-            "reason": "ยังไม่ชัดเจนว่าเป็นออเดอร์โอนเงินหรือเก็บเงินปลายทาง (COD) ต้องคอนเฟิร์มกับลูกค้าก่อนค่ะ",
-        }
-
-    # 4. Determine SKU, unit_price, freight
-    sku_id = purchased_sku
-    qty = purchased_qty
+    # 7. Determine SKU, qty, unit_price, freight from current inquiry ONLY (never default to old session SKU)
+    sku_id = ""
+    qty = 1
     unit_price: float | None = None
     freight = 0.0
 
     buy_tags = re.findall(r"#BUY(\d+)", full_text)
     total_hint = int(buy_tags[-1]) if buy_tags else 0
     if not total_hint and latest_summary:
-        pm = re.search(r"ราคา\s*:\s*(?:\d+\+\d+=)?(\d+)", latest_summary)
+        pm = re.search(r"ราคา\s*:\s*(?:[\d\+\s]+=)?\s*(\d+)", latest_summary)
         if pm:
             total_hint = int(pm.group(1))
-    if not total_hint:
-        ym = re.findall(r"ยอด(?:รวมทั้งหมด|ชำระ(?:โอนเงิน|โอน)?)\s*:?\s*(\d+)\s*บาท", full_text)
+    if not total_hint and dialogue_complete:
+        ym = re.findall(r"ยอด(?:รวมทั้งหมด|ชำระ(?:โอนเงิน|โอน|เก็บปลายทาง)?)\s*:?\s*(?:[\d\+\s]+=)?\s*(\d+)\s*(?:บาท|฿)", full_text)
         if ym:
             total_hint = int(ym[-1])
 
-    if total_hint == 309:
-        sku_id, qty, unit_price, freight, is_cod, cod_confirmed = "BSJ500G1", 1, 239.0, 70.0, True, True
-    elif total_hint == 239:
-        sku_id, qty, unit_price, freight = "BSJ500G1", 1, 239.0, 0.0
-    elif total_hint == 269:
-        sku_id, qty, unit_price, freight = "BSJ500G1", 1, 269.0, 0.0
-    elif total_hint == 459:
-        sku_id, qty, unit_price, freight, is_cod = "BSJ1KG1", 1, 459.0, 0.0, False
-    elif total_hint == 499:
-        sku_id, qty, unit_price, freight, is_cod, cod_confirmed = "BSJ1KG1", 1, 459.0, 40.0, True, True
-    elif total_hint == 529:
-        sku_id, qty, unit_price, freight, is_cod, cod_confirmed = "BSJ1KG1", 1, 459.0, 70.0, True, True
-    elif total_hint == 555:
-        sku_id, qty, unit_price, freight = "BSJ60G15", 1, 555.0, 0.0
-    elif total_hint in (720, 580):
-        sku_id, qty, unit_price, freight = "BSJ60G20", 1, float(total_hint), 0.0
-    elif total_hint == 899:
-        sku_id, qty, unit_price, freight = "BSJ1KG2_60G2", 1, 899.0, 0.0
-    elif total_hint in (939, 969):
-        sku_id, qty, unit_price, freight, is_cod, cod_confirmed = "BSJ1KG2_60G2", 1, 899.0, float(total_hint - 899), True, True
-
-    # 5. Extract raw_address
-    raw_address = ""
+    # Parse explicit size from latest_summary if available
     if latest_summary:
-        am = re.search(r"จัดส่ง\s*:\s*(.+)", latest_summary, flags=re.DOTALL)
-        if am:
-            raw_address = am.group(1).strip()
-    if not raw_address:
-        for m in reversed(msgs):
-            if m["role"] == "user":
-                c = m["content"]
-                if re.search(r"\b\d{5}\b", c) or re.search(r"0[689]\d{8}", re.sub(r"\D", "", c)):
-                    raw_address = c.strip()
-                    break
-    if not raw_address:
-        rec_m = re.findall(r"ผู้รับ:\s*([^\n]+)\n+•\s*ที่อยู่:\s*([^\n]+)", full_text)
-        if rec_m:
-            raw_address = f"{rec_m[-1][0]} {rec_m[-1][1]}"
+        size_m = re.search(r"ขนาด\s*:\s*([^\n|]+)", latest_summary, re.I)
+        if size_m:
+            sz = re.sub(r"\s+", "", size_m.group(1).lower())
+            if "3kg" in sz or "3แถม3" in sz:
+                sku_id, qty, unit_price = "BSJ1KG3_60G3", 1, 1299.0
+                freight = float(max(0, total_hint - 1299)) if total_hint >= 1299 else 0.0
+            elif "2kg" in sz or "2แถม2" in sz:
+                sku_id, qty, unit_price = "BSJ1KG2_60G2", 1, 899.0
+                freight = float(max(0, total_hint - 899)) if total_hint >= 899 else 0.0
+            elif re.search(r"60g(\d+)(?:ถุง|ซอง|ชอง)", sz):
+                n_bags = int(re.search(r"60g(\d+)(?:ถุง|ซอง|ชอง)", sz).group(1))
+                if n_bags == 20:
+                    sku_id, qty, unit_price = "BSJ60G20", 1, 720.0
+                    freight = float(max(0, total_hint - 720)) if total_hint >= 720 else 0.0
+                elif n_bags == 15:
+                    sku_id, qty, unit_price = "BSJ60G15", 1, 555.0
+                    freight = float(max(0, total_hint - 555)) if total_hint >= 555 else 0.0
+                elif n_bags == 10:
+                    sku_id, qty, unit_price = "BSJ60G10", 1, 390.0
+                    freight = float(max(0, total_hint - 390)) if total_hint >= 390 else 0.0
+                elif n_bags == 30:
+                    sku_id, qty, unit_price = "BSJ60G10", 3, 370.0
+                    freight = float(max(0, total_hint - 1110)) if total_hint >= 1110 else 0.0
+                elif n_bags == 5:
+                    sku_id, qty, unit_price = "BSJ60G5", 1, (195.0 if total_hint in (195, 225) else 199.0)
+                    freight = 30.0 if total_hint == 225 else 0.0
+                elif n_bags == 3:
+                    sku_id, qty, unit_price, freight = "BSJ60G3", 1, float(total_hint or 140), 0.0
+                else:
+                    sku_id, qty, unit_price = "BSJ60G1", n_bags, 39.0
+                    freight = float(max(0, total_hint - 39 * n_bags)) if total_hint >= 39 * n_bags else 0.0
+            elif "1kg" in sz:
+                m1k = re.search(r"1kg(\d+)(?:ถุง|ซอง)", sz)
+                n1k = int(m1k.group(1)) if m1k else 1
+                sku_id, qty, unit_price = "BSJ1KG1", n1k, 459.0
+                freight = float(max(0, total_hint - 459 * n1k)) if total_hint >= 459 * n1k else 0.0
+            elif "500g" in sz:
+                m500 = re.search(r"500g(\d+)(?:ถุง|ซอง)", sz)
+                n500 = int(m500.group(1)) if m500 else 1
+                sku_id, qty, unit_price = "BSJ500G1", n500, 239.0
+                freight = float(max(0, total_hint - 239 * n500)) if total_hint >= 239 * n500 else 0.0
 
-    if not raw_address:
-        return {"valid": False, "reason": "ยังไม่พบที่อยู่จัดส่งของลูกค้าในแชทค่ะ"}
+    if not sku_id and total_hint:
+        if total_hint == 225:
+            sku_id, qty, unit_price, freight = "BSJ60G5", 1, 195.0, 30.0
+        elif total_hint in (195, 199):
+            sku_id, qty, unit_price, freight = "BSJ60G5", 1, float(total_hint), 0.0
+        elif total_hint == 239:
+            sku_id, qty, unit_price, freight = "BSJ500G1", 1, 239.0, 0.0
+        elif total_hint == 269:
+            sku_id, qty, unit_price, freight = "BSJ500G1", 1, 239.0, 30.0
+        elif total_hint == 309:
+            sku_id, qty, unit_price, freight, is_cod, cod_confirmed = "BSJ500G1", 1, 239.0, 70.0, True, True
+        elif total_hint == 390:
+            sku_id, qty, unit_price, freight = "BSJ60G10", 1, 390.0, 0.0
+        elif total_hint == 420:
+            sku_id, qty, unit_price, freight = "BSJ60G10", 1, 390.0, 30.0
+        elif total_hint == 459:
+            sku_id, qty, unit_price, freight = "BSJ1KG1", 1, 459.0, 0.0
+        elif total_hint == 499:
+            sku_id, qty, unit_price, freight, is_cod, cod_confirmed = "BSJ1KG1", 1, 459.0, 40.0, True, True
+        elif total_hint == 529:
+            sku_id, qty, unit_price, freight, is_cod, cod_confirmed = "BSJ1KG1", 1, 459.0, 70.0, True, True
+        elif total_hint == 555:
+            sku_id, qty, unit_price, freight = "BSJ60G15", 1, 555.0, 0.0
+        elif total_hint == 595:
+            sku_id, qty, unit_price, freight, is_cod, cod_confirmed = "BSJ60G15", 1, 555.0, 40.0, True, True
+        elif total_hint in (720, 580):
+            sku_id, qty, unit_price, freight = "BSJ60G20", 1, float(total_hint), 0.0
+        elif total_hint == 760:
+            sku_id, qty, unit_price, freight, is_cod, cod_confirmed = "BSJ60G20", 1, 720.0, 40.0, True, True
+        elif total_hint == 899:
+            sku_id, qty, unit_price, freight = "BSJ1KG2_60G2", 1, 899.0, 0.0
+        elif total_hint in (939, 969):
+            sku_id, qty, unit_price, freight, is_cod, cod_confirmed = "BSJ1KG2_60G2", 1, 899.0, float(total_hint - 899), True, True
+        elif total_hint == 1110:
+            sku_id, qty, unit_price, freight = "BSJ60G10", 3, 370.0, 0.0
+        elif total_hint == 1150:
+            sku_id, qty, unit_price, freight, is_cod, cod_confirmed = "BSJ60G10", 3, 370.0, 40.0, True, True
+        elif total_hint == 1299:
+            sku_id, qty, unit_price, freight = "BSJ1KG3_60G3", 1, 1299.0, 0.0
+        elif total_hint in (1339, 1369):
+            sku_id, qty, unit_price, freight, is_cod, cod_confirmed = "BSJ1KG3_60G3", 1, 1299.0, float(total_hint - 1299), True, True
 
-    # 6. Extract & strictly verify slip image URL if Transfer, or verify COD confirmation
-    slip_image_url = ""
-    if is_cod:
-        if not cod_confirmed:
-            return {
-                "valid": False,
-                "reason": "ออเดอร์เก็บเงินปลายทาง (COD) ยังไม่ได้รับการคอนเฟิร์มขั้นสุดท้ายจากลูกค้าค่ะ",
-            }
-    else:
-        if fb_slip_url:
-            slip_image_url = fb_slip_url
-        else:
-            # Find the first message index where bank account or payment summary was given
-            pay_ctx_idx = -1
-            for idx, m in enumerate(msgs):
-                if m["role"] != "user" and re.search(
-                    r"(304-407545-5|3044075455|ดิจิสท์|เลขบัญชี|ยอดชำระ|โอนแล้วแจ้งสลิป)", m["content"]
-                ):
-                    pay_ctx_idx = idx
-                    break
-            for idx in range(len(msgs) - 1, -1, -1):
-                m = msgs[idx]
-                if m["role"] == "user" and "[IMAGE:" in m["content"]:
-                    # Never grab an ad/promo screenshot sent at the beginning of the conversation before payment context
-                    if pay_ctx_idx != -1 and idx < pay_ctx_idx and idx < max(1, len(msgs) - 6):
-                        continue
-                    im = re.search(r"\[IMAGE:(https?://[^\]]+)\]", m["content"])
-                    if im:
-                        candidate_url = im.group(1)
-                        ok, _ = verify_image_is_payment_slip(image_url=candidate_url)
-                        if ok:
-                            slip_image_url = candidate_url
-                            break
+    # 8. Cross-check customer's requested bag quantity against extracted SKU
+    sku_matches_chat = True
+    sku_mismatch_reason = ""
+    if not latest_summary:
+        # Check if customer asked for a specific number of small bags (e.g., 30ชอง, 32ซอง, 10ถุง)
+        req_bag_matches = re.findall(r"\b(\d{1,2})\s*(?:ซอง|ชอง|ถุง)\b", user_only_text.lower())
+        if req_bag_matches and "1 ก" not in user_only_text.lower() and "1kg" not in user_only_text.lower():
+            req_bags = int(req_bag_matches[-1])
+            bag_mult = {"BSJ60G20": 20, "BSJ60G15": 15, "BSJ60G10": 10, "BSJ60G5": 5, "BSJ60G3": 3, "BSJ60G1": 1}.get(sku_id, 0)
+            eff_bags = bag_mult * int(qty)
+            if req_bags >= 3 and eff_bags != req_bags:
+                sku_matches_chat = False
+                sku_mismatch_reason = f"ลูกค้าสั่ง {req_bags} ซอง/ถุง แต่ยังไม่มีสรุปยอดที่ตรงกันในแชท (SKU ปัจจุบัน: {sku_id or 'ไม่ระบุ'})"
 
-        if not slip_image_url:
-            return {
-                "valid": False,
-                "reason": "ออเดอร์โอนเงินแต่ยังไม่มีสลิปโอนเงินจริงที่ตรวจสอบแล้วค่ะ (ห้ามส่งเข้า JST ERP จนกว่าลูกค้าจะส่งสลิปจริง)",
-            }
+    sku_meta = KNOWN_SKUS.get(sku_id, {})
+    effective_unit_price = float(unit_price if unit_price is not None else sku_meta.get("price", 0.0))
+    total_amount = round(effective_unit_price * int(qty) + float(freight), 2) if sku_id else 0.0
+    item_name = sku_meta.get("propertyShortName") or sku_meta.get("name") or sku_id or "ยังไม่ระบุสินค้า"
+    payment_label = (
+        "เก็บเงินปลายทาง (COD)"
+        if is_cod is True
+        else ("โอนเงิน (SCB 304-407545-5)" if is_cod is False else "ยังไม่ระบุวิธีชำระเงิน")
+    )
+    remark_tag = f" (#BUY{int(total_amount)})" if total_amount > 0 else ""
 
-    return {
-        "valid": True,
+    base_info: dict[str, Any] = {
         "psid": psid,
         "customer_name": customer_name,
         "phone": phone,
         "raw_address": raw_address,
+        "parsed_address": parsed_address,
         "sku_id": sku_id,
+        "item_name": item_name,
         "qty": qty,
         "unit_price": unit_price,
         "freight": freight,
+        "total_amount": total_amount,
         "is_cod": bool(is_cod),
+        "payment_label": payment_label,
+        "customer_confirmed_cod": cod_confirmed,
+        "has_slip": bool(slip_image_url),
+        "slip_url": slip_image_url,
         "slip_image_url": slip_image_url,
-        "seller_remark": f"FB: {customer_name}",
+        "dialogue_complete": dialogue_complete,
+        "dialogue_reason": dialogue_reason,
+        "sku_matches_chat": sku_matches_chat,
+        "sku_mismatch_reason": sku_mismatch_reason,
+        "seller_remark": f"FB: {customer_name}{remark_tag}",
         "already_tagged_in_notes": "[JST ERP:" in notes,
     }
+
+    if not dialogue_complete:
+        return {**base_info, "valid": False, "reason": dialogue_reason}
+    if not sku_matches_chat:
+        return {**base_info, "valid": False, "reason": sku_mismatch_reason}
+    if not sku_id or total_amount <= 0:
+        return {**base_info, "valid": False, "reason": "ยังไม่พบสรุปยอดสินค้าและราคาที่ยืนยันแล้วในรอบการสนทนาปัจจุบันค่ะ"}
+    if not phone:
+        return {**base_info, "valid": False, "reason": "ยังไม่พบเบอร์โทรศัพท์ 10 หลักของลูกค้าในแชทปัจจุบันค่ะ"}
+    if is_cod is None:
+        return {
+            **base_info,
+            "valid": False,
+            "reason": "ยังไม่ชัดเจนว่าเป็นออเดอร์โอนเงินหรือเก็บเงินปลายทาง (COD) ต้องคอนเฟิร์มกับลูกค้าก่อนค่ะ",
+        }
+    if not raw_address:
+        return {**base_info, "valid": False, "reason": "ยังไม่พบที่อยู่จัดส่งของลูกค้าในแชทปัจจุบันค่ะ"}
+    if is_cod and not cod_confirmed:
+        return {
+            **base_info,
+            "valid": False,
+            "reason": "ออเดอร์เก็บเงินปลายทาง (COD) ยังไม่ได้รับการคอนเฟิร์มขั้นสุดท้ายจากลูกค้าค่ะ",
+        }
+    if not is_cod and not slip_image_url:
+        return {
+            **base_info,
+            "valid": False,
+            "reason": "ออเดอร์โอนเงินแต่ยังไม่มีสลิปโอนเงินจริงที่ตรวจสอบแล้วค่ะ (ห้ามส่งเข้า JST ERP จนกว่าลูกค้าจะส่งสลิปจริง)",
+        }
+
+    return {**base_info, "valid": True, "reason": "ok"}
 
 
 def sync_session_to_jst(
@@ -950,10 +1311,20 @@ def sync_session_to_jst(
     overrides: dict[str, Any] | None = None,
     force_create: bool = False,
 ) -> dict[str, Any]:
-    """Extract order from session (with optional UI overrides), check duplicate in JST, and create order."""
+    """Run Layer-2 Pre-JST Audit, extract order from session (with optional UI overrides), check duplicate in JST, and create order."""
+    from . import audit as _audit_mod
+    audit_res = _audit_mod.audit_session_for_jst(psid)
+    if not audit_res.get("ready_for_jst") and not overrides:
+        issues_str = " / ".join(audit_res.get("issues") or [])
+        return {
+            "status": "error",
+            "message": issues_str or "ข้อมูลออเดอร์ยังไม่ผ่านการตรวจสอบ Audit ก่อนส่งเข้า JST ERP ค่ะ",
+            "audit": audit_res,
+        }
+
     extracted = extract_order_from_session(psid)
     if not extracted.get("valid") and not overrides:
-        return {"status": "error", "message": extracted.get("reason", "ข้อมูลออเดอร์ไม่ครบถ้วนค่ะ")}
+        return {"status": "error", "message": extracted.get("reason", "ข้อมูลออเดอร์ไม่ครบถ้วนค่ะ"), "audit": audit_res}
 
     data = {**extracted, **(overrides or {})}
     res = create_order_in_jst(
