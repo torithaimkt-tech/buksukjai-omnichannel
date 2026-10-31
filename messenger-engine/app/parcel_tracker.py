@@ -82,27 +82,70 @@ def _extract_hhmm(dt_str: str) -> str:
     return m.group(1) if m else ""
 
 
+# Shuffled non-repeating pools for Stage 1 (Picked Up) & Stage 2 (Delivered)
+# Visual Contrast Design:
+# - Stage 1 (Picked Up): 2 Bubbles -> Bubble 1 is a compact, scannable Tracking Card (Courier + Tracking No.);
+#   Bubble 2 is a short 1-2 line reassurance that the shop will track it until delivery.
+# - Stage 2 (Delivered): 1 Single Bubble -> Starts with ✅/🎉 + delivery time, NO repeated Courier/Tracking block,
+#   paired with a warm thank-you or quick 10-minute hot-water tip.
+_TRACKING_POOL_DECKS: dict[str, list[int]] = {}
+
+
+def _pick_tracking_template(pool_key: str, pool: list[str]) -> str:
+    import random
+
+    if not pool:
+        return ""
+    deck = _TRACKING_POOL_DECKS.get(pool_key)
+    if not deck:
+        indices = list(range(len(pool)))
+        random.shuffle(indices)
+        _TRACKING_POOL_DECKS[pool_key] = indices
+        deck = _TRACKING_POOL_DECKS[pool_key]
+    idx = deck.pop(0)
+    return pool[idx]
+
+
 def build_stage1_pickup_message(courier_name: str, tracking_no: str) -> str:
-    """Stage 1: Notify customer that the courier has picked up the parcel + tracking number."""
+    """Stage 1 (Picked Up): 2-bubble structure with a clean Tracking Card in Bubble 1 + short follow-up note in Bubble 2."""
     clean_courier = (courier_name or "J&T Express").strip()
-    return (
-        "แจ้งอัปเดตสถานะจัดส่งค่ะคุณลูกค้า 🚚📦 ตอนนี้สินค้ามีขนส่งเข้ามารับเรียบร้อยแล้วนะคะ|||"
-        f"🚚 ขนส่ง: {clean_courier}\n"
-        f"🔖 เลขพัสดุ: {tracking_no}\n\n"
-        "ทางร้านจะคอยตรวจสอบสถานะพัสดุให้ตลอดระยะเวลาจัดส่ง และพอพัสดุส่งถึงเรียบร้อยแล้วจะรีบแจ้งให้คุณลูกค้าทราบอีกครั้งนะคะ ขอบพระคุณมากค่ะ 💚🙏"
-    )
+    pool = [
+        # Pattern 1: Clean tracking card + short promise
+        f"🚚 จัดส่งพัสดุออกเรียบร้อยแล้วค่า!\nขนส่ง: {clean_courier}\nเลขพัสดุ: {tracking_no}|||"
+        "เดี๋ยวน้องบุกคอยเช็กสถานะให้ตลอดทาง พอของถึงมือแล้วจะรีบมาแจ้งอีกครั้งนะคะ 💚",
+        # Pattern 2: Compact box icon header + short note
+        f"📦 แจ้งเลขพัสดุข้าวบุกสุขใจค่ะ\n• ขนส่ง: {clean_courier}\n• เลขพัสดุ: {tracking_no}|||"
+        "ตอนนี้พี่ขนส่งรับพัสดุเข้าระบบแล้วนะคะ หากส่งถึงปลายทางเมื่อไหร่น้องบุกจะทักมาบอกทันทีเลยค่า 😊🙏",
+        # Pattern 3: Friendly warm opener + standalone tracking block
+        "คุณลูกค้าคะ ข้าวบุกสุขใจแพ็คลงกล่องและส่งมอบให้ขนส่งเรียบร้อยแล้วน้า 🚚💨|||"
+        f"🔖 เลขพัสดุ: {tracking_no} ({clean_courier})\nทางร้านช่วยดูแลติดตามพัสดุให้จนถึงมือเลยนะคะ ขอบคุณมากค่า 💚",
+        # Pattern 4: Short 2-bubble modern card
+        f"🚚💨 พัสดุเดินทางออกจากร้านแล้วค่ะ!\n[{clean_courier}] เลขพัสดุ: {tracking_no}|||"
+        "ระหว่างนี้น้องบุกช่วยดูสถานะการจัดส่งให้นะคะ ของถึงแล้วจะรีบแจ้งเตือนในแชทเลยค่า 🌾💚",
+        # Pattern 5: Direct tracking card + brief thank you
+        f"🔖 ข้อมูลการจัดส่งพัสดุค่ะ\nขนส่ง: {clean_courier}\nหมายเลขพัสดุ: {tracking_no}|||"
+        "ขนส่งเข้ารับสินค้าเรียบร้อยแล้วค่ะ พอพัสดุจัดส่งสำเร็จเดี๋ยวน้องบุกแวะมาแจ้งอีกครั้งนะคะ 😊🙏",
+    ]
+    return _pick_tracking_template("stage1_pickup", pool)
 
 
 def build_stage2_delivered_message(courier_name: str, tracking_no: str, delivered_hhmm: str) -> str:
-    """Stage 2: Notify customer that the parcel has been delivered + exact time."""
-    clean_courier = (courier_name or "J&T Express").strip()
-    time_part = f"เมื่อเวลา {delivered_hhmm} น. " if delivered_hhmm else ""
-    return (
-        f"แจ้งอัปเดตพัสดุค่ะคุณลูกค้า 🎉📦 ตอนนี้พัสดุจัดส่งถึงเรียบร้อยแล้ว{time_part}นะคะ|||"
-        f"🚚 ขนส่ง: {clean_courier}\n"
-        f"🔖 เลขพัสดุ: {tracking_no}\n\n"
-        "ขอบพระคุณที่ไว้วางใจให้ข้าวบุกสุขใจดูแลมื้อสุขภาพนะคะ ทานให้อร่อยและสุขภาพดีนะคะ หากมีข้อสงสัยเรื่องวิธีทำทักหาทางร้านได้ตลอดเลยนะคะ 💚🍚🙏"
-    )
+    """Stage 2 (Delivered): Single compact bubble (no repeated tracking block!) with ✅/🎉 + delivery time + warm tip."""
+    time_badge = f" (เวลา {delivered_hhmm} น.)" if delivered_hhmm else ""
+    time_inline = f"เมื่อตอน {delivered_hhmm} น. " if delivered_hhmm else ""
+    pool = [
+        # Pattern 1: Short & cheerful single bubble + 10-min hot water tip
+        f"✅ พัสดุส่งถึงมือเรียบร้อยแล้วค่า{time_badge} 🎉 ข้าวบุกสุขใจแค่ตักเติมน้ำร้อนปิดฝา 10 นาทีก็นุ่มหอมพร้อมทานเลยนะคะ ทานให้อร่อยน้า 🍚💚",
+        # Pattern 2: Ultra-short 2-line confirmation
+        f"🎉 ขนส่งแจ้งว่าพัสดุจัดส่งสำเร็จแล้วนะคะ{time_badge} ขอบคุณที่ให้ข้าวบุกสุขใจดูแลมื้ออร่อยค่ะ สงสัยวิธีหุงทักน้องบุกได้ตลอดเลยนะคะ 💚🙏",
+        # Pattern 3: Warm homey single bubble
+        f"🍚✨ ข้าวบุกสุขใจเดินทางถึงปลายทางเรียบร้อยแล้วค่ะ ({time_inline.strip() or 'จัดส่งสำเร็จ'}) ลองชงน้ำร้อน 10 นาทีทานคู่กับข้าวสวยร้อนๆ ได้เลยนะคะ ขอบพระคุณที่อุดหนุนค่า 😊💚",
+        # Pattern 4: Short check-in style single bubble
+        f"✅ ของถึงเรียบร้อยแล้วนะคะคุณลูกค้า{time_badge} 📦 หากได้รับพัสดุแล้วมีข้อสงสัยเรื่องสัดส่วนการเติมน้ำร้อน ทักถามน้องบุกได้ทุกเมื่อเลยค่า ทานให้อร่อยนะคะ 🙏💚",
+        # Pattern 5: Crisp celebratory single bubble
+        f"🎉 ส่งถึงมือสำเร็จแล้วค่า{time_badge}! ขอบพระคุณที่ไว้วางใจข้าวบุกสุขใจนะคะ ขอให้มื้อนี้เป็นมื้อที่อิ่มอร่อยและสบายท้องค่า 🌾💚",
+    ]
+    return _pick_tracking_template("stage2_delivered", pool)
 
 
 def _fetch_trajectory_for_order(order_id: int | str) -> list[dict[str, Any]]:
@@ -257,9 +300,15 @@ def _has_already_sent_in_chat(psid: str, tracking_no: str, stage: int) -> bool:
         for m in msgs
         if m.get("role") != "user"
     ]
-    joined_assistant = "\n".join(assistant_texts)
-    if tracking_no not in joined_assistant:
-        return False
+    stage2_markers = (
+        "ตอนนี้พัสดุจัดส่งถึงเรียบร้อยแล้ว",
+        "แจ้งอัปเดตพัสดุค่ะคุณลูกค้า 🎉📦",
+        "พัสดุส่งถึงมือเรียบร้อยแล้วค่า",
+        "ขนส่งแจ้งว่าพัสดุจัดส่งสำเร็จแล้วนะคะ",
+        "ข้าวบุกสุขใจเดินทางถึงปลายทางเรียบร้อยแล้วค่ะ",
+        "ของถึงเรียบร้อยแล้วนะคะคุณลูกค้า",
+        "ส่งถึงมือสำเร็จแล้วค่า",
+    )
 
     for m in msgs:
         if m.get("role") == "user":
@@ -267,12 +316,10 @@ def _has_already_sent_in_chat(psid: str, tracking_no: str, stage: int) -> bool:
         content = str(m.get("content") or "")
         s_label = str(m.get("sender_label") or "")
         if stage == 1:
-            if "ระยะที่ 1" in s_label or "ขนส่งเข้ามารับเรียบร้อยแล้ว" in content:
-                return True
-            if tracking_no in content and "เลขพัสดุ" in content and "จัดส่งถึงเรียบร้อยแล้ว" not in content:
+            if "ระยะที่ 1" in s_label or tracking_no in content:
                 return True
         if stage == 2:
-            if "ระยะที่ 2" in s_label or "ตอนนี้พัสดุจัดส่งถึงเรียบร้อยแล้ว" in content or "แจ้งอัปเดตพัสดุค่ะคุณลูกค้า 🎉📦" in content:
+            if "ระยะที่ 2" in s_label or any(mk in content for mk in stage2_markers):
                 return True
     return False
 
