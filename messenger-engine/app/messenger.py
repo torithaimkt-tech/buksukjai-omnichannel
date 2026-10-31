@@ -736,7 +736,16 @@ def _sync_facebook_messages_to_log(
                 "เพจ : ข้าวบุก สุขใจ" in msg_txt and ("สินค้า :" in msg_txt or "จัดส่ง" in msg_txt)
             )
             role = "admin" if is_admin else "assistant"
-            sender_label = "แอดมิน" if is_admin else "AI น้องบุก"
+            if is_admin:
+                sender_label = "แอดมิน"
+            else:
+                from . import followup
+
+                reengage_stage = followup.detect_reengage_stage_from_text(msg_txt)
+                if reengage_stage in (1, 2, 3):
+                    sender_label = f"AI บอทขุดแชท (รอบ {reengage_stage})"
+                else:
+                    sender_label = "AI น้องบุก"
         else:
             role = "user"
             sender_label = cust_name or "ลูกค้า"
