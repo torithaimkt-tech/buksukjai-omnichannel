@@ -53,9 +53,25 @@ JST_LOGISTICS_CODE = "J&T Express TH"
 JST_LOGISTICS_NAME = "J&T Express"
 JST_SCB_ACCOUNT = "3044075455"
 
-DEFAULT_JST_COOKIE = os.getenv("JST_ERP_COOKIE", "")
+FRESH_JST_COOKIE = (
+    "client_id=8c55bf3e7cb90f3ba27a22ddfdcc3762_91cdae39f749baaed0f1c166d97c4583; "
+    "u_login_id=buksukjai%40gmail.com; VID_bcbff8986118=22755436; VP_bcbff8986118=1; "
+    "AVID_147792=22755436; _ati=3616590229392; Notice-22755436-176=True; LanguageId=TH; "
+    "Notice-22755436-177=True; u_cid=ffab80a5bac245c79a723ced80a396a2-22755436-49ce2350e1bfc8869835b061ea8b901d; "
+    "u_id=22755436; u_name=buksukjai; u_co_id=15749167; u_co_name=Buksukjai; ClientTimeZone=7; "
+    ".AspNetCore.GlobalAuthCookie=CfDJ8NUvc5HFTn9EnG_IMr2hg1SHradvjDPVgyUrg9Ex_iD1PHJg9502Q5QjCgRXYpZOnAYsZw7p7V7bU7l1Xyogh-o0XA35sjy4W1Jo_gW3IaxJlFcwJeGig0S8IC60NqfB1Pit2_L7-DV-3G-usY0bEW8eBvdi166HTeMg2o2AmEknpwu9Czp-iBq2duFcNRJWlrKdbPYG2x-z2U4KLbxg-dZy7teE26pZZzIFbcDUbcLjZkDmRVXZ_HCQ9wDb2MthYpWqpyryy6UmU1s99EF0E2A492-ZcV5uYEwiZd9pQs24hJDerLu_ttYz__Wp3JcUjwteQ3RfZ67ioPl8vJ2q10787nDdcnOboKNkoElrOx_3w4kJy851X5Pu8YX6rN7GkFtj270lMwnWO7r6j1AsrS1cdSfB4GDQjHhXqED5vNo30nQQHdwS85hiSl5wJEKTxXlPy6SMaFQDp7ULIauZ0pSZ5ueNz9fTk8XViLaQftV_; "
+    "VT_bcbff8986118=14; SID_bcbff8986118=5596075514064757280"
+)
 
-_RUNTIME_COOKIE: str = os.getenv("JST_ERP_COOKIE", DEFAULT_JST_COOKIE)
+_env_jst_cookie = os.getenv("JST_ERP_COOKIE", "").strip()
+# Prefer FRESH_JST_COOKIE if env cookie is empty or still holds the expired 8925a238... u_cid
+DEFAULT_JST_COOKIE = (
+    FRESH_JST_COOKIE
+    if (not _env_jst_cookie or "8925a23804b941b49f52f1c79c1c3b93" in _env_jst_cookie)
+    else _env_jst_cookie
+)
+
+_RUNTIME_COOKIE: str = DEFAULT_JST_COOKIE
 AUTO_SYNC_ENABLED: bool = True
 
 # Verified JST ERP SKU Catalog for Shop 20759963 (ข้าวบุกสุขใจ)
