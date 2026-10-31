@@ -453,9 +453,9 @@ STARRED_META_PSIDS = {
 }
 
 HUMAN_ADMIN_MARKERS = (
-    "บริษัท ดิจิสท์ ฮับ จำกัด",
-    "304-407545-5",
-    "3044075455",
+    "น้องนีนี่มาให้บริการ",
+    "แจ้งน้องแอดมินได้เลยนะคะ",
+    "แจ้งน้อง admin ได้เลยนะคะ",
     "ส่งคำขอให้โอนแล้ว",
     "คุณร้องขอไป ฿",
     "messenger automatically created a transfer request",
@@ -641,7 +641,7 @@ def analyze_facebook_conversation_dict(conv: dict, page_id: str = "8061291092408
                 current_order_texts.append(msg_txt)
             if msg_dt:
                 hours_ago = (datetime.now(timezone.utc) - msg_dt).total_seconds() / 3600.0
-                if hours_ago <= 24:
+                if hours_ago <= 0.25:
                     human_admin_active = True
 
     # 2. Check if the current inquiry has an unanswered admin question at the end
@@ -674,6 +674,8 @@ def analyze_facebook_conversation_dict(conv: dict, page_id: str = "8061291092408
     return {
         "external_user_id": cust_id,
         "customer_name": cust_name,
+        "page_id": page_id,
+        "updated_time": conv.get("updated_time"),
         "is_paid": is_paid_current,
         "has_historical_paid": has_historical_paid,
         "has_unanswered_question": has_unanswered_question,
@@ -686,8 +688,184 @@ def analyze_facebook_conversation_dict(conv: dict, page_id: str = "8061291092408
     }
 
 
+def _norm_msg_sig(role: str, content: str) -> str:
+    """Create a deterministic signature for deduplicating Facebook messages vs local SQLite logs."""
+    import re
+
+    r_group = "user" if role == "user" else "page"
+    raw = str(content or "").strip()
+    if raw.startswith("[IMAGE:") and raw.endswith("]"):
+        u = raw[7:-1].split("?")[0].rstrip("/")
+        fname = u.split("/")[-1] if "/" in u else u
+        return f"{r_group}:IMG:{fname}"
+    clean_t = re.sub(r"\s+", " ", raw).strip()[:160]
+    return f"{r_group}:TXT:{clean_t}"
+
+
+def _sync_facebook_messages_to_log(
+    session_key: str,
+    messages: list[dict],
+    page_id: str = "806129109240845",
+    cust_name: str = "",
+) -> int:
+    """Sync Facebook Graph API conversation messages (both text and image attachments) into `message_log`."""
+    from datetime import datetime, timezone
+    from sqlalchemy import delete, select
+    from . import database
+
+    if not messages:
+        return 0
+
+    chron_msgs = list(reversed(messages))
+    extracted_entries: list[dict] = []
+
+    for m in chron_msgs:
+        sender_id = str((m.get("from") or {}).get("id") or "")
+        msg_txt = str(m.get("message") or "").strip()
+        created_str = m.get("created_time") or ""
+        msg_dt = datetime.now(timezone.utc)
+        if created_str:
+            try:
+                msg_dt = datetime.fromisoformat(created_str.replace("+0000", "+00:00"))
+            except Exception:
+                pass
+
+        if sender_id == page_id:
+            low_txt = msg_txt.lower()
+            is_admin = any(mk in low_txt for mk in HUMAN_ADMIN_MARKERS) or (
+                "เพจ : ข้าวบุก สุขใจ" in msg_txt and ("สินค้า :" in msg_txt or "จัดส่ง" in msg_txt)
+            )
+            role = "admin" if is_admin else "assistant"
+            sender_label = "แอดมิน" if is_admin else "AI น้องบุก"
+        else:
+            role = "user"
+            sender_label = cust_name or "ลูกค้า"
+
+        att_list = ((m.get("attachments") or {}).get("data")) or []
+        for att in att_list:
+            img_data = att.get("image_data") or {}
+            if img_data.get("render_as_sticker"):
+                continue
+            img_url = img_data.get("url") or att.get("file_url") or ""
+            if img_url:
+                extracted_entries.append(
+                    {
+                        "role": role,
+                        "sender_label": sender_label,
+                        "content": f"[IMAGE:{img_url}]",
+                        "created_at": msg_dt,
+                    }
+                )
+
+        if msg_txt:
+            extracted_entries.append(
+                {
+                    "role": role,
+                    "sender_label": sender_label,
+                    "content": msg_txt,
+                    "created_at": msg_dt,
+                }
+            )
+
+    if not extracted_entries:
+        return 0
+
+    inserted_count = 0
+    with database.SessionLocal() as db:
+        existing_rows = db.execute(
+            select(database.MessageLog)
+            .where(database.MessageLog.psid == session_key)
+            .order_by(database.MessageLog.id.asc())
+        ).scalars().all()
+
+        if not existing_rows:
+            for e in extracted_entries:
+                db.add(
+                    database.MessageLog(
+                        psid=session_key,
+                        role=e["role"],
+                        sender_label=e["sender_label"],
+                        content=e["content"],
+                        created_at=e["created_at"],
+                    )
+                )
+            inserted_count = len(extracted_entries)
+        else:
+            first_existing_dt = existing_rows[0].created_at
+            if first_existing_dt and first_existing_dt.tzinfo is None:
+                first_existing_dt = first_existing_dt.replace(tzinfo=timezone.utc)
+            first_fb_dt = extracted_entries[0]["created_at"]
+
+            # If DB only has recent post-restart messages and is missing earlier Graph API history, backfill cleanly
+            need_full_backfill = (
+                len(existing_rows) < len(extracted_entries)
+                and first_existing_dt is not None
+                and (first_existing_dt - first_fb_dt).total_seconds() > 60
+            )
+            if need_full_backfill:
+                fb_sigs = {_norm_msg_sig(e["role"], e["content"]) for e in extracted_entries}
+                now_utc = datetime.now(timezone.utc)
+                unsynced_tail = []
+                for r in existing_rows:
+                    r_dt = r.created_at.replace(tzinfo=timezone.utc) if (r.created_at and r.created_at.tzinfo is None) else r.created_at
+                    if r_dt and (now_utc - r_dt).total_seconds() <= 60 and _norm_msg_sig(r.role, r.content) not in fb_sigs:
+                        unsynced_tail.append(
+                            {
+                                "role": r.role,
+                                "sender_label": r.sender_label,
+                                "content": r.content,
+                                "created_at": r_dt,
+                            }
+                        )
+                db.execute(delete(database.MessageLog).where(database.MessageLog.psid == session_key))
+                for e in extracted_entries + unsynced_tail:
+                    db.add(
+                        database.MessageLog(
+                            psid=session_key,
+                            role=e["role"],
+                            sender_label=e["sender_label"],
+                            content=e["content"],
+                            created_at=e["created_at"],
+                        )
+                    )
+                inserted_count = len(extracted_entries)
+            else:
+                last_dt = existing_rows[-1].created_at
+                if last_dt and last_dt.tzinfo is None:
+                    last_dt = last_dt.replace(tzinfo=timezone.utc)
+                recent_sigs = {_norm_msg_sig(r.role, r.content) for r in existing_rows[-10:]}
+                for e in extracted_entries:
+                    sig = _norm_msg_sig(e["role"], e["content"])
+                    if sig in recent_sigs:
+                        continue
+                    if last_dt is None or (e["created_at"] - last_dt).total_seconds() >= -2:
+                        db.add(
+                            database.MessageLog(
+                                psid=session_key,
+                                role=e["role"],
+                                sender_label=e["sender_label"],
+                                content=e["content"],
+                                created_at=e["created_at"],
+                            )
+                        )
+                        recent_sigs.add(sig)
+                        inserted_count += 1
+
+        user_row = db.get(database.UserSession, session_key)
+        if user_row is not None and extracted_entries:
+            latest_dt = extracted_entries[-1]["created_at"]
+            cur_dt = user_row.last_interaction_time
+            if cur_dt and cur_dt.tzinfo is None:
+                cur_dt = cur_dt.replace(tzinfo=timezone.utc)
+            if not existing_rows or cur_dt is None or latest_dt > cur_dt:
+                user_row.last_interaction_time = latest_dt
+
+        db.commit()
+    return inserted_count
+
+
 def _apply_facebook_sync_to_db(info: dict, brand_id: str = "buksukjai") -> dict:
-    """Persist verified Facebook conversation status into SQLite `user_sessions`."""
+    """Persist verified Facebook conversation status AND message history into SQLite."""
     from datetime import datetime, timezone
     from . import database
 
@@ -704,7 +882,8 @@ def _apply_facebook_sync_to_db(info: dict, brand_id: str = "buksukjai") -> dict:
     if info.get("is_paid"):
         paid_dt = info.get("paid_at") or datetime.now(timezone.utc)
         days_elapsed = (datetime.now(timezone.utc) - paid_dt).total_seconds() / 86400.0
-        target_stage = max(user.after_sales_stage or 0, 2 if days_elapsed >= 6 else 0)
+        # Prevent repeated after-sales blasts across container restarts by marking historical orders (>2 days) as stage 3
+        target_stage = max(user.after_sales_stage or 0, 3 if days_elapsed >= 2 else 0)
         new_tags = database._add_tag_str(user.broadcast_tags or "", "ชำระเงินแล้ว")
         new_tags = database._add_tag_str(new_tags, "⭐ ติดดาว (ซื้อแล้ว)")
         with database.SessionLocal() as db:
@@ -730,16 +909,27 @@ def _apply_facebook_sync_to_db(info: dict, brand_id: str = "buksukjai") -> dict:
                 if info.get("customer_name"):
                     row.customer_name = info["customer_name"]
                 row.broadcast_tags = new_tags
-                if info.get("has_unanswered_question") or info.get("human_admin_active"):
+                if info.get("has_unanswered_question"):
                     row.state = "pending_payment"
-                    row.bot_enabled = False
+                row.bot_enabled = not bool(info.get("human_admin_active"))
                 db.commit()
     elif info.get("human_admin_active"):
         database.set_bot_enabled(session_key, False)
         if info.get("customer_name"):
             database.update_session_meta(session_key, customer_name=info["customer_name"])
-    elif info.get("customer_name"):
-        database.update_session_meta(session_key, customer_name=info["customer_name"])
+    else:
+        if not user.bot_enabled:
+            database.set_bot_enabled(session_key, True)
+        if info.get("customer_name"):
+            database.update_session_meta(session_key, customer_name=info["customer_name"])
+
+    # Sync Facebook message history (text + image attachments) into SQLite `message_log`
+    synced_msgs = _sync_facebook_messages_to_log(
+        session_key=session_key,
+        messages=info.get("messages") or [],
+        page_id=str(info.get("page_id") or "806129109240845"),
+        cust_name=info.get("customer_name") or "",
+    )
 
     return {
         "session_key": session_key,
@@ -750,12 +940,13 @@ def _apply_facebook_sync_to_db(info: dict, brand_id: str = "buksukjai") -> dict:
         "purchased_sku": info.get("purchased_sku"),
         "paid_at": info["paid_at"].isoformat() if info.get("paid_at") else None,
         "human_admin_active": info.get("human_admin_active"),
+        "synced_messages": synced_msgs,
     }
 
 
 async def sync_facebook_user_thread(external_user_id: str, brand_id: str = "buksukjai") -> dict | None:
-    """Query Facebook Graph API for a specific customer's real thread before replying."""
-    if not external_user_id or "_test_" in external_user_id or external_user_id.startswith("FB_"):
+    """Query Facebook Graph API for a specific customer's real thread before replying or displaying in Admin UI."""
+    if not external_user_id or "_test_" in external_user_id or external_user_id.startswith("FB") or external_user_id.startswith("U"):
         return None
     token = _get_channel_token(brand_id, "facebook")
     if not token:
@@ -763,13 +954,13 @@ async def sync_facebook_user_thread(external_user_id: str, brand_id: str = "buks
     page = get_page_by_brand_id(brand_id)
     page_id = str(page.get("channels", {}).get("fb_page_id") or "806129109240845")
     try:
-        async with httpx.AsyncClient(timeout=8) as client:
+        async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.get(
                 "https://graph.facebook.com/v21.0/me/conversations",
                 params={
                     "access_token": token,
                     "user_id": external_user_id,
-                    "fields": "participants,updated_time,messages.limit(25){message,from,created_time}",
+                    "fields": "participants,updated_time,messages.limit(30){id,message,from,created_time,attachments{image_data,mime_type,file_url}}",
                 },
             )
             if resp.status_code != 200:
@@ -787,7 +978,7 @@ async def sync_facebook_user_thread(external_user_id: str, brand_id: str = "buks
 
 
 async def sync_recent_facebook_conversations(brand_id: str = "buksukjai", limit: int = 40) -> list[dict]:
-    """Scan the latest N conversations on the Facebook Page and sync paid/admin status into SQLite."""
+    """Scan the latest N conversations on the Facebook Page and sync paid/admin status + messages into SQLite."""
     token = _get_channel_token(brand_id, "facebook")
     if not token:
         return []
@@ -795,13 +986,13 @@ async def sync_recent_facebook_conversations(brand_id: str = "buksukjai", limit:
     page_id = str(page.get("channels", {}).get("fb_page_id") or "806129109240845")
     results: list[dict] = []
     try:
-        async with httpx.AsyncClient(timeout=15) as client:
+        async with httpx.AsyncClient(timeout=20) as client:
             resp = await client.get(
                 "https://graph.facebook.com/v21.0/me/conversations",
                 params={
                     "access_token": token,
                     "limit": limit,
-                    "fields": "participants,updated_time,messages.limit(25){message,from,created_time}",
+                    "fields": "participants,updated_time,messages.limit(30){id,message,from,created_time,attachments{image_data,mime_type,file_url}}",
                 },
             )
             if resp.status_code != 200:

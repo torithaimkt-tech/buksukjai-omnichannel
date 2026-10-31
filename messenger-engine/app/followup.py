@@ -105,14 +105,14 @@ def build_after_sales_message(stage: int, sku: str, qty: int) -> tuple[str, str,
         )
     return (
         f"สวัสดีค่าคุณลูกค้า 🍚✨ ข้าวบุกสุขใจ ({item_desc}) ที่รับไป ทานแล้วรสชาติเป็นยังไงบ้างคะ ตอนนี้ยังเหลืออยู่ไหมเอ่ย 😊|||"
-        "ถ้าใกล้หมดแล้วและจะสั่งซื้อเพิ่มเติม บอกแอดมินได้เลยนะคะ เรามีโปรโมชั่นพิเศษลด 5% สำหรับลูกค้าเก่าโดยเฉพาะเลยค่า\n\n"
-        "• ถุงใหญ่ 1 กก. = เหลือ 436 บาท (โอนส่งฟรี!)\n\n"
-        "• เซ็ตพกพา 20 ซอง = เหลือ 684 บาท (ส่งฟรี!)\n\n"
-        "• โปรตุน 2 แถม 2 = เหลือ 854 บาท (ส่งฟรี!)\n\n"
-        "• โปรตุน 3 แถม 3 = เหลือ 1,234 บาท (ส่งฟรี!)|||"
+        "ถ้าใกล้หมดแล้วและสนใจสั่งไปทานต่อเนื่อง ตอนนี้มีโปรโมชั่นชุดคุ้มส่งฟรีตามนี้เลยนะคะ\n\n"
+        "• ถุงใหญ่ 1 กก. = โปร 459 บาท (โอนส่งฟรี!)\n\n"
+        "• เซ็ตพกพา 20 ซอง = โปร 720 บาท (ส่งฟรี!)\n\n"
+        "• โปรตุน 2 แถม 2 (1 กก. 2 ถุง + แถม 60g 2 ซอง) = โปร 899 บาท (ส่งฟรี!)\n\n"
+        "• โปรตุน 3 แถม 3 (1 กก. 3 ถุง + แถม 60g 3 ซอง) = โปร 1,299 บาท (ส่งฟรี!)|||"
         "คุณลูกค้าสนใจรับชุดไหนไปทานต่อเนื่อง แจ้งน้องบุกได้เลยนะคะ 💚🙏",
-        "ลูกค้าเก่า_VIP",
-        "promo_vip",
+        "ดูแลหลังการขาย_ครบกำหนด",
+        None,
     )
 
 
@@ -283,12 +283,31 @@ def get_session_reengage_status(psid: str) -> dict:
         or "ชำระเงินแล้ว" in tags_str
         or "ติดดาว" in tags_str
         or "สั่งซื้อสำเร็จ" in tags_str
+        or "ยกเลิกออเดอร์" in tags_str
+        or "ถาม อย." in tags_str
         or "#JST_ORDER:" in notes_str
     ):
         return {
             "psid": psid,
             "eligible": False,
-            "reason": "ลูกค้าติดดาว ⭐ (สั่งซื้อ/ชำระเงินเรียบร้อยแล้ว — ห้ามขุดซ้ำ)",
+            "reason": "ลูกค้าติดดาว ⭐ / ชำระเงินแล้ว / หรือยกเลิกออเดอร์แล้ว — ระบบบล็อกไม่ให้ทักขุดซ้ำค่ะ",
+            "state": user.state,
+            "current_stage": 0,
+            "hours_silent": 0.0,
+        }
+
+    # Also check message history for customer slip attachment, transfer confirmation, or cancellation
+    user_texts_joined = "\n".join(
+        str(m.get("content") or "") for m in msgs if m.get("role") == "user"
+    ).lower()
+    if any(
+        k in user_texts_joined
+        for k in ("[image:", "โอนแล้ว", "ส่งสลิป", "แนบสลิป", "ส่งการชำระเงินจำนวน", "ขอยกเลิก", "ไม่เอาแล้ว", "ยกเลิกค่ะ", "ยกเลิกครับ")
+    ):
+        return {
+            "psid": psid,
+            "eligible": False,
+            "reason": "ตรวจพบสลิปโอนเงินหรือข้อความขอยกเลิกในประวัติแชท — ป้องกันการทักขุดซ้ำค่ะ",
             "state": user.state,
             "current_stage": 0,
             "hours_silent": 0.0,
@@ -476,35 +495,167 @@ async def run_auto_reengage_scan(public_base_url: str = "") -> dict:
     }
 
 
+_AUTO_REPLIED_FB_SIGS: set[str] = set()
+
+
+async def auto_reply_unanswered_facebook_chats(
+    max_age_minutes: float = 60.0,
+    min_wait_seconds: float = 35.0,
+) -> list[dict]:
+    """Fallback active auto-responder for Facebook Page conversations via Graph API polling.
+
+    Ensures that even if Meta Webhooks do not fire (or when the user's PC is turned off overnight),
+    any customer who messages the Facebook Page or triggers a comment-to-messenger stub
+    receives an AI response automatically within ~35–60 seconds.
+    """
+    main_mod = sys.modules.get("app.main")
+    if not main_mod or not hasattr(main_mod, "process_omnichannel_message"):
+        return []
+
+    now_utc = datetime.now(timezone.utc)
+    all_sessions = database.list_all_sessions()
+    replied_list: list[dict] = []
+
+    for s in all_sessions:
+        if s.get("platform") != "facebook":
+            continue
+        if not s.get("bot_enabled", True) or s.get("state") == "completed":
+            continue
+        ext_id = str(s.get("external_user_id") or "")
+        if not ext_id or "_test_" in ext_id or ext_id.startswith("FB"):
+            continue
+
+        psid = s["psid"]
+        msgs = database.get_full_messages(psid, limit=30)
+        if not msgs:
+            continue
+
+        last_msg = msgs[-1]
+        last_role = str(last_msg.get("role") or "")
+        last_content = str(last_msg.get("content") or "").strip()
+        last_dt_str = str(last_msg.get("created_at") or "")
+        if not last_dt_str:
+            continue
+
+        try:
+            last_dt = datetime.fromisoformat(last_dt_str.replace("+0000", "+00:00"))
+            if last_dt.tzinfo is None:
+                last_dt = last_dt.replace(tzinfo=timezone.utc)
+        except Exception:
+            continue
+
+        age_sec = (now_utc - last_dt).total_seconds()
+        if age_sec < min_wait_seconds or age_sec > (max_age_minutes * 60.0):
+            continue
+
+        is_comment_auto_stub = (
+            last_role in ("assistant", "admin")
+            and (
+                "สวัสดีค่ะน้องแอดมินส่งรายละเอียดเพิ่มเติมให้นะคะ" in last_content
+                or "คุณกำลังตอบกลับความคิดเห็นของผู้ใช้ต่อโพสต์บนเพจของคุณ" in last_content
+            )
+        )
+        if last_role != "user" and not is_comment_auto_stub:
+            continue
+
+        sig = f"{psid}:{last_dt_str}:{last_content[:80]}"
+        if sig in _AUTO_REPLIED_FB_SIGS:
+            continue
+
+        # Collect trailing consecutive user messages if customer sent multiple lines
+        if is_comment_auto_stub:
+            trigger_text = "สนใจ ขอรายละเอียดโปรโมชั่นค่ะ"
+        else:
+            trailing_user_lines: list[str] = []
+            for m in reversed(msgs):
+                if m.get("role") == "user":
+                    c = str(m.get("content") or "").strip()
+                    if c.startswith("[IMAGE:"):
+                        trailing_user_lines.append("[ลูกค้าแนบสลิปเข้ามาในแชทค่ะ]")
+                    elif c:
+                        trailing_user_lines.append(c)
+                else:
+                    break
+            trailing_user_lines.reverse()
+            trigger_text = "\n".join(trailing_user_lines).strip() or last_content
+
+        if not trigger_text:
+            continue
+
+        _AUTO_REPLIED_FB_SIGS.add(sig)
+        logger.info(
+            "Graph API Active Auto-Responder replying to unanswered Facebook chat %s (%s): %s",
+            psid,
+            s.get("customer_name"),
+            trigger_text[:80],
+        )
+        try:
+            res = await main_mod.process_omnichannel_message(
+                brand_id=s.get("brand_id") or "buksukjai",
+                platform="facebook",
+                external_user_id=ext_id,
+                text=trigger_text,
+                customer_name=s.get("customer_name") or "",
+                skip_user_log=True,
+            )
+            replied_list.append(
+                {
+                    "psid": psid,
+                    "customer_name": s.get("customer_name"),
+                    "trigger_text": trigger_text,
+                    "bot_replied": res.get("bot_replied"),
+                }
+            )
+        except Exception as exc:
+            logger.warning("Auto-reply failed for %s: %s", psid, exc)
+
+    return replied_list
+
+
 async def followup_loop(config: dict, public_base_url_getter=None) -> None:
-    check_minutes = float(os.getenv("FOLLOWUP_CHECK_MINUTES", "15"))
+    poll_seconds = float(os.getenv("FOLLOWUP_POLL_SECONDS", "60"))
+    render_health_url = os.getenv("RENDER_EXTERNAL_URL", "https://buksukjai-omnichannel.onrender.com") + "/health"
 
     logger.info(
-        "Follow-up, Ghost Re-engagement & After-Sales scheduler running: checking every %s min",
-        check_minutes,
+        "24/7 Cloud Scheduler & Graph API Auto-Responder running: polling every %s sec",
+        poll_seconds,
     )
+    cycle_idx = 0
     while True:
         try:
+            import httpx
+
             pub_url = public_base_url_getter() if public_base_url_getter else os.getenv("PUBLIC_BASE_URL", "")
 
-            # 0. Sync real Facebook conversation history & paid order status first!
-            await messenger.sync_recent_facebook_conversations("buksukjai", limit=35)
+            # 0.0 Keep Render cloud container warm 24/7 (prevents Render 15-min spin-down when PC is off)
+            try:
+                async with httpx.AsyncClient(timeout=8.0) as _ka_client:
+                    await _ka_client.get(render_health_url)
+            except Exception:
+                pass
 
-            # 0.2 Daily 01:00 AM Sales & Stock Reconciliation Summary
+            # 0.1 Sync latest Facebook conversations & auto-reply to any unanswered customer messages!
+            await messenger.sync_recent_facebook_conversations("buksukjai", limit=25)
+            await auto_reply_unanswered_facebook_chats(max_age_minutes=60.0, min_wait_seconds=35.0)
+
+            # 0.2 Daily 01:00 AM Sales & Stock Reconciliation Summary (สรุปยอดขายของเมื่อวานทุกวันเวลา 01:00 น.)
             from . import daily_sheet_report
+
             should_rep, yest_date = daily_sheet_report.should_run_daily_1am_report()
             if should_rep:
+                logger.info("Running Daily 01:00 AM (BKK) Sales & Stock Summary for %s...", yest_date)
                 await asyncio.to_thread(daily_sheet_report.load_or_build_daily_report, yest_date)
 
-            # 0.5 Daily 06:00 AM Batch Keying into JST ERP
+            # 0.5 Daily 06:00 AM Batch Keying into JST ERP (คีย์ข้อมูลวันละ 1 ครั้ง ตอน 06:00 น. เวลาไทย รวบรวมออเดอร์ของเมื่อวาน)
             importlib.reload(jst_erp)
             if jst_erp.should_run_daily_6am_sync():
                 logger.info("Running Daily 06:00 AM (BKK) JST ERP Batch Order Sync...")
                 await messenger.sync_recent_facebook_conversations("buksukjai", limit=60)
                 await asyncio.to_thread(jst_erp.sync_all_confirmed_orders_to_jst, 2, True)
+                # Refresh Google Sheet after 06:00 AM keying finishes
                 await asyncio.to_thread(daily_sheet_report.load_or_build_daily_report, yest_date)
 
-            # 0.65 Daily 07:00 AM LINE Work Group Report
+            # 0.65 Daily 07:00 AM LINE Work Group Report (แจ้งสรุปยอดขายแต่ละช่องทาง โอน/COD และตัดสต็อกโกดังในกลุ่มไลน์งานหลังคีย์เสร็จ)
             importlib.reload(daily_sheet_report)
             should_line_7am, yest_7am = daily_sheet_report.should_run_daily_7am_line_report()
             if should_line_7am:
@@ -518,33 +669,45 @@ async def followup_loop(config: dict, public_base_url_getter=None) -> None:
                     True,
                 )
 
-            # 1. Ghost / Silent Lead Re-engagement Bot (Stage 1: 1h, Stage 2: 6h, Stage 3: 20h)
-            re_cfg = get_reengage_config()
-            if re_cfg.get("auto_enabled", True):
-                await run_auto_reengage_scan(public_base_url=pub_url)
+            # Heavy background scans run every 10 cycles (~10 minutes)
+            if cycle_idx % 10 == 0:
+                # 0.6 Smart Slip Verifier & Auto-Confirm (ตรวจสลิปที่ติด Fail เวลาชำระเงินไม่ตรงกัน แล้วกดยืนยันให้อัตโนมัติ)
+                await asyncio.to_thread(jst_erp.verify_and_auto_confirm_jst_slips, 40)
 
-            # 2. Post-Purchase After-Sales Care (Day 3, Day 5, Smart Depletion Day)
-            now = datetime.now(timezone.utc)
-            completed_users = database.get_completed_sessions_for_after_sales()
-            for u in completed_users:
-                paid_at = u.purchased_at or u.last_interaction_time
-                if not paid_at:
-                    continue
-                if paid_at.tzinfo is None:
-                    paid_at = paid_at.replace(tzinfo=timezone.utc)
-                days_elapsed = (now - paid_at).total_seconds() / 86400.0
-                sched = calculate_depletion_schedule(u.purchased_sku, u.purchased_qty)
-                cur_stage = u.after_sales_stage or 0
+                # 0.7 2-Stage Automated Parcel Tracking Notifier (แจ้งเลขพัสดุเมื่อขนส่งเข้ารับแล้ว & แจ้งเมื่อพัสดุส่งถึงมือลูกค้าพร้อมเวลา)
+                from . import parcel_tracker
 
-                if cur_stage < 1 and days_elapsed >= sched["day_delivery_check"]:
-                    await send_after_sales_stage(u.psid, 1, public_base_url=pub_url)
-                elif cur_stage == 1 and days_elapsed >= sched["day_taste_check"]:
-                    await send_after_sales_stage(u.psid, 2, public_base_url=pub_url)
-                elif cur_stage == 2 and days_elapsed >= sched["day_depletion_reorder"]:
-                    await send_after_sales_stage(u.psid, 3, public_base_url=pub_url)
+                importlib.reload(parcel_tracker)
+                await parcel_tracker.check_and_send_parcel_tracking_updates(public_base_url=pub_url)
+
+                # 1. Ghost / Silent Lead Re-engagement Bot (Stage 1: 1h, Stage 2: 6h, Stage 3: 20h)
+                re_cfg = get_reengage_config()
+                if re_cfg.get("auto_enabled", True):
+                    await run_auto_reengage_scan(public_base_url=pub_url)
+
+                # 2. Post-Purchase After-Sales Care (Day 3, Day 5, Smart Depletion Day)
+                now = datetime.now(timezone.utc)
+                completed_users = database.get_completed_sessions_for_after_sales()
+                for u in completed_users:
+                    paid_at = u.purchased_at or u.last_interaction_time
+                    if not paid_at:
+                        continue
+                    if paid_at.tzinfo is None:
+                        paid_at = paid_at.replace(tzinfo=timezone.utc)
+                    days_elapsed = (now - paid_at).total_seconds() / 86400.0
+                    sched = calculate_depletion_schedule(u.purchased_sku, u.purchased_qty)
+                    cur_stage = u.after_sales_stage or 0
+
+                    if cur_stage < 1 and days_elapsed >= sched["day_delivery_check"]:
+                        await send_after_sales_stage(u.psid, 1, public_base_url=pub_url)
+                    elif cur_stage == 1 and days_elapsed >= sched["day_taste_check"]:
+                        await send_after_sales_stage(u.psid, 2, public_base_url=pub_url)
+                    elif cur_stage == 2 and days_elapsed >= sched["day_depletion_reorder"]:
+                        await send_after_sales_stage(u.psid, 3, public_base_url=pub_url)
         except Exception:
             logger.exception("Follow-up / Re-engagement / After-Sales scan failed; will retry next cycle")
-        await asyncio.sleep(check_minutes * 60)
+        cycle_idx += 1
+        await asyncio.sleep(poll_seconds)
 
 
 class PushJstRequest(BaseModel):
@@ -672,6 +835,27 @@ def _register_jst_routes() -> None:
             await messenger.sync_recent_facebook_conversations("buksukjai", limit=40)
             pub_url = getattr(main_mod, "PUBLIC_BASE_URL", "")
             return await run_auto_reengage_scan(public_base_url=pub_url)
+
+    if "/api/jst/sync-tracking" not in existing_paths:
+        @fastapi_app.get("/api/jst/tracking-status")
+        async def api_jst_tracking_status():
+            from . import parcel_tracker
+
+            return parcel_tracker.get_tracking_state()
+
+        @fastapi_app.post("/api/jst/sync-tracking")
+        async def api_jst_sync_tracking(dry_run: bool = False):
+            from . import parcel_tracker
+
+            pub_url = getattr(main_mod, "PUBLIC_BASE_URL", "")
+            return await parcel_tracker.check_and_send_parcel_tracking_updates(
+                public_base_url=pub_url,
+                dry_run=dry_run,
+            )
+
+        @fastapi_app.post("/api/jst/verify-slips")
+        async def api_jst_verify_slips():
+            return await asyncio.to_thread(jst_erp.verify_and_auto_confirm_jst_slips, 50)
 
 
 _register_jst_routes()

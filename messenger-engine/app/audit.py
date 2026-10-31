@@ -55,6 +55,13 @@ BANNED_MEDICAL_OR_BODY_TERMS: dict[str, str] = {
     "ดีท็อกซ์": "สบายท้อง",
     "เนื้อเยลลี่": "เนื้อนุ่มหนึบเหมือนข้าวสวย",
     "บุกก้อน": "ข้าวบุกเมล็ดเรียวยาว",
+    "บุก 60% ผสมข้าวหอมมะลิแท้ 40%": "บุก 59% ผสมข้าวหอมมะลิ 29% และน้ำ 12%",
+    "บุก 60% ผสมข้าวหอมมะลิ 40%": "บุก 59% ผสมข้าวหอมมะลิ 29% และน้ำ 12%",
+    "หัวบุกธรรมชาติ 60% ผสมข้าวหอมมะลิแท้ 40%": "หัวบุกธรรมชาติ 59% ผสมข้าวหอมมะลิแท้ 29% และน้ำ 12%",
+    "หัวบุกธรรมชาติ 60% ผสมข้าวหอมมะลิ 40%": "หัวบุกธรรมชาติ 59% ผสมข้าวหอมมะลิ 29% และน้ำ 12%",
+    "หัวบุก 60% + ข้าวหอมมะลิ 40%": "หัวบุก 59% + ข้าวหอมมะลิ 29% + น้ำ 12%",
+    "บุก 60% + ข้าวหอมมะลิแท้ 40%": "บุก 59% + ข้าวหอมมะลิแท้ 29% + น้ำ 12%",
+    "บุก 60% ข้าว 40%": "บุก 59% ข้าวหอมมะลิ 29% น้ำ 12%",
 }
 
 
@@ -199,13 +206,111 @@ def audit_outgoing_reply(
         })
         audited_state = proposed_state
 
-    # 5.5 No-Assumed-COD Guardrail & Complaint/Tracking Shield
+    # 5.5 No-Assumed-COD Guardrail, Ambiguous-Size Guardrail, FDA/อย. Auto-Pause & Cancellation/Tracking Shield
     all_user_text = "\n".join(str(m.get("content") or "") for m in history if m.get("role") == "user").lower()
     user_ever_said_cod = any(w in all_user_text for w in ("ปลายทาง", "cod", "เก็บเงินปลายทาง"))
     user_ever_said_transfer = any(w in all_user_text for w in ("โอน", "สลิป", "เลขบัญชี", "บช"))
     reply_joined = "\n".join(bubbles)
+
+    # A) FDA / เลข อย. Strict Protocol (ข้าวบุกสุขใจมีใบรับรองฮาลาลแน่นอน แต่ยังไม่มีเลข อย. ของแบรนด์ข้าวบุกสุขใจ ส่วน Mr.Buk มีทั้งฮาลาลและ อย. 13-4-06169-6-0001)
+    is_fda_oy_question = any(
+        w in u_low for w in ("อย.", "เลข อย", "มี อย", "ใบ อย", "ผ่าน อย", "ขอเลขอย", "มีอยไหม", "มีอย.ไหม", "มีอยมั้ย")
+    )
+    if brand_id == "mrbuk" and is_fda_oy_question:
+        bubbles = [
+            "ข้าวบุกหอมมะลิ มิสเตอร์บุก (Mr.Buk) มีเลขสารบบ อย. ถูกต้องครบถ้วน (เลขที่ 13-4-06169-6-0001) และมีใบรับรองมาตรฐานฮาลาล (Halal) ครบถ้วนค่ะ ทานได้อย่างมั่นใจและปลอดภัย 100% เลยค่ะ 😊💚"
+        ]
+        auto_fixes.append("ยืนยันข้อมูลเลข อย. (13-4-06169-6-0001) และใบรับรองฮาลาลสำหรับแบรนด์ Mr.Buk")
+    elif brand_id != "mrbuk" and is_fda_oy_question:
+        if "สารกันบูด" in u_low:
+            bubbles = [
+                "ข้าวบุกสุขใจผ่านกระบวนการอบแห้งฆ่าเชื้อด้วยความร้อนสูงตามมาตรฐานโรงงาน มีใบรับรองฮาลาล ไม่ใส่สารกันบูดและไม่เจือสีสังเคราะห์ค่ะ",
+                "ส่วนเรื่องเลข อย. ตอนนี้ทางแบรนด์ข้าวบุกสุขใจยังอยู่ระหว่างดำเนินการขอเลข อย. ในประเทศไทยค่ะคุณลูกค้า เนื่องจากขั้นตอนขอ อย. ใช้ระยะเวลาค่อนข้างนาน พอได้เลขเรียบร้อยแล้วแอดมินจะรีบมาอัปเดตให้ทราบทันทีเลยนะคะ 🙏",
+            ]
+        else:
+            bubbles = [
+                "ตอนนี้ทางแบรนด์ข้าวบุกสุขใจยังอยู่ระหว่างดำเนินการขอเลข อย. ค่ะคุณลูกค้า เนื่องจากขั้นตอนขอ อย. ในประเทศไทยใช้ระยะเวลาค่อนข้างนาน พอได้เลขเรียบร้อยแล้วแอดมินจะรีบมาอัปเดตให้ทราบทันทีเลยนะคะ 🙏"
+            ]
+        audited_image_key = "none"
+        audited_state = "browsing"
+        try:
+            database.set_bot_enabled(psid, False)
+            updated_tags = database._add_tag_str(getattr(user_session, "broadcast_tags", "") or "", "ถาม อย. (รอแอดมิน)")
+            database.update_session_meta(psid=psid, broadcast_tags=updated_tags)
+        except Exception:
+            pass
+        auto_fixes.append("ตรวจพบคำถามเรื่อง อย. ของข้าวบุกสุขใจ — ตอบตามสคริปต์มาตรฐานโดยไม่แนบโปรโมชั่นปิดการขาย และสลับให้แอดมินดูแลต่ออัตโนมัติ")
+
+    # B) Post-Summary Cancellation Shield (ลูกค้าพิมพ์ขอยกเลิก / ไม่เอาแล้ว / ยังไม่รับ)
+    is_cancel_request = (
+        not is_fda_oy_question
+        and "ไม่ยกเลิก" not in u_low
+        and any(
+            w in u_low
+            for w in (
+                "ขอยกเลิก",
+                "ยกเลิกก่อน",
+                "ยกเลิกค่ะ",
+                "ยกเลิกคะ",
+                "ยกเลิกครับ",
+                "ยกเลิกนะ",
+                "ไม่เอาแล้ว",
+                "ไม่รับแล้ว",
+                "ยังไม่รับค่ะ",
+                "ยังไม่รับนะคะ",
+                "ถ้าบวกเพิ่มไม่รับ",
+                "แพงไปเรายกเลิก",
+                "แคนเซิล",
+            )
+        )
+    ) or u_low in ("ยกเลิก", "cancel")
+    if is_cancel_request:
+        bubbles = [
+            "รับทราบค่ะคุณลูกค้า น้องบุกดำเนินการยกเลิกคำสั่งซื้อในระบบให้เรียบร้อยแล้วนะคะ 🙏💚",
+            "หากโอกาสหน้าสนใจให้ดูแลเพิ่มเติม ทักหาน้องบุกได้ตลอดเลยนะคะ ขอบคุณมากค่ะ 😊",
+        ]
+        audited_image_key = "none"
+        audited_state = "browsing"
+        try:
+            updated_tags = database._add_tag_str(getattr(user_session, "broadcast_tags", "") or "", "ยกเลิกออเดอร์")
+            database.update_session_meta(psid=psid, state="browsing", is_starred=False, broadcast_tags=updated_tags)
+        except Exception:
+            pass
+        auto_fixes.append("ตรวจพบคำขอยกเลิกจากลูกค้า — ยกเลิกสถานะออเดอร์ในระบบทันทีเพื่อป้องกันการคีย์ส่งคลัง")
+
+    # C) Ambiguous Size Guardrail (ลูกค้าบอกแค่ "เอา 1 ถุง / 2 ถุง" โดยยังไม่เคยระบุขนาดหรือราคา ห้ามเดาว่าเป็น 1 กก.!)
+    specified_any_size_or_price = any(
+        sz in all_user_text
+        for sz in (
+            "1 กิโล", "1กิโล", "1 กก", "1กก", "1kg", "1 kg", "กิโล", "โล",
+            "500", "ครึ่งโล", "60", "ซองเล็ก", "ถุงใหญ่", "ถุงกลาง",
+            "39", "239", "459", "499", "555", "720", "899", "939", "1299", "1,299",
+            "2 แถม 2", "3 แถม 3", "15 ซอง", "20 ซอง", "30 ซอง",
+        )
+    )
     if (
-        not user_ever_said_cod
+        not is_fda_oy_question
+        and not is_cancel_request
+        and not specified_any_size_or_price
+        and any(k in reply_joined for k in ("สรุปยอดสั่งซื้อ", "ขอทวนรายละเอียดคำสั่งซื้อ", "ยอดรวมทั้งหมด 459", "ยอดรวมทั้งหมด 499", "ยอดรวมทั้งหมด 899", "ราคารวม 899"))
+    ):
+        bubbles = [
+            "คุณลูกค้าสนใจรับเป็นขนาดไหนดีคะ 🍚✨\n\n"
+            "• ซองเล็ก 60 กรัม (ไซส์ทดลอง 1 มื้อ) = 39 บาท\n\n"
+            "• ถุงกลาง 500 กรัม (ทานได้ 8–10 มื้อ) = 239 บาท\n\n"
+            "• ถุงใหญ่ 1 กก. (ทานได้ 16–20 มื้อ) = 459 บาท (โอนส่งฟรี! / เก็บปลายทาง +40 บาท)\n\n"
+            "• โปรตุน 2 แถม 2 (1 กก. 2 ถุง + แถม 60g 2 ซอง) = 899 บาท (โอนส่งฟรี!)",
+            "รบกวนแจ้งขนาดที่ต้องการ และเลือกวิธีชำระเงิน (โอนเงินส่งฟรี หรือ เก็บปลายทาง) ให้น้องบุกสรุปยอดได้เลยนะคะ 😊💚",
+        ]
+        audited_state = "pending_payment"
+        audited_image_key = "none"
+        auto_fixes.append("ป้องกันการเดาขนาดเป็น 1 กก. เมื่อลูกค้าพิมพ์แค่จำนวนถุงโดยยังไม่ระบุขนาด (ถามยืนยันขนาดก่อนสรุปยอด)")
+
+    # D) No-Assumed-COD Guardrail
+    if (
+        not is_fda_oy_question
+        and not is_cancel_request
+        and not user_ever_said_cod
         and not user_ever_said_transfer
         and any(k in reply_joined for k in ("ยอดชำระปลายทาง", "ชำระเงิน : ปลายทาง", "ค่าส่งเก็บปลายทาง ="))
     ):
@@ -219,8 +324,9 @@ def audit_outgoing_reply(
         audited_image_key = "none"
         auto_fixes.append("ป้องกันการสรุปเป็น COD ไปเองโดยที่ลูกค้ายังไม่เลือกวิธีชำระเงิน (ถามลูกค้าพร้อมแนบเลขบัญชีเผื่อลูกค้าโอนตามมา)")
 
+    # E) Complaint / Parcel Tracking Shield
     is_tracking_complaint = any(
-        w in u_low for w in ("ยังไม่ได้รับของ", "โอนเงินไปแล้วตั้งแต่", "ช่วยเช็คการส่ง", "เช็คการส่ง", "ตามของ", "ส่งของหรือยัง")
+        w in u_low for w in ("ยังไม่ได้รับของ", "โอนเงินไปแล้วตั้งแต่", "ช่วยเช็คการส่ง", "เช็คการส่ง", "ตามของ", "ส่งของหรือยัง", "ส่งสินค้าไปเปลี่ยน")
     )
     if is_tracking_complaint:
         audited_image_key = "none"

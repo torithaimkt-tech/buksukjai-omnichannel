@@ -26,9 +26,12 @@ from typing import Any
 import httpx
 from dotenv import load_dotenv
 
+from pathlib import Path
+
 from app.config_loader import get_page_by_brand_id
 from app.database import SessionLocal, UserSession, get_full_messages
 
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 load_dotenv()
 logger = logging.getLogger(__name__)
 
@@ -50,9 +53,25 @@ JST_LOGISTICS_CODE = "J&T Express TH"
 JST_LOGISTICS_NAME = "J&T Express"
 JST_SCB_ACCOUNT = "3044075455"
 
-DEFAULT_JST_COOKIE = os.getenv("JST_ERP_COOKIE", "")
+FRESH_JST_COOKIE = (
+    "client_id=8c55bf3e7cb90f3ba27a22ddfdcc3762_91cdae39f749baaed0f1c166d97c4583; "
+    "u_login_id=buksukjai%40gmail.com; VID_bcbff8986118=22755436; VP_bcbff8986118=1; "
+    "AVID_147792=22755436; _ati=3616590229392; Notice-22755436-176=True; LanguageId=TH; "
+    "Notice-22755436-177=True; u_cid=ffab80a5bac245c79a723ced80a396a2-22755436-49ce2350e1bfc8869835b061ea8b901d; "
+    "u_id=22755436; u_name=buksukjai; u_co_id=15749167; u_co_name=Buksukjai; ClientTimeZone=7; "
+    ".AspNetCore.GlobalAuthCookie=CfDJ8NUvc5HFTn9EnG_IMr2hg1SHradvjDPVgyUrg9Ex_iD1PHJg9502Q5QjCgRXYpZOnAYsZw7p7V7bU7l1Xyogh-o0XA35sjy4W1Jo_gW3IaxJlFcwJeGig0S8IC60NqfB1Pit2_L7-DV-3G-usY0bEW8eBvdi166HTeMg2o2AmEknpwu9Czp-iBq2duFcNRJWlrKdbPYG2x-z2U4KLbxg-dZy7teE26pZZzIFbcDUbcLjZkDmRVXZ_HCQ9wDb2MthYpWqpyryy6UmU1s99EF0E2A492-ZcV5uYEwiZd9pQs24hJDerLu_ttYz__Wp3JcUjwteQ3RfZ67ioPl8vJ2q10787nDdcnOboKNkoElrOx_3w4kJy851X5Pu8YX6rN7GkFtj270lMwnWO7r6j1AsrS1cdSfB4GDQjHhXqED5vNo30nQQHdwS85hiSl5wJEKTxXlPy6SMaFQDp7ULIauZ0pSZ5ueNz9fTk8XViLaQftV_; "
+    "VT_bcbff8986118=14; SID_bcbff8986118=5596075514064757280"
+)
 
-_RUNTIME_COOKIE: str = os.getenv("JST_ERP_COOKIE", DEFAULT_JST_COOKIE)
+_env_jst_cookie = os.getenv("JST_ERP_COOKIE", "").strip()
+# Prefer FRESH_JST_COOKIE if env cookie is empty or still holds the expired 8925a238... u_cid
+DEFAULT_JST_COOKIE = (
+    FRESH_JST_COOKIE
+    if (not _env_jst_cookie or "8925a23804b941b49f52f1c79c1c3b93" in _env_jst_cookie)
+    else _env_jst_cookie
+)
+
+_RUNTIME_COOKIE: str = DEFAULT_JST_COOKIE
 AUTO_SYNC_ENABLED: bool = True
 
 # Verified JST ERP SKU Catalog for Shop 20759963 (ข้าวบุกสุขใจ)
@@ -240,14 +259,14 @@ def save_daily_sync_state(updates: dict[str, Any]) -> dict[str, Any]:
 
 
 def should_run_daily_6am_sync() -> bool:
-    """Return True only when Thailand time (UTC+7) is in the 06:00 AM window (06:00–06:59)
+    """Return True when Thailand time (UTC+7) has reached >= 06:00 AM
     and today's daily batch has not yet run.
     """
     if not AUTO_SYNC_ENABLED:
         return False
     bkk_tz = timezone(timedelta(hours=7))
     now_bkk = datetime.now(bkk_tz)
-    if now_bkk.hour != DAILY_BATCH_HOUR_BKK:
+    if now_bkk.hour < DAILY_BATCH_HOUR_BKK:
         return False
     today_str = now_bkk.strftime("%Y-%m-%d")
     st = get_daily_sync_state()
@@ -388,6 +407,139 @@ def confirm_orders_in_jst(order_ids: list[int | str]) -> dict[str, Any]:
     )
     resp.raise_for_status()
     return {"status": "ok", "order_ids": clean_ids, "response": resp.json()}
+
+
+def verify_and_auto_confirm_jst_slips(limit: int = 50) -> dict[str, Any]:
+    """Inspect recent bank-transfer orders in JST ERP where MachineAuditStatus is 'Fail' (or status is WaitConfirm).
+
+    Why JST ERP's built-in MachineAudit fails on valid chat slips:
+    1. 'เวลาชำระเงินไม่ตรงกัน' (Payment Time Mismatch): In Facebook/LINE chat commerce, customers always transfer money
+       in chat BEFORE the order is keyed into JST ERP (`payTime < OrderTime`), whereas JST ERP's MachineAudit rule
+       requires `payTime >= OrderTime`.
+    2. 'ใบสั่งซื้อถูกใช้ไปแล้ว <OrderId>' (Duplicate Slip Ref): Occurs when an earlier order was cancelled and re-keyed
+       with the same slip.
+
+    This verifier checks JST ERP's decoded Bank QR result (`platformPayId` & `qrCodeAmount`) + active order status:
+    - Must have a genuine Bank QR transaction reference (`platformPayId` non-empty)
+    - Scanned QR amount (`qrCodeAmount`) must match the order's `PayAmount`
+    - If flagged as duplicate (`ใบสั่งซื้อถูกใช้ไปแล้ว X`), order `X` must be Cancelled (`ยกเลิก`)
+    When all checks pass, automatically calls `confirm_orders_in_jst` so the slip turns Pass (`ตรวจสอบการชำระเงินแล้ว`).
+    """
+    h = _headers(json_body=True)
+    h["Origin"] = "https://asia.jsterp.com"
+    h["Referer"] = "https://asia.jsterp.com/OMS/MiniShopOrder/Index"
+
+    resp = httpx.post(
+        "https://asia.jsterp.com/OMS/MiniShopOrder/NewQueryOrders",
+        headers=h,
+        json={
+            "RequestModel": {"SendFrom": "NewQueryOrders"},
+            "DataPage": {"pageSize": limit, "pageIndex": 1, "total": 0, "sizes": [50, 100]},
+        },
+        timeout=20.0,
+    )
+    resp.raise_for_status()
+    rows_obj = (resp.json() or {}).get("Rows") or {}
+    cols = rows_obj.get("cols") or []
+    raw_rows = rows_obj.get("rows") or []
+
+    all_rows = [dict(zip(cols, r)) for r in raw_rows]
+    cancelled_oids = {
+        str(d.get("OrderId") or "")
+        for d in all_rows
+        if "ยกเลิก" in str(d.get("StatusDisplay") or "") or "Cancel" in str(d.get("Status") or "")
+    }
+
+    auto_confirmed: list[dict[str, Any]] = []
+    rejected: list[dict[str, Any]] = []
+
+    for d in all_rows:
+        oid = str(d.get("OrderId") or "").strip()
+        if not oid or oid in cancelled_oids or d.get("IsCod"):
+            continue
+        status_disp = str(d.get("StatusDisplay") or "")
+        mach_status = str(d.get("MachineAuditStatus") or "")
+        mach_msg = str(d.get("MachineAuditMessage") or "")
+
+        # Check orders that failed MachineAudit or are waiting for payment confirmation
+        if mach_status != "Fail" and "รอตรวจสอบ" not in status_disp and "WaitConfirm" not in str(d.get("StatusCode") or ""):
+            continue
+
+        r_det = httpx.post(
+            "https://asia-web.jsterp.com/MiniShop/OMS/Order/GetOrderDetail",
+            headers=_headers(json_body=True),
+            json={"orderId": oid},
+            timeout=15.0,
+        )
+        det = (r_det.json() or {}).get("data") or {}
+        pays = det.get("pays") or []
+        if not pays:
+            rejected.append({"order_id": oid, "reason": "ไม่มีข้อมูลสลิปในระบบ (pays ว่าง)"})
+            continue
+
+        latest_pay = pays[0]
+        ref_id = str(latest_pay.get("platformPayId") or "").strip()
+        qr_amt = float(latest_pay.get("qrCodeAmount") or 0.0)
+        order_amt = float(d.get("PayAmount") or latest_pay.get("amount") or 0.0)
+        audit_msg = str(latest_pay.get("auditMessage") or mach_msg or "").strip()
+
+        if not ref_id:
+            rejected.append({"order_id": oid, "reason": "ไม่พบรหัสอ้างอิง QR Code ธนาคารบนสลิป (platformPayId ว่าง)"})
+            continue
+
+        if abs(qr_amt - order_amt) > 0.5:
+            rejected.append(
+                {
+                    "order_id": oid,
+                    "reason": f"ยอดเงินใน QR สลิป ({qr_amt:.2f}) ไม่ตรงกับยอดออเดอร์ ({order_amt:.2f})",
+                    "platformPayId": ref_id,
+                }
+            )
+            continue
+
+        # If flagged as 'ใบสั่งซื้อถูกใช้ไปแล้ว <dup_oid>', verify whether <dup_oid> is cancelled
+        m_dup = re.search(r"ใบสั่งซื้อถูกใช้ไปแล้ว\s*(\d+)", audit_msg)
+        if m_dup:
+            dup_oid = m_dup.group(1)
+            if dup_oid not in cancelled_oids and dup_oid != oid:
+                # Query dup_oid directly in case it wasn't in the first 50 rows
+                r_dup = httpx.post(
+                    "https://asia-web.jsterp.com/MiniShop/OMS/Order/GetOrderDetail",
+                    headers=_headers(json_body=True),
+                    json={"orderId": dup_oid},
+                    timeout=10.0,
+                )
+                dup_det = (r_dup.json() or {}).get("data") or {}
+                dup_status = str(dup_det.get("statusDisplay") or dup_det.get("statusCode") or "")
+                if "ยกเลิก" not in dup_status and "Cancel" not in dup_status:
+                    rejected.append(
+                        {
+                            "order_id": oid,
+                            "reason": f"สลิปซ้ำกับออเดอร์ #{dup_oid} ที่ยังไม่ได้ยกเลิก ({dup_status})",
+                            "platformPayId": ref_id,
+                        }
+                    )
+                    continue
+
+        # Passed all genuine slip checks! Auto-confirm in JST ERP
+        confirm_orders_in_jst([oid])
+        auto_confirmed.append(
+            {
+                "order_id": oid,
+                "amount": order_amt,
+                "qr_amount": qr_amt,
+                "platformPayId": ref_id,
+                "overridden_jst_audit_message": audit_msg,
+            }
+        )
+
+    return {
+        "status": "ok",
+        "auto_confirmed_count": len(auto_confirmed),
+        "auto_confirmed": auto_confirmed,
+        "rejected_count": len(rejected),
+        "rejected": rejected,
+    }
 
 
 def recognize_and_clean_address(
@@ -868,7 +1020,9 @@ def create_order_in_jst(
 
     if not is_cod and voucher_id and created_order and created_order.get("order_id"):
         try:
-            confirm_orders_in_jst([created_order["order_id"]])
+            # Wait briefly for JST ERP's async pay-ocr worker to finish scanning the slip, then verify & confirm
+            time.sleep(4.0)
+            verify_and_auto_confirm_jst_slips(limit=25)
         except Exception as exc:
             logger.warning("Auto ConfirmOrder warning for %s: %s", created_order.get("order_id"), exc)
 
@@ -984,6 +1138,31 @@ def check_dialogue_completion(msgs: list[dict[str, str]], has_verified_slip: boo
     if not user_msgs:
         return False, "ลูกค้ายังไม่ได้ส่งข้อความตอบกลับในรอบปัจจุบันค่ะ"
 
+    # Check if customer explicitly cancelled the order or stated this is an exchange/return in recent messages
+    recent_user_tail = "\n".join(user_msgs[-3:]).lower()
+    if "ไม่ยกเลิก" not in recent_user_tail and any(
+        w in recent_user_tail
+        for w in (
+            "ขอยกเลิก",
+            "ยกเลิกก่อน",
+            "ยกเลิกค่ะ",
+            "ยกเลิกคะ",
+            "ยกเลิกครับ",
+            "ยกเลิกนะ",
+            "ไม่เอาแล้ว",
+            "ไม่รับแล้ว",
+            "ยังไม่รับค่ะ",
+            "ยังไม่รับนะคะ",
+            "ถ้าบวกเพิ่มไม่รับ",
+            "แพงไปเรายกเลิก",
+            "ส่งสินค้าไปเปลี่ยน",
+            "ส่งสินึ้าไปเปลี่ยน",
+            "ไม่ได้สั่งสินค้าใหม่",
+            "แคนเซิล",
+        )
+    ):
+        return False, "ลูกค้าแจ้งขอยกเลิกคำสั่งซื้อหรือเป็นเคสส่งเปลี่ยนสินค้าในแชทค่ะ"
+
     # Find the index of the latest official Admin Order Summary ("เพจ : ข้าวบุก สุขใจ ... จัดส่ง : ...")
     last_summary_idx = -1
     for i, m in enumerate(msgs):
@@ -1086,11 +1265,12 @@ def extract_order_from_session(psid: str) -> dict[str, Any]:
 
     # 1. Check if there is an explicit Admin Order Summary block in the current inquiry
     admin_summaries = [
-        m["content"]
-        for m in msgs
+        (idx, m["content"])
+        for idx, m in enumerate(msgs)
         if ("เพจ :" in m["content"] or "เพจ:" in m["content"]) and "จัดส่ง" in m["content"]
     ]
-    latest_summary = admin_summaries[-1] if admin_summaries else ""
+    last_summary_idx = admin_summaries[-1][0] if admin_summaries else -1
+    latest_summary = admin_summaries[-1][1] if admin_summaries else ""
 
     # 2. Extract phone number (supports 08xxxxxxxx, 08x-xxx-xxxx, and +66936179424)
     phone = ""
@@ -1139,6 +1319,11 @@ def extract_order_from_session(psid: str) -> dict[str, Any]:
 
     # 4. Extract & verify slip image URL
     slip_image_url = fb_slip_url
+    last_slip_idx = -1
+    for idx in range(len(msgs) - 1, -1, -1):
+        if msgs[idx]["role"] == "user" and "[IMAGE:" in msgs[idx]["content"]:
+            last_slip_idx = idx
+            break
     if not slip_image_url:
         pay_ctx_idx = -1
         for idx, m in enumerate(msgs):
@@ -1158,7 +1343,19 @@ def extract_order_from_session(psid: str) -> dict[str, Any]:
                     ok, _ = verify_image_is_payment_slip(image_url=candidate_url)
                     if ok:
                         slip_image_url = candidate_url
+                        last_slip_idx = idx
                         break
+
+    # If the admin's final summary AFTER the customer's image explicitly states "ชำระเงิน : ปลายทาง"
+    # and the customer never claimed to transfer money, that earlier image was a promo/chat screenshot, not a slip!
+    if (
+        slip_image_url
+        and latest_summary
+        and last_summary_idx > last_slip_idx
+        and re.search(r"ชำระเงิน\s*:\s*ปลายทาง", latest_summary)
+        and not re.search(r"(โอนแล้ว|สลิป|ส่งการชำระเงินจำนวน)", user_only_text, re.I)
+    ):
+        slip_image_url = ""
 
     # 5. Audit Dialogue Completion ("ตรวจว่าลูกค้าตอบประโยคคำถามของเราจนครบแล้วจริง ๆ")
     dialogue_complete, dialogue_reason = check_dialogue_completion(msgs, has_verified_slip=bool(slip_image_url))
@@ -1329,6 +1526,7 @@ def extract_order_from_session(psid: str) -> dict[str, Any]:
     )
     remark_tag = f" (#BUY{int(total_amount)})" if total_amount > 0 else ""
 
+    has_fb_payment_record = ("ส่งการชำระเงินจำนวน" in full_text) or ("ทำเครื่องหมายคำสั่งซื้อว่าชำระเงินแล้ว" in full_text)
     base_info: dict[str, Any] = {
         "psid": psid,
         "customer_name": customer_name,
@@ -1345,7 +1543,7 @@ def extract_order_from_session(psid: str) -> dict[str, Any]:
         "payment_label": payment_label,
         "customer_confirmed_cod": cod_confirmed,
         "has_slip": bool(slip_image_url),
-        "has_admin_buy_summary": bool(latest_summary and buy_tags),
+        "has_admin_buy_summary": bool(has_fb_payment_record),
         "slip_url": slip_image_url,
         "slip_image_url": slip_image_url,
         "dialogue_complete": dialogue_complete,
@@ -1378,7 +1576,8 @@ def extract_order_from_session(psid: str) -> dict[str, Any]:
             "valid": False,
             "reason": "ออเดอร์เก็บเงินปลายทาง (COD) ยังไม่ได้รับการคอนเฟิร์มขั้นสุดท้ายจากลูกค้าค่ะ",
         }
-    if not is_cod and not slip_image_url and not (latest_summary and buy_tags):
+    has_fb_payment_record = ("ส่งการชำระเงินจำนวน" in full_text) or ("ทำเครื่องหมายคำสั่งซื้อว่าชำระเงินแล้ว" in full_text)
+    if not is_cod and not slip_image_url and not has_fb_payment_record:
         return {
             **base_info,
             "valid": False,

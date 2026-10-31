@@ -126,7 +126,7 @@ def _seed_sample_conversations_if_empty() -> None:
                 ("user", "สวัสดีค่ะ ข้าวบุกสุขใจมีขนาดไหนบ้างคะ แล้วส่งฟรีไหม?"),
                 (
                     "assistant",
-                    "สวัสดีค่ะคุณลูกค้า 🍚🌿 ข้าวบุกสุขใจ (บุก 60% ผสมข้าวหอมมะลิแท้ 40% เพียง 23 kcal/25g) มีโปรโมชั่นดังนี้ค่ะ:\n"
+                    "สวัสดีค่ะคุณลูกค้า 🍚🌿 ข้าวบุกสุขใจ (บุก 59% ผสมข้าวหอมมะลิ 29% และน้ำ 12% เพียง 23 kcal/25g) มีโปรโมชั่นดังนี้ค่ะ:\n"
                     "• 60 กรัม (ไซส์ทดลอง): โปร 39.-\n"
                     "• 500 กรัม (ทานประจำ): โปร 239.-\n"
                     "• 1 กิโลกรัม (คุ้มสุด): โปร 459.- (โอนเงินส่งฟรี!)\n"
@@ -383,6 +383,7 @@ async def receive_line_webhook(
         reply_token = event.get("replyToken")
 
         # Handle LINE Group / Multi-person Room events OR dedicated workbot (@934ndvfs GENIUS POINT) separately
+        # (Work Group Bot mode — never spam customer sales pitches!)
         if brand_id == "workbot" or source_type in ("group", "room"):
             group_id = source.get("groupId") or source.get("roomId") or user_id
             if group_id:
@@ -450,6 +451,11 @@ async def _handle_line_group_event(
     event: dict,
     reply_token: str | None = None,
 ) -> None:
+    """Handle LINE Group / Multi-person Room events as an internal work group bot:
+    - Auto-registers the group ID for the 07:00 AM daily sales & stock report
+    - Logs group messages and member join/leave activity without running customer sales replies
+    - Responds immediately with the sales & stock summary when someone types 'สรุปยอด' or 'เช็กยอด'
+    """
     import asyncio
     import re
     from datetime import datetime, timedelta, timezone
@@ -462,7 +468,7 @@ async def _handle_line_group_event(
     daily_sheet_report.register_line_group(group_id, brand_id=brand_id, group_type=group_type)
     psid = database.make_session_key(brand_id, "line_group", group_id)
 
-    if event_type in ("join", "follow"):
+    if event_type == "join":
         welcome_text = (
             "สวัสดีค่ะ ขออนุญาตรายงานตัวเข้ากลุ่มงานนะคะ 🙏\n"
             "บันทึกกลุ่มนี้สำหรับแจ้งสรุปยอดประจำวันเรียบร้อยแล้วค่ะ\n"
@@ -475,12 +481,22 @@ async def _handle_line_group_event(
 
     if event_type == "memberJoined":
         joined_members = event.get("joined", {}).get("members", [])
-        database.log_message(psid, "user", f"[มีสมาชิกใหม่เข้าร่วมกลุ่มไลน์งาน {len(joined_members)} ท่านค่ะ]", sender_label="ระบบกลุ่มไลน์")
+        database.log_message(
+            psid,
+            "user",
+            f"[มีสมาชิกใหม่เข้าร่วมกลุ่มไลน์งาน {len(joined_members)} ท่านค่ะ]",
+            sender_label="ระบบกลุ่มไลน์",
+        )
         return
 
     if event_type == "memberLeft":
         left_members = event.get("left", {}).get("members", [])
-        database.log_message(psid, "user", f"[มีสมาชิกออกจากกลุ่มไลน์งาน {len(left_members)} ท่านค่ะ]", sender_label="ระบบกลุ่มไลน์")
+        database.log_message(
+            psid,
+            "user",
+            f"[มีสมาชิกออกจากกลุ่มไลน์งาน {len(left_members)} ท่านค่ะ]",
+            sender_label="ระบบกลุ่มไลน์",
+        )
         return
 
     if event_type == "message":
@@ -526,12 +542,13 @@ async def process_omnichannel_message(
     text: str,
     customer_name: str = "",
     reply_token: str | None = None,
+    skip_user_log: bool = False,
 ) -> dict:
     session_key = database.make_session_key(brand_id, platform, external_user_id)
     try:
         # Real-time Facebook Graph API verification BEFORE replying:
         # Checks if customer already ordered/paid in past Facebook history or if human admin is handling the chat!
-        if platform == "facebook":
+        if platform == "facebook" and not skip_user_log:
             await messenger.sync_facebook_user_thread(external_user_id, brand_id=brand_id)
 
         user = database.get_or_create_session(
@@ -541,7 +558,8 @@ async def process_omnichannel_message(
             external_user_id=external_user_id,
             customer_name=customer_name,
         )
-        database.log_message(session_key, "user", text)
+        if not skip_user_log:
+            database.log_message(session_key, "user", text)
 
         # If Human Admin paused the AI bot for this customer, do not auto-reply
         if not user.bot_enabled:
@@ -564,6 +582,18 @@ async def process_omnichannel_message(
         wants_to_reorder = any(
             w in low_txt for w in ("สั่งเพิ่ม", "ซื้อเพิ่ม", "สั่งอีก", "เอาอีก", "โปรลูกค้าเก่า", "สั่งซื้อเพิ่ม")
         )
+        wants_to_cancel = (
+            "ไม่ยกเลิก" not in low_txt
+            and any(
+                w in low_txt
+                for w in ("ขอยกเลิก", "ยกเลิกก่อน", "ยกเลิกค่ะ", "ยกเลิกคะ", "ยกเลิกครับ", "ยกเลิกนะ", "ไม่เอาแล้ว", "ไม่รับแล้ว", "ยังไม่รับ", "แคนเซิล", "cancel")
+            )
+        ) or low_txt in ("ยกเลิก", "cancel")
+        if wants_to_cancel:
+            is_paid_customer = False
+            database.update_session_meta(session_key, state="browsing", is_starred=False)
+            user.state = "browsing"
+            user.is_starred = False
 
         # If customer already completed an order and just sends a comma, dot, thank-you, or attachment, stay silent!
         if is_paid_customer and not wants_to_reorder:
@@ -708,19 +738,47 @@ class SaveSettingsRequest(BaseModel):
     pages: list[dict] | None = None
 
 
+_LAST_FB_BULK_SYNC_TS: float = 0.0
+_LAST_FB_THREAD_SYNC: dict[str, float] = {}
+
+
 @app.get("/api/sessions")
 async def api_list_sessions(
     brand_id: str = "all",
     platform: str = "all",
     state: str = "all",
 ):
-    return database.list_all_sessions(brand_id=brand_id, platform=platform, state=state)
+    import time
+
+    global _LAST_FB_BULK_SYNC_TS
+    rows = database.list_all_sessions(brand_id=brand_id, platform=platform, state=state)
+    now = time.time()
+    has_empty_fb = any(r.get("platform") == "facebook" and not r.get("last_message") for r in rows[:15])
+    if has_empty_fb and (now - _LAST_FB_BULK_SYNC_TS > 60):
+        _LAST_FB_BULK_SYNC_TS = now
+        target_brand = brand_id if (brand_id and brand_id != "all") else "buksukjai"
+        await messenger.sync_recent_facebook_conversations(target_brand, limit=40)
+        rows = database.list_all_sessions(brand_id=brand_id, platform=platform, state=state)
+    return rows
 
 
 @app.get("/api/sessions/{psid:path}/messages")
-async def api_get_messages(psid: str):
+async def api_get_messages(psid: str, sync: bool = False):
+    import time
+
     database.update_session_meta(psid, clear_unread=True)
-    return database.get_full_messages(psid)
+    msgs = database.get_full_messages(psid)
+    if ":facebook:" in psid:
+        now = time.time()
+        last_sync = _LAST_FB_THREAD_SYNC.get(psid, 0.0)
+        if not msgs or sync or (now - last_sync > 45):
+            _LAST_FB_THREAD_SYNC[psid] = now
+            parts = psid.split(":", 2)
+            if len(parts) == 3:
+                b_id, _, ext_id = parts
+                await messenger.sync_facebook_user_thread(ext_id, brand_id=b_id)
+                msgs = database.get_full_messages(psid)
+    return msgs
 
 
 @app.patch("/api/sessions/{psid:path}")
@@ -1151,19 +1209,26 @@ async def api_sync_facebook(limit: int = 50):
 
 @app.get("/api/reports/daily-sales")
 async def api_get_daily_sales_report(date: str | None = None):
+    """Return daily sales & SKU stock reconciliation report JSON (defaults to yesterday in Bangkok time)."""
     import asyncio
     from datetime import datetime, timedelta, timezone
     from . import daily_sheet_report
+
     bkk_tz = timezone(timedelta(hours=7))
     target_date = date or (datetime.now(bkk_tz) - timedelta(days=1)).strftime("%Y-%m-%d")
-    return await asyncio.to_thread(daily_sheet_report.load_or_build_daily_report, target_date)
+    rep = await asyncio.to_thread(daily_sheet_report.load_or_build_daily_report, target_date)
+    return rep
 
 
 @app.get("/api/reports/daily-sales.csv")
 async def api_get_daily_sales_csv(date: str | None = None):
-    import asyncio, csv, io
+    """Return UTF-8 CSV for Google Sheets `=IMPORTDATA(...)` or direct cloud sync (defaults to yesterday in Bangkok time)."""
+    import asyncio
+    import csv
+    import io
     from datetime import datetime, timedelta, timezone
     from . import daily_sheet_report
+
     bkk_tz = timezone(timedelta(hours=7))
     target_date = date or (datetime.now(bkk_tz) - timedelta(days=1)).strftime("%Y-%m-%d")
     rep = await asyncio.to_thread(daily_sheet_report.load_or_build_daily_report, target_date)
@@ -1176,7 +1241,9 @@ async def api_get_daily_sales_csv(date: str | None = None):
 
 @app.get("/api/line-groups")
 async def api_get_line_groups():
+    """Return registered LINE Work Group IDs and 07:00 AM daily broadcast state."""
     from . import daily_sheet_report
+
     cfg = daily_sheet_report.load_line_group_config()
     return {
         "status": "ok",
@@ -1191,10 +1258,12 @@ async def api_get_line_groups():
 async def api_send_line_group_summary(
     date: str | None = None,
     group_id: str | None = None,
-    brand_id: str = "workbot",
+    brand_id: str = "buksukjai",
 ):
+    """Manually trigger or test the daily sales & stock reconciliation summary push to registered LINE Work Groups."""
     import asyncio
     from . import daily_sheet_report
+
     if group_id:
         daily_sheet_report.register_line_group(group_id, brand_id=brand_id)
     return await asyncio.to_thread(
