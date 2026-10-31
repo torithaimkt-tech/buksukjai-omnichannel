@@ -854,6 +854,10 @@ async def auto_reply_unanswered_facebook_chats(
 
 
 async def followup_loop(config: dict, public_base_url_getter=None) -> None:
+    try:
+        _register_jst_routes()
+    except Exception as exc:
+        logger.warning("Route registration warning: %s", exc)
     poll_seconds = float(os.getenv("FOLLOWUP_POLL_SECONDS", "60"))
     render_health_url = os.getenv("RENDER_EXTERNAL_URL", "https://buksukjai-omnichannel.onrender.com") + "/health"
 
