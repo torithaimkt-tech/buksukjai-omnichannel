@@ -825,12 +825,13 @@ def fetch_report_from_google_sheet(target_date: str | None = None) -> dict[str, 
 
 
 def get_or_fetch_warehouse_stock() -> dict[str, Any]:
-    """Fetch live warehouse stock from JST ERP, or fall back to cached stock in daily_report_state.json."""
-    st = get_daily_report_state()
+    """Fetch live warehouse stock from JST ERP, or fall back to cached stock in line_group_config.json."""
+    st = load_line_group_config()
     try:
         live_wh = jst_erp.get_warehouse_stock_summary()
         if live_wh and live_wh.get("status") == "ok":
-            save_daily_report_state({"last_warehouse_stock": live_wh})
+            st["last_warehouse_stock"] = live_wh
+            save_line_group_config(st)
             return live_wh
     except Exception as exc:
         logger.debug("Live warehouse stock fetch skipped: %s", exc)
