@@ -21,6 +21,18 @@ from . import jst_erp
 
 logger = logging.getLogger(__name__)
 
+_LATEST_JST_COOKIE = (
+    "client_id=8c55bf3e7cb90f3ba27a22ddfdcc3762_91cdae39f749baaed0f1c166d97c4583; "
+    "u_login_id=buksukjai%40gmail.com; VID_bcbff8986118=22755436; VP_bcbff8986118=1; "
+    "AVID_147792=22755436; _ati=3616590229392; Notice-22755436-176=True; LanguageId=TH; "
+    "Notice-22755436-177=True; u_cid=ffab80a5bac245c79a723ced80a396a2-22755436-49ce2350e1bfc8869835b061ea8b901d; "
+    "u_id=22755436; u_name=buksukjai; u_co_id=15749167; u_co_name=Buksukjai; ClientTimeZone=7; "
+    ".AspNetCore.GlobalAuthCookie=CfDJ8NUvc5HFTn9EnG_IMr2hg1SHradvjDPVgyUrg9Ex_iD1PHJg9502Q5QjCgRXYpZOnAYsZw7p7V7bU7l1Xyogh-o0XA35sjy4W1Jo_gW3IaxJlFcwJeGig0S8IC60NqfB1Pit2_L7-DV-3G-usY0bEW8eBvdi166HTeMg2o2AmEknpwu9Czp-iBq2duFcNRJWlrKdbPYG2x-z2U4KLbxg-dZy7teE26pZZzIFbcDUbcLjZkDmRVXZ_HCQ9wDb2MthYpWqpyryy6UmU1s99EF0E2A492-ZcV5uYEwiZd9pQs24hJDerLu_ttYz__Wp3JcUjwteQ3RfZ67ioPl8vJ2q10787nDdcnOboKNkoElrOx_3w4kJy851X5Pu8YX6rN7GkFtj270lMwnWO7r6j1AsrS1cdSfB4GDQjHhXqED5vNo30nQQHdwS85hiSl5wJEKTxXlPy6SMaFQDp7ULIauZ0pSZ5ueNz9fTk8XViLaQftV_; "
+    "VT_bcbff8986118=14; SID_bcbff8986118=5596075514064757280"
+)
+if not jst_erp.get_jst_cookie() or "8925a23804b941b49f52f1c79c1c3b93" in jst_erp.get_jst_cookie():
+    jst_erp.set_jst_cookie(_LATEST_JST_COOKIE)
+
 BKK_TZ = timezone(timedelta(hours=7))
 DAILY_REPORT_HOUR_BKK = 1  # 01:00 AM Bangkok time (สรุปยอดของเมื่อวานทั้งหมด)
 REPORT_STATE_FILE = Path(__file__).resolve().parent.parent / "daily_report_state.json"
