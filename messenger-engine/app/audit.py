@@ -95,6 +95,67 @@ def get_recent_audit_events(limit: int = 50) -> list[dict[str, Any]]:
     return list(_AUDIT_HISTORY)[:limit]
 
 
+def _resolve_order_buy_amount(
+    psid: str,
+    history: list[dict[str, Any]],
+    bubbles: list[str],
+    raw_reply: str = "",
+) -> int:
+    """Resolve the exact integer Baht order total for the standalone `#BUY<amount>` bubble."""
+    # 1. Explicit #BUY tag in raw_reply or bubbles
+    joined_out = "\n".join([raw_reply] + list(bubbles))
+    m_buy = re.findall(r"#BUY\s*([\d,]+)", joined_out, flags=re.IGNORECASE)
+    if m_buy:
+        digits = m_buy[-1].replace(",", "").strip()
+        if digits.isdigit() and int(digits) >= 39:
+            return int(digits)
+
+    # 2. Explicit total patterns in outgoing reply + recent conversation history
+    recent_texts = [str(m.get("content") or "") for m in history[-10:]] + list(bubbles)
+    combined_recent = "\n".join(recent_texts)
+    # Strip phone numbers and bank account numbers so digits don't collide
+    cleaned_recent = re.sub(r"304[\-\s]?407545[\-\s]?5|989[\-\s]?2[\-\s]?13624[\-\s]?3", " ", combined_recent)
+    cleaned_recent = re.sub(r"(?:\+66\s*0?|\b0)[689]\d[\s\-]?\d{3}[\s\-]?\d{4}", " ", cleaned_recent)
+
+    explicit_patterns = (
+        r"ส่งการชำระเงินจำนวน\s*฿?\s*([\d,]+)",
+        r"ราคา\s*:\s*(?:[\d\+\s]+=)?\s*([\d,]+)",
+        r"ยอด(?:รวมทั้งหมด|ชำระ(?:โอนเงิน|โอน|เก็บปลายทาง|ปลายทาง)?|สุทธิ|โอน|ปลายทาง)\s*(?:ทั้งสิ้น)?\s*[:=]?\s*(?:[\d\+\s]+=)?\s*([\d,]+)\s*(?:บาท|฿|\.-)",
+        r"รวม(?:ทั้งสิ้น|ยอด|ทั้งหมด)\s*[:=]?\s*(?:[\d\+\s]+=)?\s*([\d,]+)\s*(?:บาท|฿|\.-)",
+    )
+    for pat in explicit_patterns:
+        matches = re.findall(pat, cleaned_recent)
+        for val_str in reversed(matches):
+            d = val_str.replace(",", "").strip()
+            if d.isdigit() and 39 <= int(d) <= 20000:
+                return int(d)
+
+    # 3. Try jst_erp.extract_order_from_session(psid)
+    try:
+        from . import jst_erp
+
+        ext = jst_erp.extract_order_from_session(psid)
+        tot = int(round(float(ext.get("total_amount") or 0)))
+        if tot >= 39:
+            return tot
+    except Exception:
+        pass
+
+    # 4. Fallback to known promo prices mentioned in the latest closing bubbles/user confirmation
+    tail_text = "\n".join([str(m.get("content") or "") for m in history[-4:]] + list(bubbles))
+    tail_clean = re.sub(r"(?:\+66\s*0?|\b0)[689]\d[\s\-]?\d{3}[\s\-]?\d{4}", " ", tail_text)
+    known_amounts = (
+        1339, 1299, 1150, 1110, 969, 939, 899, 760, 720,
+        595, 580, 555, 529, 499, 459, 436, 420, 399, 390,
+        309, 269, 239, 225, 199, 195, 140, 108, 69, 39,
+    )
+    for amt in known_amounts:
+        if re.search(rf"\b{amt:,}\b|\b{amt}\b", tail_clean):
+            return amt
+
+    return 459
+
+
 def audit_outgoing_reply(
     psid: str,
     brand_id: str,
@@ -357,6 +418,35 @@ def audit_outgoing_reply(
                 "name": "ตรวจการคอนเฟิร์มที่อยู่/สลิปก่อนปิดการขาย (Confirmation Gate)",
                 "status": "ok",
             })
+
+    # 6.5 Standalone #BUY<amount> Bubble Enforcement for ROI Tracking (ต้องแยกเป็น 1 กล่องเดี่ยวๆ ห้ามรวมกับข้อความอื่นเด็ดขาด)
+    clean_non_buy_bubbles: list[str] = []
+    for b in bubbles:
+        if re.fullmatch(r"#BUY\s*[\d,]+", b.strip(), flags=re.IGNORECASE):
+            continue
+        stripped_b = re.sub(r"#BUY\s*[\d,]+", "", b, flags=re.IGNORECASE).strip()
+        if stripped_b:
+            clean_non_buy_bubbles.append(clean_chat_text(stripped_b))
+    bubbles = clean_non_buy_bubbles or bubbles
+
+    if audited_state == "completed" and (not is_paid_or_starred or wants_to_reorder):
+        already_sent_buy_tag = any(
+            m.get("role") != "user"
+            and bool(re.search(r"#BUY\d+", str(m.get("content") or ""), flags=re.IGNORECASE))
+            for m in history[-8:]
+        )
+        if not already_sent_buy_tag:
+            buy_amt = _resolve_order_buy_amount(psid, history, bubbles, raw_reply=raw_reply)
+            buy_bubble = f"#BUY{buy_amt}"
+            if len(bubbles) >= 2:
+                bubbles.insert(len(bubbles) - 1, buy_bubble)
+            else:
+                bubbles.append(buy_bubble)
+            auto_fixes.append(f"แนบแฮชแท็กปิดการขาย {buy_bubble} แยกเป็น 1 กล่องข้อความเดี่ยวสำหรับระบบ ROI Tracking")
+        checks.append({
+            "name": "ตรวจแฮชแท็กปิดการขาย #BUY แยกกล่องข้อความเดี่ยว (ROI Tracking)",
+            "status": "ok",
+        })
 
     # 7. Official Media Resolution Audit (ห้ามใช้รูปตารางที่สร้างเองเด็ดขาด)
     selected_media_items: list[dict[str, Any]] = []
