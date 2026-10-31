@@ -88,7 +88,11 @@ def clean_chat_text(text: str) -> str:
 
 
 def split_into_bubbles(text: str, max_bubbles: int = 4) -> list[str]:
-    """Split a reply into 1 to 3 short, natural Thai chat bubbles."""
+    """Split a reply into short, natural Thai chat bubbles.
+
+    Strictly isolates any `#BUY<amount>` tag (e.g. `#BUY399`, `#BUY459`) into its own
+    standalone bubble with zero surrounding text so ROI Tracking captures it cleanly.
+    """
     if not text:
         return []
 
@@ -113,10 +117,35 @@ def split_into_bubbles(text: str, max_bubbles: int = 4) -> list[str]:
             if bullet_buf:
                 raw_parts.append("\n\n".join(bullet_buf))
 
-    bubbles = [clean_chat_text(p) for p in raw_parts if clean_chat_text(p)]
-    if len(bubbles) > max_bubbles:
-        bubbles = bubbles[: max_bubbles - 1] + ["\n\n".join(bubbles[max_bubbles - 1 :])]
-    return bubbles or [clean_chat_text(text)]
+    isolated_bubbles: list[str] = []
+    seen_buy_tag: str | None = None
+    for part in raw_parts:
+        buy_matches = re.findall(r"#BUY\s*([\d,]+)", part, flags=re.IGNORECASE)
+        clean_part = re.sub(r"#BUY\s*[\d,]+", "", part, flags=re.IGNORECASE).strip()
+        cleaned_txt = clean_chat_text(clean_part)
+        if cleaned_txt:
+            isolated_bubbles.append(cleaned_txt)
+        for bm in buy_matches:
+            digits = bm.replace(",", "").strip()
+            if digits.isdigit() and int(digits) > 0:
+                seen_buy_tag = f"#BUY{int(digits)}"
+
+    if not isolated_bubbles and not seen_buy_tag:
+        return [clean_chat_text(text)]
+
+    if len(isolated_bubbles) > max_bubbles:
+        isolated_bubbles = isolated_bubbles[: max_bubbles - 1] + [
+            "\n\n".join(isolated_bubbles[max_bubbles - 1 :])
+        ]
+
+    if seen_buy_tag:
+        # Place the standalone #BUY<amount> bubble right before the final thank-you bubble (or at the end if 1 bubble)
+        if len(isolated_bubbles) >= 2:
+            isolated_bubbles.insert(len(isolated_bubbles) - 1, seen_buy_tag)
+        else:
+            isolated_bubbles.append(seen_buy_tag)
+
+    return isolated_bubbles
 
 
 def _get_official_payment_info(config: dict | None = None) -> dict:

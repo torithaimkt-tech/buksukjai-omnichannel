@@ -1713,3 +1713,83 @@ def sync_all_confirmed_orders_to_jst(days_lookback: int = 2, mark_daily_batch: b
         })
 
     return results
+
+
+def get_warehouse_stock_summary() -> dict[str, Any]:
+    """Query live warehouse stock from JST ERP (`/wms/Inventory/GetSkuInventorys`) for 60g, 500g, and 1kg."""
+    h = _headers(json_body=True)
+    h["Origin"] = "https://asia.jsterp.com"
+    h["Referer"] = "https://asia.jsterp.com/Wms/Inventory/SkuInventory"
+
+    try:
+        resp = httpx.post(
+            "https://asia.jsterp.com/wms/Inventory/GetSkuInventorys",
+            headers=h,
+            json={
+                "RequestModel": {},
+                "DataPage": {"pageSize": 50, "pageIndex": 1, "total": 0, "sizes": [50, 100]},
+            },
+            timeout=15.0,
+        )
+        resp.raise_for_status()
+        data = (resp.json() or {}).get("Data") or []
+    except Exception as exc:
+        logger.warning("Failed to fetch live warehouse stock from JST ERP: %s", exc)
+        return {"status": "error", "message": str(exc), "skus": {}}
+
+    skus_map: dict[str, dict[str, Any]] = {}
+    warnings: list[str] = []
+    label_map = {
+        "BSJ60G1": ("ขนาด 60 กรัม", "ซอง", 100),
+        "BSJ500G1": ("ขนาด 500 กรัม", "ถุง", 30),
+        "BSJ1KG1": ("ขนาด 1 กิโลกรัม", "ถุง", 30),
+    }
+
+    for item in data:
+        sku_id = str(item.get("SkuId") or "").strip()
+        if not sku_id:
+            continue
+        phys_qty = int(item.get("Qty") or 0)
+        order_lock = int(item.get("OrderLock") or 0)
+        avail_qty = int(item.get("AvailableQty") if item.get("AvailableQty") is not None else max(0, phys_qty - order_lock))
+        can_sell_days = int(item.get("CanSellDays") or 0)
+
+        skus_map[sku_id] = {
+            "sku_id": sku_id,
+            "physical_qty": phys_qty,
+            "order_lock": order_lock,
+            "available_qty": avail_qty,
+            "can_sell_days": can_sell_days,
+            "modified": str(item.get("Modified") or ""),
+        }
+        if sku_id in label_map:
+            lbl, unit_name, min_thresh = label_map[sku_id]
+            if avail_qty <= min_thresh or (0 < can_sell_days <= 5):
+                warnings.append(
+                    f"{lbl} เหลือพร้อมขาย {avail_qty:,} {unit_name} (พอขายได้อีกประมาณ {can_sell_days} วัน)"
+                )
+
+    if not skus_map:
+        return {"status": "empty", "skus": {}}
+
+    s60 = skus_map.get("BSJ60G1", {})
+    s500 = skus_map.get("BSJ500G1", {})
+    s1k = skus_map.get("BSJ1KG1", {})
+
+    return {
+        "status": "ok",
+        "available_60g": int(s60.get("available_qty", 0)),
+        "physical_60g": int(s60.get("physical_qty", 0)),
+        "lock_60g": int(s60.get("order_lock", 0)),
+        "days_60g": int(s60.get("can_sell_days", 0)),
+        "available_500g": int(s500.get("available_qty", 0)),
+        "physical_500g": int(s500.get("physical_qty", 0)),
+        "lock_500g": int(s500.get("order_lock", 0)),
+        "days_500g": int(s500.get("can_sell_days", 0)),
+        "available_1kg": int(s1k.get("available_qty", 0)),
+        "physical_1kg": int(s1k.get("physical_qty", 0)),
+        "lock_1kg": int(s1k.get("order_lock", 0)),
+        "days_1kg": int(s1k.get("can_sell_days", 0)),
+        "warnings": warnings,
+        "skus": skus_map,
+    }
