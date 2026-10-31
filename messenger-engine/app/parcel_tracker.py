@@ -149,7 +149,14 @@ def inspect_order_tracking_status(order_row: dict[str, Any]) -> dict[str, Any]:
     logistics_status = str(order_row.get("LogisticsStatus") or "").strip()
     sign_time = str(order_row.get("SignTime") or "").strip()
 
-    events = _fetch_trajectory_for_order(order_id) if order_id and tracking_no else []
+    raw_events = _fetch_trajectory_for_order(order_id) if order_id and tracking_no else []
+    events = [
+        ev
+        for ev in raw_events
+        if str(ev.get("OperationTime") or "").strip()
+        or str(ev.get("LogisticsStatus") or "").strip()
+        or str(ev.get("Description") or "").strip()
+    ]
 
     is_picked_up = logistics_status in ("Collected", "Delivered", "Signed") or len(events) > 0
     is_delivered = False
@@ -245,14 +252,27 @@ def _has_already_sent_in_chat(psid: str, tracking_no: str, stage: int) -> bool:
         return True
 
     msgs = database.get_full_messages(psid, limit=60)
+    assistant_texts = [
+        str(m.get("content") or "")
+        for m in msgs
+        if m.get("role") != "user"
+    ]
+    joined_assistant = "\n".join(assistant_texts)
+    if tracking_no not in joined_assistant:
+        return False
+
     for m in msgs:
         if m.get("role") == "user":
             continue
         content = str(m.get("content") or "")
-        if tracking_no in content:
-            if stage == 1 and ("ขนส่งเข้ามารับ" in content or "เลขพัสดุ" in content):
+        s_label = str(m.get("sender_label") or "")
+        if stage == 1:
+            if "ระยะที่ 1" in s_label or "ขนส่งเข้ามารับเรียบร้อยแล้ว" in content:
                 return True
-            if stage == 2 and ("จัดส่งถึงเรียบร้อยแล้ว" in content or "ส่งถึงเรียบร้อยแล้ว" in content):
+            if tracking_no in content and "เลขพัสดุ" in content and "จัดส่งถึงเรียบร้อยแล้ว" not in content:
+                return True
+        if stage == 2:
+            if "ระยะที่ 2" in s_label or "ตอนนี้พัสดุจัดส่งถึงเรียบร้อยแล้ว" in content or "แจ้งอัปเดตพัสดุค่ะคุณลูกค้า 🎉📦" in content:
                 return True
     return False
 

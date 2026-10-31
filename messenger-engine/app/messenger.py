@@ -453,9 +453,9 @@ STARRED_META_PSIDS = {
 }
 
 HUMAN_ADMIN_MARKERS = (
-    "บริษัท ดิจิสท์ ฮับ จำกัด",
-    "304-407545-5",
-    "3044075455",
+    "น้องนีนี่มาให้บริการ",
+    "แจ้งน้องแอดมินได้เลยนะคะ",
+    "แจ้งน้อง admin ได้เลยนะคะ",
     "ส่งคำขอให้โอนแล้ว",
     "คุณร้องขอไป ฿",
     "messenger automatically created a transfer request",
@@ -641,7 +641,7 @@ def analyze_facebook_conversation_dict(conv: dict, page_id: str = "8061291092408
                 current_order_texts.append(msg_txt)
             if msg_dt:
                 hours_ago = (datetime.now(timezone.utc) - msg_dt).total_seconds() / 3600.0
-                if hours_ago <= 24:
+                if hours_ago <= 0.25:
                     human_admin_active = True
 
     # 2. Check if the current inquiry has an unanswered admin question at the end
@@ -909,16 +909,19 @@ def _apply_facebook_sync_to_db(info: dict, brand_id: str = "buksukjai") -> dict:
                 if info.get("customer_name"):
                     row.customer_name = info["customer_name"]
                 row.broadcast_tags = new_tags
-                if info.get("has_unanswered_question") or info.get("human_admin_active"):
+                if info.get("has_unanswered_question"):
                     row.state = "pending_payment"
-                    row.bot_enabled = False
+                row.bot_enabled = not bool(info.get("human_admin_active"))
                 db.commit()
     elif info.get("human_admin_active"):
         database.set_bot_enabled(session_key, False)
         if info.get("customer_name"):
             database.update_session_meta(session_key, customer_name=info["customer_name"])
-    elif info.get("customer_name"):
-        database.update_session_meta(session_key, customer_name=info["customer_name"])
+    else:
+        if not user.bot_enabled:
+            database.set_bot_enabled(session_key, True)
+        if info.get("customer_name"):
+            database.update_session_meta(session_key, customer_name=info["customer_name"])
 
     # Sync Facebook message history (text + image attachments) into SQLite `message_log`
     synced_msgs = _sync_facebook_messages_to_log(

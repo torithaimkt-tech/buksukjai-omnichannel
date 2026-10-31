@@ -1,7 +1,7 @@
 {
   "auto_enabled": true,
   "min_order_date": "2026-10-29",
-  "last_scan_at": "2026-10-30 20:24:44",
+  "last_scan_at": "2026-10-31 13:16:55",
   "orders": {
     "230855": {
       "order_id": "230855",
@@ -27,11 +27,11 @@
       "customer_name": "KhunVee Perspective",
       "is_picked_up": true,
       "pickup_time": "2026-10-30 17:55:13",
-      "is_delivered": false,
-      "delivered_time": "",
-      "delivered_hhmm": "",
+      "is_delivered": true,
+      "delivered_time": "2026-10-31 09:36:01",
+      "delivered_hhmm": "09:36",
       "stage1_pickup_sent_at": "2026-10-30 20:23:18",
-      "stage2_delivered_sent_at": ""
+      "stage2_delivered_sent_at": "2026-10-31 13:16:55"
     },
     "230851": {
       "order_id": "230851",
@@ -42,11 +42,11 @@
       "customer_name": "Ph Phattaralawalaya Ac",
       "is_picked_up": true,
       "pickup_time": "2026-10-30 17:55:11",
-      "is_delivered": false,
-      "delivered_time": "",
-      "delivered_hhmm": "",
+      "is_delivered": true,
+      "delivered_time": "2026-10-31 11:00:48",
+      "delivered_hhmm": "11:00",
       "stage1_pickup_sent_at": "2026-10-30 20:23:18",
-      "stage2_delivered_sent_at": ""
+      "stage2_delivered_sent_at": "2026-10-31 13:16:55"
     },
     "230850": {
       "order_id": "230850",
@@ -257,6 +257,96 @@
       "delivered_hhmm": "12:56",
       "stage1_pickup_sent_at": "2026-10-30 20:23:18",
       "stage2_delivered_sent_at": "2026-10-30 20:23:18"
+    },
+    "232520": {
+      "order_id": "232520",
+      "order_time": "2026-10-30 23:19:28",
+      "tracking_no": "864930093856",
+      "courier_name": "J&T Express",
+      "psid": "buksukjai:facebook:28839822602344778",
+      "customer_name": "Naiyana Dechpichai",
+      "is_picked_up": false,
+      "pickup_time": "",
+      "is_delivered": false,
+      "delivered_time": "",
+      "delivered_hhmm": "",
+      "stage1_pickup_sent_at": "",
+      "stage2_delivered_sent_at": ""
+    },
+    "232517": {
+      "order_id": "232517",
+      "order_time": "2026-10-30 23:18:28",
+      "tracking_no": "864929460102",
+      "courier_name": "J&T Express",
+      "psid": "buksukjai:facebook:29457122863906488",
+      "customer_name": "เพ็ญ เพ็ญ",
+      "is_picked_up": false,
+      "pickup_time": "",
+      "is_delivered": false,
+      "delivered_time": "",
+      "delivered_hhmm": "",
+      "stage1_pickup_sent_at": "",
+      "stage2_delivered_sent_at": ""
+    },
+    "232471": {
+      "order_id": "232471",
+      "order_time": "2026-10-30 23:16:07",
+      "tracking_no": "864927095266",
+      "courier_name": "J&T Express",
+      "psid": "buksukjai:facebook:39453718900943471",
+      "customer_name": "Djj Lebrun",
+      "is_picked_up": false,
+      "pickup_time": "",
+      "is_delivered": false,
+      "delivered_time": "",
+      "delivered_hhmm": "",
+      "stage1_pickup_sent_at": "",
+      "stage2_delivered_sent_at": ""
+    },
+    "232472": {
+      "order_id": "232472",
+      "order_time": "2026-10-30 23:17:10",
+      "tracking_no": "864929161876",
+      "courier_name": "J&T Express",
+      "psid": "buksukjai:facebook:26750673397930196",
+      "customer_name": "Hathairat Nimkatauvt",
+      "is_picked_up": false,
+      "pickup_time": "",
+      "is_delivered": false,
+      "delivered_time": "",
+      "delivered_hhmm": "",
+      "stage1_pickup_sent_at": "",
+      "stage2_delivered_sent_at": ""
+    },
+    "232522": {
+      "order_id": "232522",
+      "order_time": "2026-10-30 23:20:43",
+      "tracking_no": "864928600406",
+      "courier_name": "J&T Express",
+      "psid": "buksukjai:facebook:28887503610914282",
+      "customer_name": "Niti Naci El Viernes",
+      "is_picked_up": false,
+      "pickup_time": "",
+      "is_delivered": false,
+      "delivered_time": "",
+      "delivered_hhmm": "",
+      "stage1_pickup_sent_at": "",
+      "stage2_delivered_sent_at": ""
+    },
+    "232469": {
+      "order_id": "232469",
+      "order_time": "2026-10-30 23:15:03",
+      "tracking_no": "864926892513",
+      "courier_name": "J&T Express",
+      "psid": "buksukjai:facebook:28677106375257437",
+      "customer_name": "Boww Tan",
+      "is_picked_up": false,
+      "pickup_time": "",
+      "is_delivered": false,
+      "delivered_time": "",
+      "delivered_hhmm": "",
+      "stage1_pickup_sent_at": "",
+      "stage2_delivered_sent_at": ""
     }
   }
 }

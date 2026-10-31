@@ -542,12 +542,13 @@ async def process_omnichannel_message(
     text: str,
     customer_name: str = "",
     reply_token: str | None = None,
+    skip_user_log: bool = False,
 ) -> dict:
     session_key = database.make_session_key(brand_id, platform, external_user_id)
     try:
         # Real-time Facebook Graph API verification BEFORE replying:
         # Checks if customer already ordered/paid in past Facebook history or if human admin is handling the chat!
-        if platform == "facebook":
+        if platform == "facebook" and not skip_user_log:
             await messenger.sync_facebook_user_thread(external_user_id, brand_id=brand_id)
 
         user = database.get_or_create_session(
@@ -557,7 +558,8 @@ async def process_omnichannel_message(
             external_user_id=external_user_id,
             customer_name=customer_name,
         )
-        database.log_message(session_key, "user", text)
+        if not skip_user_log:
+            database.log_message(session_key, "user", text)
 
         # If Human Admin paused the AI bot for this customer, do not auto-reply
         if not user.bot_enabled:
