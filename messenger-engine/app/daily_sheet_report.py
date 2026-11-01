@@ -1304,37 +1304,20 @@ def resolve_line_group_escalation_reply(
         return None
 
     cfg = load_line_group_config()
+    # If this group is designated as an AI Coach-only group, never route messages to customers
+    coach_groups: list[str] = list(cfg.get("coach_groups") or [])
     escalations: list[dict[str, Any]] = list(cfg.get("pending_escalations") or [])
-    if not escalations:
-        # Cloud container restart fallback: check SQLite for the most recently paused customer session
-        try:
-            from . import database
-
-            for s in database.list_all_sessions(brand_id="all", platform="all", state="all"):
-                plat_s = str(s.get("platform") or "")
-                if plat_s in ("facebook", "line", "instagram") and not s.get("bot_enabled", True):
-                    escalations.append(
-                        {
-                            "case_id": "Q1",
-                            "psid": s["psid"],
-                            "brand_id": s.get("brand_id") or "buksukjai",
-                            "platform": plat_s,
-                            "external_user_id": s.get("external_user_id") or "",
-                            "customer_name": s.get("customer_name") or "คุณลูกค้า",
-                            "question": s.get("last_message") or "",
-                            "status": "pending",
-                            "created_ts": _time.time(),
-                            "line_message_ids": [],
-                        }
-                    )
-                    break
-        except Exception:
-            pass
     if not escalations:
         return None
 
     matched_idx: int | None = None
     reply_body = raw
+
+    # STRICT SAFETY GUARDRAIL:
+    # NEVER forward normal group conversation (e.g. "555 โอเคค่ะ") to a customer!
+    # Only forward to a customer when the admin explicitly:
+    #   1. Swipes-to-Reply (`quoted_message_id`) on the bot's [#Q...] escalation alert, OR
+    #   2. Prefixes the message with `#Q1 ...`, `Q1 ...`, `ตอบ: ...`, `ตอบลูกค้า: ...`, or `ฝากตอบ: ...`
 
     # 1. Match by LINE Quote Reply (`quotedMessageId`)
     if quoted_message_id:
@@ -1356,45 +1339,19 @@ def resolve_line_group_escalation_reply(
                     reply_body = candidate_body
                     break
 
-    # 3. Match by explicit prefix (`ตอบ:`, `ตอบ `, `ตอบลูกค้า:`, `ฝากตอบ:`)
+    # 3. Match by explicit prefix (`ตอบ:`, `ตอบลูกค้า:`, `ฝากตอบ:`, `ตอบกลับ:`)
     explicit_prefix_used = False
     if matched_idx is None:
-        m_pref = re.match(r"^(?:ตอบลูกค้า|ฝากตอบ|ตอบกลับ|ตอบ)\s*[:：\-]?\s*(.+)$", raw, flags=re.DOTALL)
+        m_pref = re.match(r"^(?:ตอบลูกค้า|ฝากตอบ|ตอบกลับ|ตอบ)\s*[:：\-]\s*(.+)$", raw, flags=re.DOTALL)
         if m_pref and m_pref.group(1).strip():
             explicit_prefix_used = True
             reply_body = m_pref.group(1).strip()
-            # Find latest pending escalation (or latest escalation overall if none pending)
             for i in range(len(escalations) - 1, -1, -1):
                 if escalations[i].get("status") == "pending":
                     matched_idx = i
                     break
             if matched_idx is None:
                 matched_idx = len(escalations) - 1
-
-    # 4. Direct reply in the group when an escalation is actively pending (within 6 hours)
-    if matched_idx is None:
-        internal_chatter = (
-            "โอเค", "โอเคค่ะ", "โอเคคะ", "รับทราบ", "รับทราบค่ะ", "เค", "เคค่ะ", "ok", "okay",
-            "รอแป๊บ", "รอแป๊บนะคะ", "เดี๋ยวดูให้", "เดี๋ยวเช็คให้", "แป๊บนึง", "ขอบคุณค่ะ", "ค่ะ", "จ้า",
-        )
-        if raw.lower() in internal_chatter or len(raw) <= 2:
-            return None
-
-        # Do not mistake AI coaching/critique messages directed at the bot for a customer answer!
-        coaching_markers = (
-            "ทำไมไม่", "เธอต้องพิมพ์", "ไม่ใช่ดีมากๆ", "เธอยังทำงาน", "มนุษย์เข้าไปตอบ",
-            "ปรับการตอบ", "แก้การตอบ", "เวลาตอบลูกค้า", "ห้ามตอบว่า", "ห้ามพิมพ์ว่า",
-            "คุยกันดีดี", "คุยดีๆ", "แก้ไขในระบบ", "แก้ในระบบ", "บอทตอบ", "วิธีตอบ",
-        )
-        if any(cm in raw for cm in coaching_markers):
-            return None
-
-        now_ts = _time.time()
-        for i in range(len(escalations) - 1, -1, -1):
-            esc = escalations[i]
-            if esc.get("status") == "pending" and (now_ts - float(esc.get("created_ts") or 0)) <= 21600:
-                matched_idx = i
-                break
 
     if matched_idx is None:
         return None
