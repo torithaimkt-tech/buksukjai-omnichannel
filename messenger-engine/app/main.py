@@ -506,6 +506,7 @@ async def _handle_line_group_event(
         text = (msg_obj.get("text") or "").strip()
         if not text:
             return
+        quoted_msg_id = str(msg_obj.get("quotedMessageId") or "").strip() or None
         sender_uid = (event.get("source") or {}).get("userId") or "สมาชิกในกลุ่ม"
         database.log_message(psid, "user", text, sender_label=f"สมาชิกกลุ่ม ({sender_uid[-6:]})")
 
@@ -531,6 +532,65 @@ async def _handle_line_group_event(
             )
             if res.get("summary_text"):
                 database.log_message(psid, "bot", res["summary_text"], sender_label="บอทสรุปยอดกลุ่มงาน")
+            return
+
+        # Check if someone in the LINE Group is answering a paused customer escalation!
+        matched_esc = await asyncio.to_thread(
+            daily_sheet_report.resolve_line_group_escalation_reply,
+            text,
+            quoted_msg_id,
+        )
+        if matched_esc:
+            cust_psid = str(matched_esc.get("psid") or "")
+            cust_brand = str(matched_esc.get("brand_id") or "buksukjai")
+            cust_plat = str(matched_esc.get("platform") or "facebook")
+            cust_ext_id = str(matched_esc.get("external_user_id") or "")
+            cust_name = str(matched_esc.get("customer_name") or "คุณลูกค้า")
+            cust_reply = str(matched_esc.get("customer_reply") or "")
+            case_id = str(matched_esc.get("case_id") or "Q")
+
+            if cust_psid and cust_ext_id and cust_reply:
+                # 1. Log & send the answer to the customer on their original platform (Facebook / LINE OA / IG)
+                database.log_message(cust_psid, "admin", cust_reply, sender_label="แอดมิน (ตอบผ่านกลุ่ม LINE)")
+                await messenger.send_omnichannel_text(
+                    platform=cust_plat,
+                    external_user_id=cust_ext_id,
+                    text=cust_reply,
+                    brand_id=cust_brand,
+                )
+
+                # 2. Unpause the AI bot for this customer so AI can continue assisting after the answer
+                try:
+                    cust_sess = database.get_or_create_session(cust_psid)
+                    raw_tags = getattr(cust_sess, "broadcast_tags", "") or ""
+                    cleaned_tags = ",".join(
+                        t.strip()
+                        for t in raw_tags.split(",")
+                        if t.strip() and "รอแอดมิน" not in t
+                    )
+                    new_tags = database._add_tag_str(cleaned_tags, "แอดมินตอบผ่านกลุ่มแล้ว")
+                    database.update_session_meta(
+                        psid=cust_psid,
+                        bot_enabled=True,
+                        broadcast_tags=new_tags,
+                        clear_unread=True,
+                    )
+                except Exception as exc:
+                    logger.warning("Failed to re-enable bot for %s after LINE group reply: %s", cust_psid, exc)
+                    database.set_bot_enabled(cust_psid, True)
+
+                # 3. Confirm back inside the LINE Summary Group
+                plat_label = {"facebook": "Facebook เพจ", "line": "LINE OA", "instagram": "Instagram DM"}.get(cust_plat.lower(), cust_plat)
+                confirm_msg = (
+                    f"✅ ส่งคำตอบ [#{case_id}] ให้ {cust_name} ({plat_label}) เรียบร้อยแล้วค่ะ!\n"
+                    f"━━━━━━━━━━━━━━━\n"
+                    f"💬 ข้อความที่ส่งให้ลูกค้า :\n"
+                    f"“{cust_reply}”\n"
+                    f"━━━━━━━━━━━━━━━\n"
+                    f"🤖 เปิดบอท AI ดูแลแชทลูกค้าท่านนี้ต่อให้อัตโนมัติแล้วค่ะ (และบันทึกคำตอบนี้ไว้ให้ AI จำไปใช้ในครั้งต่อไปเรียบร้อยค่ะ) 🙏💚"
+                )
+                database.log_message(psid, "bot", confirm_msg, sender_label="บอทสรุปยอดกลุ่มงาน")
+                await messenger.send_omnichannel_text("line", group_id, confirm_msg, brand_id, reply_token)
 
 
 # --- Unified Message Processor (AI + Human Handover) ----------------------------
@@ -639,6 +699,7 @@ async def process_omnichannel_message(
             image_key = "promo_all"
 
         # Layer-1 Automated Pre-Send Audit (ตรวจสอบความถูกต้อง 7 ข้อก่อนส่งให้ลูกค้าจริง)
+        llm_esc = getattr(LLM, "last_escalation", None) if LLM else None
         bubbles, new_state, selected_media_items, audit_report = audit.audit_outgoing_reply(
             psid=session_key,
             brand_id=brand_id,
@@ -648,6 +709,7 @@ async def process_omnichannel_message(
             proposed_state=new_state,
             proposed_image_key=image_key,
             config=CONFIG,
+            llm_escalation=llm_esc,
         )
 
         # 1. Log promo image(s) FIRST in Admin Inbox DB
@@ -669,6 +731,26 @@ async def process_omnichannel_message(
             media_items=selected_media_items,
             public_base_url=PUBLIC_BASE_URL,
         )
+        # If AI encountered an unfamiliar/uncertain question, notify the LINE Summary Work Group immediately
+        if audit_report.get("escalate_to_line_group"):
+            import asyncio
+            from . import daily_sheet_report
+
+            esc_reason = str(audit_report.get("escalation_reason") or "คำถามแปลกใหม่ / AI ไม่มั่นใจคำตอบ")
+            try:
+                esc_res = await asyncio.to_thread(
+                    daily_sheet_report.send_escalation_alert_to_line_groups,
+                    session_key,
+                    brand_id,
+                    platform,
+                    user.customer_name or customer_name,
+                    text,
+                    "\n".join(bubbles),
+                    esc_reason,
+                )
+                audit_report["line_group_alert"] = esc_res.get("status")
+            except Exception as esc_err:
+                logger.warning("Failed to send LINE group escalation alert for %s: %s", session_key, esc_err)
         # Queue confirmed orders for the Daily 06:00 AM JST ERP Batch (no immediate real-time push during the day)
         if new_state == "completed" and user.state != "completed":
             database.update_session_meta(session_key, state="completed", is_starred=True)
@@ -1170,6 +1252,7 @@ async def api_hot_reload():
     """Hot-reload config.json, prompt_engine, media_generator, database, followup, audit, and llm in memory without restarting the tunnel."""
     import importlib
     from . import audit as _audit_mod
+    from . import daily_sheet_report as _dsr_mod
     from . import database as _db_mod
     from . import followup as _fu_mod
     from . import llm as _llm_mod
@@ -1185,6 +1268,7 @@ async def api_hot_reload():
     importlib.reload(_msg_mod)
     importlib.reload(_fu_mod)
     importlib.reload(_audit_mod)
+    importlib.reload(_dsr_mod)
     _db_mod.init_db()
     _mg_mod.load_media_catalog()
     split_into_bubbles = _llm_mod.split_into_bubbles

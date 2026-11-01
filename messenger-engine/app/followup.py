@@ -184,6 +184,226 @@ DEFAULT_REENGAGE_CONFIG = {
     "max_window_hours": 23.5,
 }
 
+# Randomized multi-pattern message pools (Short 1-bubble / Medium 1-bubble / Long 2-bubble `|||`)
+# 100% Ad-Safe & feminine polite particles (ค่ะ/คะ/นะคะ/ค่า)
+REENGAGE_STAGE1_BROWSING_POOL: list[str] = [
+    # 1. Short 1-bubble (Casual size check-in)
+    "แอบแวะมาถามไถ่ค่า 😊 คุณลูกค้าดูข้าวบุกสุขใจไว้ เล็งเป็นขนาดทดลองหรือถุงใหญ่ทานคุ้มดีคะ?",
+    # 2. Short 1-bubble (Easy 10-min preparation highlight)
+    "เผื่อคุณลูกค้ายังลังเลเรื่องวิธีหุง 🍚 ข้าวบุกสุขใจแค่ตักใส่ถ้วย เติมน้ำร้อน ปิดฝา 10 นาทีก็นุ่มพร้อมทานเลยนะคะ ไม่ต้องซาวน้ำเลยค่า 💚",
+    # 3. Medium 1-bubble (Texture & aroma reassurance)
+    "ทักมาให้ข้อมูลเพิ่มเติมนิดนึงนะคะ 😊 ข้าวบุกสุขใจผสมข้าวหอมมะลิแท้ เนื้อสัมผัสนุ่มหนึบ หอมเหมือนข้าวสวยปกติเลยค่ะ มีทั้งแบบซองพกพา 60g และถุงใหญ่ 500g / 1 กก. เลือกตามมื้อที่ทานได้เลยนะคะ",
+    # 4. Medium 1-bubble (Per-meal value breakdown)
+    "คุณลูกค้าสนใจรับไปลองทานกี่มื้อดีคะ 🍚 ถ้าเน้นทานประจำที่บ้าน ถุงใหญ่ 1 กก. (459.- โอนส่งฟรี) จะเฉลี่ยตกมื้อละประมาณ 25 บาทเองค่ะ ประหยัดและอิ่มอยู่ท้องนานมากเลยนะคะ 💚",
+    # 5. Long 2-bubble (Beginner popular choice)
+    "คุณลูกค้าดูโปรโมชั่นไว้ พอจะมีขนาดไหนที่สนใจเป็นพิเศษไหมคะ 😊🍚|||"
+    "ถ้าเพิ่งเริ่มลองทาน ลูกค้าส่วนใหญ่จะนิยม ถุงใหญ่ 1 กก. (459.- โอนส่งฟรี ทานได้ 16–20 มื้อ) "
+    "หรือแบบซองพกพา 60g ค่ะ สงสัยตรงไหนถามน้องบุกได้เลยนะคะ 💚",
+    # 6. Long 2-bubble (Everyday carb balance lifestyle)
+    "สำหรับคุณลูกค้าที่อยากจัดสมดุลคาร์บแบบไม่ต้องอดข้าว 🌾 ข้าวบุกสุขใจช่วยให้มื้ออาหารอิ่มสบายท้องขึ้นเยอะเลยค่ะ|||"
+    "ชอบแบบพกไปทานที่ทำงาน (ซอง 60g) หรือแบบตักแบ่งทานที่บ้าน (ถุง 500g / 1 กก.) แจ้งน้องบุกแนะนำโปรที่คุ้มที่สุดให้ได้เลยนะคะ 😊",
+    # 7. Short 1-bubble (Open Q&A helper)
+    "ติดขัดหรืออยากสอบถามรายละเอียดตรงไหนเพิ่มเติม พิมพ์ทิ้งไว้ให้น้องบุกได้เลยนะคะ ยินดีช่วยดูเซ็ตที่เหมาะกับมื้ออาหารให้ค่า 🙏💚",
+    # 8. Medium 1-bubble (Dry storage & convenience)
+    "แวะมาบอกเคล็ดลับความสะดวกค่า ✨ ข้าวบุกสุขใจเป็นแบบแห้ง เก็บในอุณหภูมิห้องได้นาน ไม่ต้องแช่เย็น จะตักชงน้ำร้อนมื้อไหนก็กะปริมาณง่ายมากค่ะ สนใจรับขนาดไหนทักน้องบุกได้ตลอดนะคะ 😊",
+]
+
+REENGAGE_STAGE1_PENDING_POOL: list[str] = [
+    # 1. Short 1-bubble
+    "คุณลูกค้าคะ 😊 หากสะดวกแล้ว แจ้งชื่อ-ที่อยู่-เบอร์โทร (หรือแนบสลิป) ให้น้องบุกจัดเตรียมพัสดุไว้ให้ได้เลยนะคะ 🚚💚",
+    # 2. Short 1-bubble
+    "น้องบุกจดรายการที่เลือกไว้ให้เรียบร้อยแล้วค่า 🍚 พิมพ์ชื่อ-ที่อยู่และเบอร์ติดต่อทิ้งไว้ในแชทได้เลยนะคะ",
+    # 3. Medium 1-bubble
+    "สำหรับออเดอร์ข้าวบุกสุขใจที่คุณลูกค้าเลือกไว้ ถ้าสะดวกจัดส่งที่ไหน แจ้งชื่อ ที่อยู่ และเบอร์โทรไว้ได้เลยนะคะ เดี๋ยวน้องบุกล็อกคิวแพ็คของให้เลยค่า 😊📦",
+    # 4. Long 2-bubble
+    "คุณลูกค้าคะ 😊 สำหรับออเดอร์ข้าวบุกสุขใจที่เลือกไว้|||"
+    "หากสะดวกแล้วสามารถแจ้ง ชื่อ-ที่อยู่-เบอร์โทร (หรือส่งสลิปโอนเงิน) "
+    "ให้น้องบุกจัดเตรียมพัสดุได้เลยนะคะ 🍚💚",
+    # 5. Medium 1-bubble
+    "แวะมาเช็กข้อมูลจัดส่งค่า 🚚 คุณลูกค้าสามารถพิมพ์ ชื่อ-ที่อยู่-เบอร์โทร บรรทัดเดียวกันส่งมาได้เลยนะคะ น้องบุกจัดการแยกข้อมูลเข้าระบบให้เองค่ะ 💚",
+    # 6. Long 2-bubble
+    "รายการข้าวบุกสุขใจที่คุณลูกค้าดูไว้พร้อมจัดส่งนะคะ 🌾✨|||"
+    "สะดวกชำระแบบโอนเงินส่งฟรี (เมื่อครบโปร) หรือรับเป็นเก็บเงินปลายทาง แจ้งที่อยู่และเบอร์โทรให้น้องบุกได้เลยค่า 😊",
+]
+
+REENGAGE_STAGE2_BROWSING_POOL: list[str] = [
+    # 1. Short 1-bubble (COD flexibility)
+    "เผื่อคุณลูกค้าสะดวกชำระตอนรับของ ทางร้านมีบริการเก็บเงินปลายทาง (COD) ทุกขนาดเลยนะคะ สนใจรับชุดไหนแจ้งน้องบุกได้เลยค่า 🚚💚",
+    # 2. Short 1-bubble (Zero konjac odor highlight)
+    "หลายคนกังวลว่าข้าวบุกจะมีกลิ่นเฉพาะตัว 🍚 ของสุขใจไร้กลิ่นหัวบุก 100% เลยนะคะ หอมนุ่มทานคู่กับข้าวอะไรก็อร่อยค่ะ ลองสักชุดไหมคะ 😊",
+    # 3. Medium 1-bubble (Calorie control & satiety)
+    "ข้าวบุกสุขใจเหมาะกับมื้อที่อยากคุมแคลอรีและลดแป้งแบบสบายๆ ค่ะ 🌾 ตักชงน้ำร้อนแค่ 10 นาทีก็ได้ข้าวสวยร้อนๆ ทานอิ่มอยู่ท้องนาน ไม่หิวจุกจิกเลยนะคะ สนใจโปรไหนทักน้องบุกได้เลยค่า 💚",
+    # 4. Long 2-bubble (Taste + payment options)
+    "แวะมาแจ้งเพิ่มเติมเผื่อคุณลูกค้ากำลังตัดสินใจอยู่ค่า 🍚✨ "
+    "ข้าวบุกสุขใจไม่มีกลิ่นหัวบุกเลยนะคะ หอมนุ่มเหมือนข้าวหอมมะลิแท้ "
+    "แค่ตักเติมน้ำร้อนปิดฝา 10 นาทีก็ทานได้เลยค่ะ|||"
+    "มีทั้งแบบโอนเงินส่งฟรี (ตั้งแต่ 1 กก.) และบริการเก็บเงินปลายทาง "
+    "สนใจรับขนาดไหนแจ้งน้องบุกได้เลยนะคะ 😊🙏",
+    # 5. Medium 1-bubble (Starter trial suggestion)
+    "ถ้าคุณลูกค้ายังไม่แน่ใจว่าจะเริ่มขนาดไหน ลองเป็นชุดทดลอง 500 กรัม (239.-) หรือเซ็ตซองพกพา 60g ไปชิมความนุ่มก่อนได้นะคะ ทานง่ายมากค่ะ 😊🍚",
+    # 6. Long 2-bubble (Busy day time-saver)
+    "ข้อดีที่ลูกค้าชอบกันมากคือความสะดวกค่ะ ✨ วันไหนรีบๆ แค่กดน้ำร้อนใส่ถ้วยปิดฝาไว้ 10 นาที พอเตรียมกับข้าวเสร็จ ข้าวก็สุกนุ่มพอดีเลยค่ะ|||"
+    "หากอยากลองรับไปทานดู แจ้งขนาดที่สนใจให้น้องบุกสรุปยอดที่คุ้มที่สุดให้ได้เลยนะคะ 💚",
+    # 7. Short 1-bubble (Gentle comparison offer)
+    "คุณลูกค้าพอจะมีเซ็ตที่ถูกใจหรือยังคะ 😊 ถ้าอยากให้น้องบุกช่วยเทียบความคุ้มแต่ละขนาด ทักบอกได้ตลอดเลยนะคะ 🌾",
+    # 8. Medium 1-bubble (Stock-up bundle highlight)
+    "สำหรับบ้านที่หุงทานทุกวัน ชุดตุน 1 กก. 2 แถม 2 (899.- ส่งฟรีทุกช่องทาง) จะเป็นเซ็ตที่คุ้มค่าที่สุดเลยค่ะ เก็บไว้ทานได้นาน สนใจรับโปรไหนแจ้งน้องบุกได้นะคะ 🙏💚",
+]
+
+REENGAGE_STAGE2_PENDING_POOL: list[str] = [
+    # 1. Short 1-bubble
+    "หากคุณลูกค้าไม่สะดวกโอนเงิน สามารถแจ้งเปลี่ยนเป็นเก็บเงินปลายทาง (COD) ได้เลยนะคะ พิมพ์ชื่อ-ที่อยู่-เบอร์โทรไว้ให้น้องบุกได้เลยค่า 🚚😊",
+    # 2. Medium 1-bubble
+    "ออเดอร์ข้าวบุกสุขใจที่คุยกันไว้ยังสามารถจัดส่งได้ตามปกตินะคะ 🍚 สะดวกเป็นโอนเงินหรือเก็บปลายทาง แจ้งที่อยู่และเบอร์ติดต่อให้น้องบุกดูแลต่อได้เลยค่ะ 💚",
+    # 3. Long 2-bubble
+    "สวัสดีค่ะคุณลูกค้า 🍚 ออเดอร์ข้าวบุกสุขใจยังค้างอยู่ในระบบนะคะ|||"
+    "หากยังไม่สะดวกโอนเงิน สามารถแจ้งเปลี่ยนเป็นบริการเก็บเงินปลายทาง (COD) ได้เลยนะคะ "
+    "สะดวกแบบไหนแจ้งน้องบุกได้เลยค่า 😊🙏",
+    # 4. Short 1-bubble
+    "แวะมาทวนออเดอร์ให้ค่า 📦 ถ้าคุณลูกค้าพร้อมให้จัดส่งแล้ว ส่งชื่อ-ที่อยู่-เบอร์โทร หรือสลิปโอนเงินไว้ในแชทได้เลยนะคะ 💚",
+    # 5. Medium 1-bubble
+    "เผื่อคุณลูกค้าติดธุระอยู่ ไม่ต้องรีบนะคะ 😊 เมื่อไหร่ที่สะดวก แจ้งชื่อ-ที่อยู่-เบอร์โทรทิ้งไว้ได้เลย เดี๋ยวน้องบุกจัดคิวส่งรอบถัดไปให้ทันทีค่ะ 🚚",
+    # 6. Long 2-bubble
+    "น้องบุกยังล็อกรายการสินค้าตามโปรโมชั่นไว้ให้อยู่นะคะ 🌾✨|||"
+    "เปลี่ยนเป็นเก็บเงินปลายทางหน้าบ้านก็ได้เช่นกันค่ะ แจ้งชื่อ-ที่อยู่-เบอร์โทรไว้ได้เลยนะคะ 🙏💚",
+]
+
+REENGAGE_STAGE3_BROWSING_POOL: list[str] = [
+    # 1. Short 1-bubble
+    "แวะมาฝากโปรโมชั่นส่งท้ายไว้ให้ในแชทนะคะ 🍚💚 สะดวกสั่งซื้อข้าวบุกสุขใจวันไหน พิมพ์ชื่อ-ที่อยู่-เบอร์โทรทักน้องบุกมาได้ตลอดเลยค่า 😊",
+    # 2. Medium 1-bubble
+    "วันนี้สิทธิ์โปรโมชั่นข้าวบุกสุขใจ (ถุงใหญ่ 1 กก. 459.- โอนส่งฟรี / โปรตุน 2 แถม 2 ราคา 899.-) ยังใช้ได้ตามปกตินะคะ พร้อมรับเมื่อไหร่ทักแจ้งน้องบุกได้เลยค่า 🌾🙏",
+    # 3. Long 2-bubble
+    "สวัสดีค่าคุณลูกค้า 🍚💚 วันนี้สิทธิ์โปรโมชั่นส่งฟรีสำหรับถุงใหญ่ 1 กก. (459.-) "
+    "และโปรตุน 2 แถม 2 (899.-) ยังใช้ได้อยู่นะคะ|||"
+    "ถ้าคุณลูกค้าสะดวกสั่งซื้อเมื่อไหร่ ทักแจ้งชื่อ-ที่อยู่-เบอร์โทร "
+    "หรือเลือกเก็บปลายทางกับน้องบุกไว้ได้เลยนะคะ 😊🙏",
+    # 4. Short 1-bubble
+    "น้องบุกเก็บสิทธิ์ราคาโปรโมชั่นไว้ให้ในแชทเรียบร้อยแล้วนะคะ ✨ อยากรับขนาดไหนไปดูแลมื้ออาหาร ทักเรียกน้องบุกได้ทุกเมื่อเลยค่ะ 💚",
+    # 5. Medium 1-bubble
+    "เผื่อคุณลูกค้ากำลังมองหาตัวช่วยลดแป้งที่ทานง่ายและอิ่มนาน ข้าวบุกสุขใจพร้อมส่งทุกขนาดเลยนะคะ สะดวกวันไหนแวะมาสั่งซื้อได้เสมอเลยค่า 😊🍚",
+    # 6. Long 2-bubble
+    "แวะมาส่งตารางโปรโมชั่นไว้ให้ดูประกอบการตัดสินใจนะคะ 🌾|||"
+    "ไม่ว่าจะรับซองพกพา 60g ถุง 500g หรือถุงใหญ่ 1 กก. ทักแจ้งน้องบุกได้ตลอด 24 ชม. เลยนะคะ ยินดีบริการเสมอค่า 🙏💚",
+]
+
+REENGAGE_STAGE3_PENDING_POOL: list[str] = [
+    # 1. Short 1-bubble
+    "น้องบุกยังเก็บสิทธิ์โปรโมชั่นตามรายการที่คุยไว้ให้นะคะ 😊 สะดวกให้จัดส่งวันไหน แจ้งชื่อ-ที่อยู่-เบอร์โทรมาได้เลยค่า 🚚💚",
+    # 2. Medium 1-bubble
+    "สำหรับรายการข้าวบุกสุขใจที่เลือกไว้ หากคุณลูกค้าพร้อมรับสินค้าเมื่อไหร่ สามารถแจ้งที่อยู่จัดส่งหรือแนบสลิปโอนเงินให้น้องบุกได้ตลอดเลยนะคะ 🍚🙏",
+    # 3. Long 2-bubble
+    "แจ้งเตือนรอบจัดส่งวันนี้ค่า 🚚✨ น้องบุกยังเก็บสิทธิ์โปรโมชั่นข้าวบุกสุขใจไว้ให้คุณลูกค้านะคะ|||"
+    "หากต้องการให้จัดส่งรอบวันนี้ แจ้งชื่อ-ที่อยู่-เบอร์โทรคอนเฟิร์มกับน้องบุกได้เลยนะคะ 💚🙏",
+    # 4. Short 1-bubble
+    "ออเดอร์ที่เลือกไว้ยังรับสิทธิ์ราคาเดิมได้อยู่นะคะ ✨ พร้อมให้จัดส่งเมื่อไหร่ พิมพ์ที่อยู่และเบอร์ติดต่อทิ้งไว้ให้น้องบุกได้เลยค่ะ 💚",
+    # 5. Medium 1-bubble
+    "แวะมาแจ้งว่าน้องบุกบันทึกโปรโมชั่นที่คุณลูกค้าเลือกไว้ให้แล้วนะคะ 😊 สะดวกชำระแบบโอนหรือเก็บปลายทาง ทักคอนเฟิร์มที่อยู่ได้ทุกเมื่อเลยค่า 🚚",
+    # 6. Long 2-bubble
+    "รอบจัดส่งวันนี้ยังทันนะคะคุณลูกค้า 📦✨|||"
+    "หากสะดวกแล้ว พิมพ์ชื่อ-ที่อยู่-เบอร์โทรไว้ในแชทได้เลย เดี๋ยวน้องบุกรีบจัดส่งข้าวบุกสุขใจไปให้ค่ะ 🙏💚",
+]
+
+# Track non-repeating deck order per pool so consecutive customers never receive the same pattern
+_POOL_DECKS: dict[str, list[int]] = {}
+
+
+def _pick_unique_from_pool(pool_key: str, pool: list[str], psid: str = "") -> str:
+    """Select a message variant using a shuffled deck so consecutive sends never repeat the same pattern."""
+    import random
+
+    if not pool:
+        return ""
+    deck = _POOL_DECKS.get(pool_key)
+    if not deck:
+        indices = list(range(len(pool)))
+        random.shuffle(indices)
+        _POOL_DECKS[pool_key] = indices
+        deck = _POOL_DECKS[pool_key]
+    idx = deck.pop(0)
+    return pool[idx]
+
+
+def detect_reengage_stage_from_text(text: str) -> int:
+    """Detect whether an assistant message text belongs to Ghost Re-engagement Stage 1, 2, or 3.
+    Survives container restarts and Facebook Graph API message syncs where sender_label was lost."""
+    raw = " ".join(str(text or "").split())
+    if not raw:
+        return 0
+
+    stage3_sigs = (
+        "วันนี้สิทธิ์โปรโมชั่นส่งฟรีสำหรับถุงใหญ่",
+        "แจ้งเตือนรอบจัดส่งวันนี้ค่า",
+        "แวะมาฝากโปรโมชั่นส่งท้ายไว้ให้ในแชท",
+        "วันนี้สิทธิ์โปรโมชั่นข้าวบุกสุขใจ",
+        "น้องบุกเก็บสิทธิ์ราคาโปรโมชั่นไว้ให้ในแชท",
+        "เผื่อคุณลูกค้ากำลังมองหาตัวช่วยลดแป้งที่ทานง่าย",
+        "แวะมาส่งตารางโปรโมชั่นไว้ให้ดูประกอบการตัดสินใจ",
+        "น้องบุกยังเก็บสิทธิ์โปรโมชั่นตามรายการที่คุยไว้",
+        "สำหรับรายการข้าวบุกสุขใจที่เลือกไว้ หากคุณลูกค้าพร้อมรับสินค้าเมื่อไหร่",
+        "ออเดอร์ที่เลือกไว้ยังรับสิทธิ์ราคาเดิมได้อยู่นะคะ",
+        "แวะมาแจ้งว่าน้องบุกบันทึกโปรโมชั่นที่คุณลูกค้าเลือกไว้ให้แล้ว",
+        "รอบจัดส่งวันนี้ยังทันนะคะคุณลูกค้า",
+    )
+    stage2_sigs = (
+        "แวะมาแจ้งเพิ่มเติมเผื่อคุณลูกค้ากำลังตัดสินใจอยู่ค่า",
+        "มีทั้งแบบโอนเงินส่งฟรี (ตั้งแต่ 1 กก.)",
+        "ออเดอร์ข้าวบุกสุขใจยังค้างอยู่ในระบบนะคะ",
+        "หากยังไม่สะดวกโอนเงิน สามารถแจ้งเปลี่ยนเป็นบริการเก็บเงินปลายทาง",
+        "เผื่อคุณลูกค้าสะดวกชำระตอนรับของ ทางร้านมีบริการเก็บเงินปลายทาง",
+        "หลายคนกังวลว่าข้าวบุกจะมีกลิ่นเฉพาะตัว",
+        "ข้าวบุกสุขใจเหมาะกับมื้อที่อยากคุมแคลอรีและลดแป้งแบบสบายๆ",
+        "ถ้าคุณลูกค้ายังไม่แน่ใจว่าจะเริ่มขนาดไหน ลองเป็นชุดทดลอง",
+        "ข้อดีที่ลูกค้าชอบกันมากคือความสะดวกค่ะ",
+        "คุณลูกค้าพอจะมีเซ็ตที่ถูกใจหรือยังคะ",
+        "สำหรับบ้านที่หุงทานทุกวัน ชุดตุน 1 กก. 2 แถม 2",
+        "หากคุณลูกค้าไม่สะดวกโอนเงิน สามารถแจ้งเปลี่ยนเป็นเก็บเงินปลายทาง",
+        "ออเดอร์ข้าวบุกสุขใจที่คุยกันไว้ยังสามารถจัดส่งได้ตามปกติ",
+        "แวะมาทวนออเดอร์ให้ค่า",
+        "เผื่อคุณลูกค้าติดธุระอยู่ ไม่ต้องรีบนะคะ",
+        "น้องบุกยังล็อกรายการสินค้าตามโปรโมชั่นไว้ให้อยู่นะคะ",
+    )
+    stage1_sigs = (
+        "คุณลูกค้าดูโปรโมชั่นไว้ พอจะมีขนาดไหนที่สนใจเป็นพิเศษไหมคะ",
+        "ถ้าเพิ่งเริ่มลองทาน ลูกค้าส่วนใหญ่จะนิยม",
+        "สำหรับออเดอร์ข้าวบุกสุขใจที่เลือกไว้",
+        "แอบแวะมาถามไถ่ค่า",
+        "เผื่อคุณลูกค้ายังลังเลเรื่องวิธีหุง",
+        "ทักมาให้ข้อมูลเพิ่มเติมนิดนึงนะคะ",
+        "คุณลูกค้าสนใจรับไปลองทานกี่มื้อดีคะ",
+        "สำหรับคุณลูกค้าที่อยากจัดสมดุลคาร์บแบบไม่ต้องอดข้าว",
+        "ติดขัดหรืออยากสอบถามรายละเอียดตรงไหนเพิ่มเติม พิมพ์ทิ้งไว้ให้น้องบุก",
+        "แวะมาบอกเคล็ดลับความสะดวกค่า",
+        "หากสะดวกแล้ว แจ้งชื่อ-ที่อยู่-เบอร์โทร (หรือแนบสลิป) ให้น้องบุกจัดเตรียมพัสดุ",
+        "น้องบุกจดรายการที่เลือกไว้ให้เรียบร้อยแล้วค่า",
+        "สำหรับออเดอร์ข้าวบุกสุขใจที่คุณลูกค้าเลือกไว้ ถ้าสะดวกจัดส่งที่ไหน",
+        "แวะมาเช็กข้อมูลจัดส่งค่า",
+        "รายการข้าวบุกสุขใจที่คุณลูกค้าดูไว้พร้อมจัดส่งนะคะ",
+    )
+
+    if any(sig in raw for sig in stage3_sigs):
+        return 3
+    if any(sig in raw for sig in stage2_sigs):
+        return 2
+    if any(sig in raw for sig in stage1_sigs):
+        return 1
+
+    def _matches_pool(pool: list[str]) -> bool:
+        for tpl in pool:
+            for bubble in tpl.split("|||"):
+                b_clean = " ".join(bubble.split())
+                if len(b_clean) >= 18 and b_clean in raw:
+                    return True
+        return False
+
+    if _matches_pool(REENGAGE_STAGE3_BROWSING_POOL) or _matches_pool(REENGAGE_STAGE3_PENDING_POOL):
+        return 3
+    if _matches_pool(REENGAGE_STAGE2_BROWSING_POOL) or _matches_pool(REENGAGE_STAGE2_PENDING_POOL):
+        return 2
+    if _matches_pool(REENGAGE_STAGE1_BROWSING_POOL) or _matches_pool(REENGAGE_STAGE1_PENDING_POOL):
+        return 1
+    return 0
+
 
 def get_reengage_config() -> dict:
     import json
@@ -211,66 +431,38 @@ def save_reengage_config(updates: dict) -> dict:
     return cfg
 
 
-def build_reengage_message(stage: int, state: str) -> tuple[str, str, str | None]:
-    """Build (message_text, broadcast_tag, optional_image_key) for Ghost Re-engagement Stage 1, 2, or 3."""
+def build_reengage_message(stage: int, state: str, psid: str = "") -> tuple[str, str, str | None]:
+    """Build (message_text, broadcast_tag, optional_image_key) for Ghost Re-engagement Stage 1, 2, or 3
+    using a shuffled non-repeating pool of short, medium, and 2-bubble patterns."""
     is_pending = state == "pending_payment"
 
     if stage == 1:
         if is_pending:
-            return (
-                "คุณลูกค้าคะ 😊 สำหรับออเดอร์ข้าวบุกสุขใจที่เลือกไว้ "
-                "หากสะดวกแล้วสามารถแจ้ง ชื่อ-ที่อยู่-เบอร์โทร (หรือส่งสลิปโอนเงิน) "
-                "ให้น้องบุกจัดเตรียมพัสดุได้เลยนะคะ 🍚💚",
-                "ตามที่อยู่_1ชม",
-                None,
-            )
-        return (
-            "คุณลูกค้าดูโปรโมชั่นไว้ พอจะมีขนาดไหนที่สนใจเป็นพิเศษไหมคะ 😊🍚|||"
-            "ถ้าเพิ่งเริ่มลองทาน ลูกค้าส่วนใหญ่จะนิยม ถุงใหญ่ 1 กก. (459.- โอนส่งฟรี ทานได้ 16–20 มื้อ) "
-            "หรือแบบซองพกพา 60g ค่ะ สงสัยตรงไหนถามน้องบุกได้เลยนะคะ 💚",
-            "ขุดแชท_1ชม",
-            None,
-        )
+            msg = _pick_unique_from_pool("s1_pending", REENGAGE_STAGE1_PENDING_POOL, psid=psid)
+            return msg, "ตามที่อยู่_1ชม", None
+        msg = _pick_unique_from_pool("s1_browsing", REENGAGE_STAGE1_BROWSING_POOL, psid=psid)
+        return msg, "ขุดแชท_1ชม", None
 
     if stage == 2:
         if is_pending:
-            return (
-                "สวัสดีค่ะคุณลูกค้า 🍚 ออเดอร์ข้าวบุกสุขใจยังค้างอยู่ในระบบนะคะ|||"
-                "หากยังไม่สะดวกโอนเงิน สามารถแจ้งเปลี่ยนเป็นบริการเก็บเงินปลายทาง (COD) ได้เลยนะคะ "
-                "สะดวกแบบไหนแจ้งน้องบุกได้เลยค่า 😊🙏",
-                "ตามที่อยู่_6ชม",
-                None,
-            )
-        return (
-            "แวะมาแจ้งเพิ่มเติมเผื่อคุณลูกค้ากำลังตัดสินใจอยู่ค่า 🍚✨ "
-            "ข้าวบุกสุขใจไม่มีกลิ่นหัวบุกเลยนะคะ หอมนุ่มเหมือนข้าวหอมมะลิแท้ "
-            "แค่ตักเติมน้ำร้อนปิดฝา 10 นาทีก็ทานได้เลยค่ะ|||"
-            "มีทั้งแบบโอนเงินส่งฟรี (ตั้งแต่ 1 กก.) และบริการเก็บเงินปลายทาง "
-            "สนใจรับขนาดไหนแจ้งน้องบุกได้เลยนะคะ 😊🙏",
-            "ขุดแชท_6ชม",
-            None,
-        )
+            msg = _pick_unique_from_pool("s2_pending", REENGAGE_STAGE2_PENDING_POOL, psid=psid)
+            return msg, "ตามที่อยู่_6ชม", None
+        msg = _pick_unique_from_pool("s2_browsing", REENGAGE_STAGE2_BROWSING_POOL, psid=psid)
+        return msg, "ขุดแชท_6ชม", None
 
     # Stage 3 (20 hours — Final nudge inside Facebook 24h window)
     if is_pending:
-        return (
-            "แจ้งเตือนรอบจัดส่งวันนี้ค่า 🚚✨ น้องบุกยังเก็บสิทธิ์โปรโมชั่นข้าวบุกสุขใจไว้ให้คุณลูกค้านะคะ|||"
-            "หากต้องการให้จัดส่งรอบวันนี้ แจ้งชื่อ-ที่อยู่-เบอร์โทรคอนเฟิร์มกับน้องบุกได้เลยนะคะ 💚🙏",
-            "ตามที่อยู่_20ชม",
-            None,
-        )
-    return (
-        "สวัสดีค่าคุณลูกค้า 🍚💚 วันนี้สิทธิ์โปรโมชั่นส่งฟรีสำหรับถุงใหญ่ 1 กก. (459.-) "
-        "และโปรตุน 2 แถม 2 (899.-) ยังใช้ได้อยู่นะคะ|||"
-        "ถ้าคุณลูกค้าสะดวกสั่งซื้อเมื่อไหร่ ทักแจ้งชื่อ-ที่อยู่-เบอร์โทร "
-        "หรือเลือกเก็บปลายทางกับน้องบุกไว้ได้เลยนะคะ 😊🙏",
-        "ขุดแชท_20ชม",
-        "promo_3sizes",
-    )
+        msg = _pick_unique_from_pool("s3_pending", REENGAGE_STAGE3_PENDING_POOL, psid=psid)
+        return msg, "ตามที่อยู่_20ชม", None
+    msg = _pick_unique_from_pool("s3_browsing", REENGAGE_STAGE3_BROWSING_POOL, psid=psid)
+    img_key = "promo_3sizes" if "ส่งตารางโปรโมชั่น" in msg else None
+    return msg, "ขุดแชท_20ชม", img_key
 
 
 def get_session_reengage_status(psid: str) -> dict:
     """Inspect a session's message history and tags to determine its Ghost Re-engagement stage and eligibility."""
+    import re
+
     user = database.get_or_create_session(psid)
     msgs = database.get_full_messages(psid, limit=80)
     now = datetime.now(timezone.utc)
@@ -296,7 +488,7 @@ def get_session_reengage_status(psid: str) -> dict:
             "hours_silent": 0.0,
         }
 
-    # Also check message history for customer slip attachment, transfer confirmation, or cancellation
+    # Check message history for customer slip attachment, transfer confirmation, cancellation, or shipping address/phone
     user_texts_joined = "\n".join(
         str(m.get("content") or "") for m in msgs if m.get("role") == "user"
     ).lower()
@@ -308,6 +500,29 @@ def get_session_reengage_status(psid: str) -> dict:
             "psid": psid,
             "eligible": False,
             "reason": "ตรวจพบสลิปโอนเงินหรือข้อความขอยกเลิกในประวัติแชท — ป้องกันการทักขุดซ้ำค่ะ",
+            "state": user.state,
+            "current_stage": 0,
+            "hours_silent": 0.0,
+        }
+
+    # Block re-engagement if customer already provided a 10-digit Thai phone number or full address (e.g. COD order)
+    has_thai_phone = bool(re.search(r"(?:\+66\s*0?|0)[689]\d(?:[\s\-]*\d){7}", user_texts_joined))
+    has_address_kw = sum(
+        1 for kw in ("ตำบล", "อำเภอ", "จังหวัด", "ต.", "อ.", "จ.", "หมู่", "ซอย", "ถนน", "แขวง", "เขต")
+        if kw in user_texts_joined
+    ) >= 2
+    all_bot_texts = "\n".join(
+        str(m.get("content") or "") for m in msgs if m.get("role") in ("assistant", "admin")
+    )
+    has_order_confirmed_reply = any(
+        kw in all_bot_texts
+        for kw in ("#BUY", "ได้รับข้อมูลจัดส่ง", "จัดเตรียมพัสดุให้เรียบร้อย", "เพจ : ข้าวบุก สุขใจ")
+    )
+    if has_thai_phone or has_address_kw or has_order_confirmed_reply:
+        return {
+            "psid": psid,
+            "eligible": False,
+            "reason": "ลูกค้าแจ้งชื่อ-ที่อยู่-เบอร์โทร หรือยืนยันออเดอร์เรียบร้อยแล้ว — ระบบบล็อกไม่ให้ทักขุดซ้ำค่ะ",
             "state": user.state,
             "current_stage": 0,
             "hours_silent": 0.0,
@@ -342,6 +557,10 @@ def get_session_reengage_status(psid: str) -> dict:
                 current_stage = max(current_stage, 2)
             elif "AI บอทขุดแชท (รอบ 3)" in lbl:
                 current_stage = max(current_stage, 3)
+            else:
+                detected_stage = detect_reengage_stage_from_text(str(m.get("content") or ""))
+                if detected_stage > 0:
+                    current_stage = max(current_stage, detected_stage)
 
     if not last_user_dt:
         return {
@@ -357,14 +576,17 @@ def get_session_reengage_status(psid: str) -> dict:
     hours_since_any = round((now - (last_any_dt or last_user_dt)).total_seconds() / 3600.0, 2)
     cfg = get_reengage_config()
 
-    # Determine next stage to trigger automatically
+    # Determine next stage to trigger automatically with STRICT minimum spacing between stages:
+    # - Stage 1: >= stage1_hours (1h) since user msg AND >= 1.0h since last bot msg
+    # - Stage 2: >= stage2_hours (6h) since user msg AND >= 5.0h since Stage 1 (never 30 mins after Stage 1!)
+    # - Stage 3: >= stage3_hours (20h) since user msg AND >= 12.0h since Stage 2
     next_auto_stage = None
-    if hours_since_user <= cfg["max_window_hours"] and hours_since_any >= 0.5:
-        if current_stage == 0 and hours_since_user >= cfg["stage1_hours"]:
+    if hours_since_user <= cfg["max_window_hours"]:
+        if current_stage == 0 and hours_since_user >= cfg["stage1_hours"] and hours_since_any >= 1.0:
             next_auto_stage = 1
-        elif current_stage == 1 and hours_since_user >= cfg["stage2_hours"]:
+        elif current_stage == 1 and hours_since_user >= cfg["stage2_hours"] and hours_since_any >= 5.0:
             next_auto_stage = 2
-        elif current_stage == 2 and hours_since_user >= cfg["stage3_hours"]:
+        elif current_stage == 2 and hours_since_user >= cfg["stage3_hours"] and hours_since_any >= 12.0:
             next_auto_stage = 3
 
     return {
@@ -390,7 +612,7 @@ async def send_reengage_stage(
     """Send Ghost Re-engagement Stage 1 (1h), Stage 2 (6h), or Stage 3 (20h) after verifying customer hasn't bought."""
     user = database.get_or_create_session(psid)
 
-    # 1. Live Facebook Graph API sync before sending to ensure customer didn't already buy/pay!
+    # 1. Live Facebook Graph API sync before sending to ensure customer didn't already buy/pay or already get re-engaged!
     if user.platform == "facebook" and user.external_user_id:
         await messenger.sync_facebook_user_thread(user.external_user_id, brand_id=user.brand_id)
         user = database.get_or_create_session(psid)
@@ -402,6 +624,16 @@ async def send_reengage_stage(
             "psid": psid,
             "reason": status_info.get("reason", "ไม่เข้าเงื่อนไขการขุดแชท"),
         }
+    # Prevent sending a duplicate or lower/equal stage in auto mode after live sync
+    if not force_manual:
+        live_current_stage = int(status_info.get("current_stage") or 0)
+        live_next_stage = status_info.get("next_auto_stage")
+        if live_current_stage >= stage or live_next_stage != stage:
+            return {
+                "status": "skipped",
+                "psid": psid,
+                "reason": f"ซิงค์แชทล่าสุดแล้วพบว่าอยู่รอบ {live_current_stage} (ยังไม่ถึงเกณฑ์ส่งรอบ {stage} ซ้ำค่ะ)",
+            }
     if (
         getattr(user, "is_starred", False)
         or user.state == "completed"
@@ -415,7 +647,7 @@ async def send_reengage_stage(
             "reason": "ลูกค้าติดดาว ⭐ (ชำระเงิน/สั่งซื้อสำเร็จแล้ว) ระบบป้องกันไม่ให้ทักขุดซ้ำค่ะ",
         }
 
-    msg_text, new_tag, img_key = build_reengage_message(stage, user.state)
+    msg_text, new_tag, img_key = build_reengage_message(stage, user.state, psid=psid)
     sender_label = f"AI บอทขุดแชท (รอบ {stage})"
 
     media_items = []
@@ -459,12 +691,19 @@ async def send_reengage_stage(
 
 
 async def run_auto_reengage_scan(public_base_url: str = "") -> dict:
-    """Scan all active browsing/pending_payment sessions and trigger Stage 1/2/3 Ghost Re-engagement."""
+    """Scan all active browsing/pending_payment sessions and trigger Stage 1/2/3 Ghost Re-engagement.
+    Capped at max 3 sends per scan cycle with staggered delays and shuffled templates."""
+    import asyncio
+    import random
+
     all_sessions = database.list_all_sessions()
     triggered = []
     skipped = 0
+    max_per_cycle = 3
 
     for s in all_sessions:
+        if len(triggered) >= max_per_cycle:
+            break
         psid = s["psid"]
         if s.get("state") == "completed" or not s.get("bot_enabled", True):
             skipped += 1
@@ -472,6 +711,8 @@ async def run_auto_reengage_scan(public_base_url: str = "") -> dict:
         st = get_session_reengage_status(psid)
         next_stage = st.get("next_auto_stage")
         if st.get("eligible") and next_stage in (1, 2, 3):
+            if triggered:
+                await asyncio.sleep(random.uniform(1.5, 3.5))
             res = await send_reengage_stage(psid, next_stage, public_base_url=public_base_url, force_manual=False)
             if res.get("status") == "sent":
                 triggered.append(
@@ -613,6 +854,10 @@ async def auto_reply_unanswered_facebook_chats(
 
 
 async def followup_loop(config: dict, public_base_url_getter=None) -> None:
+    try:
+        _register_jst_routes()
+    except Exception as exc:
+        logger.warning("Route registration warning: %s", exc)
     poll_seconds = float(os.getenv("FOLLOWUP_POLL_SECONDS", "60"))
     render_health_url = os.getenv("RENDER_EXTERNAL_URL", "https://buksukjai-omnichannel.onrender.com") + "/health"
 

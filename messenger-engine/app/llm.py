@@ -47,8 +47,24 @@ RESPONSE_SCHEMA = {
                     "'promo_1299' only if asking specifically about 1299.-; or 'none' otherwise."
                 ),
             },
+            "needs_human": {
+                "type": "boolean",
+                "description": (
+                    "Set to true ONLY when the customer asks an unfamiliar, out-of-scope, complex, or sensitive question "
+                    "not clearly covered in the brand knowledge base (e.g., FDA/อย., tax invoice, wholesale/distributor inquiry, "
+                    "damaged parcel/refund claim, delayed tracking complaint, or unusual/complex questions where guessing could be wrong). "
+                    "When true, reply politely and neutrally that you are forwarding the question to the admin team to verify."
+                ),
+            },
+            "escalation_reason": {
+                "type": "string",
+                "description": (
+                    "Short Thai summary of why this message needs human admin review in the LINE summary group "
+                    "(e.g. 'คำถามแปลกใหม่นอกเหนือข้อมูลในระบบ', 'ลูกค้าขอใบกำกับภาษี', 'ลูกค้าถามเรื่อง อย.'), or empty string if needs_human is false."
+                ),
+            },
         },
-        "required": ["reply", "state", "image_key"],
+        "required": ["reply", "state", "image_key", "needs_human", "escalation_reason"],
         "additionalProperties": False,
     },
 }
@@ -68,6 +84,15 @@ def clean_chat_text(text: str) -> str:
     cleaned = cleaned.replace("นะครับ", "นะคะ").replace("ครับผม", "ค่ะ")
     cleaned = re.sub(r"(ไหม|มั้ย|ดี|ไหน|อะไร|เท่าไหร่|กี่บาท|ยังไง|อย่างไร|หรือเปล่า|รึเปล่า)\s*ครับ", r"\1คะ", cleaned)
     cleaned = cleaned.replace("ครับ", "ค่ะ").replace("คับ", "ค่ะ")
+
+    # 4.5 Fix truncated "ดีมากๆค่ะ..." (missing "ยิน" from "ยินดีมากๆ ค่ะ") and squished polite phrases
+    cleaned = re.sub(
+        r"^(?:ดีมากๆ\s*(?:เลย)?(?:ค่ะ|นะคะ|ค่า)\s*ขอบพระคุณ.*|ดีค่ะ\s*ขอบพระคุณ.*)$",
+        "ด้วยความยินดีเลยค่ะ 😊 ขอบพระคุณที่ไว้วางใจให้ข้าวบุกสุขใจดูแลมื้ออร่อยนะคะ 💚🙏",
+        cleaned.strip(),
+    )
+    cleaned = re.sub(r"^ดีมากๆ\s*(?=ค่ะ|นะคะ|ค่า|เลยค่ะ)", "ยินดีมากๆ ", cleaned)
+    cleaned = re.sub(r"(ค่ะ|นะคะ|ค่า)(?=ขอบพระคุณ|ขอบคุณ|ยินดี|หาก|ถ้า)", r"\1 ", cleaned)
 
     # 5. Ensure consecutive bullet lines (• ...) have a blank line between them so they aren't squished
     raw_lines = [line.strip() for line in cleaned.splitlines()]
@@ -352,6 +377,7 @@ class LLMEngine:
         self.config = config or {}
         self.provider = "demo"
         self.active_model = "smart-demo"
+        self.last_escalation: dict = {"needs_human": False, "escalation_reason": ""}
         self.refresh_client()
 
     def refresh_client(self) -> None:
@@ -393,13 +419,32 @@ class LLMEngine:
 
     def build_request(self, history: list[dict], current_state: str, model_override: str | None = None) -> dict:
         model = model_override or self.active_model
+        learned_block = ""
+        try:
+            from . import daily_sheet_report
+
+            l_cfg = daily_sheet_report.load_line_group_config()
+            learned_items = l_cfg.get("learned_faq") or []
+            if learned_items:
+                lines = [
+                    f"• ถาม: {it['question']}\n  ตอบตามที่แอดมินสอนไว้: {it['answer']}"
+                    for it in learned_items[-30:]
+                    if it.get("question") and it.get("answer")
+                ]
+                if lines:
+                    learned_block = "\n\n## คำถาม-คำตอบที่แอดมินเคยตอบไว้ในกลุ่ม LINE (ใช้ตอบลูกค้าได้ทันทีโดยไม่ต้องตั้ง needs_human=true ซ้ำ)\n" + "\n".join(lines)
+        except Exception:
+            pass
+
         combined_system_prompt = (
-            f"{self.system_prompt}\n\n"
+            f"{self.system_prompt}{learned_block}\n\n"
             f"## Current Customer Session State\n"
             f"- Current order state for this customer: {current_state}\n"
             f"- Respond strictly as JSON with keys `reply` (string), `state` "
-            f"(\"browsing\", \"pending_payment\", or \"completed\"), and `image_key` "
-            f"(\"none\", \"promo_3sizes\", \"promo_60g_set\", \"promo_899\", \"promo_1299\", or \"promo_all\").\n"
+            f"(\"browsing\", \"pending_payment\", or \"completed\"), `image_key` "
+            f"(\"none\", \"promo_3sizes\", \"promo_60g_set\", \"promo_899\", \"promo_1299\", or \"promo_all\"), "
+            f"`needs_human` (boolean: true if the question is unfamiliar/out-of-scope/uncertain), and "
+            f"`escalation_reason` (string: short Thai reason when needs_human is true, else \"\").\n"
             f"- CRITICAL: Keep `reply` short, cute, and concise like a real Thai chat admin. "
             f"Separate 2–3 short message bubbles with `|||`. NEVER use `*` or `**`."
         )
@@ -417,6 +462,7 @@ class LLMEngine:
 
     async def generate(self, history: list[dict], current_state: str) -> tuple[str, str, str]:
         """Returns (reply_text_with_bubble_delimiters, new_state, image_key)."""
+        self.last_escalation = {"needs_human": False, "escalation_reason": ""}
         if self.mock_mode:
             return self._smart_demo_generate(history, current_state)
 
@@ -432,16 +478,31 @@ class LLMEngine:
 
                 if getattr(message, "refusal", None):
                     logger.warning("Model refused: %s; returning safe fallback reply", message.refusal)
-                    return ("ขออภัยค่ะ น้องบุกไม่สามารถตอบคำถามนี้ได้ เดี๋ยวให้แอดมินติดต่อกลับนะคะ 🙏", current_state, "none")
+                    self.last_escalation = {
+                        "needs_human": True,
+                        "escalation_reason": "คำถามนอกขอบเขตที่ AI ไม่สามารถตอบได้โดยตรง",
+                    }
+                    return (
+                        "ขอบพระคุณสำหรับคำถามนะคะคุณลูกค้า 🙏💚 เพื่อข้อมูลที่ถูกต้องชัดเจน น้องบุกขออนุญาตส่งเรื่องให้พี่แอดมินผู้ดูแลตรวจสอบและรีบมาตอบกลับให้โดยเร็วที่สุดเลยนะคะ รบกวนรอสักครู่นะคะ 😊",
+                        current_state,
+                        "none",
+                    )
 
                 text = (message.content or "").strip()
                 if text.startswith("```"):
                     text = text.strip("`").removeprefix("json").strip()
                 data = json.loads(text)
+                needs_human = bool(data.get("needs_human", False))
+                esc_reason = str(data.get("escalation_reason") or "").strip()
+                self.last_escalation = {
+                    "needs_human": needs_human,
+                    "escalation_reason": esc_reason or ("คำถามแปลกใหม่ / AI ไม่มั่นใจคำตอบ" if needs_human else ""),
+                }
                 bubbles = split_into_bubbles(data["reply"])
                 bubbles = enforce_authentic_bank_account(bubbles, history, self.config)
-                image_key = data.get("image_key") or "none"
-                bubbles, image_key = enforce_all_promotions_when_asked(bubbles, history, image_key)
+                image_key = "none" if needs_human else (data.get("image_key") or "none")
+                if not needs_human:
+                    bubbles, image_key = enforce_all_promotions_when_asked(bubbles, history, image_key)
                 return "|||".join(bubbles), data["state"], image_key
             except Exception as e:
                 logger.warning("Model %s call failed (%s)", model_name, e)
@@ -639,6 +700,22 @@ class LLMEngine:
                 "สนใจลองซองเล็ก 60 กรัม (39 บาท) หรือถุงใหญ่ 1 กก. (459 บาท โอนส่งฟรี) ดีคะ 😊",
                 current_state,
                 "how_to_cook",
+            )
+
+        known_promo_or_greeting = (
+            "สวัสดี", "ดีค่ะ", "ดีจ้า", "สนใจ", "ราคา", "ขอราคา", "กี่บาท", "เท่าไหร่",
+            "โปร", "มีโปร", "ดูโปร", "ขนาด", "ไซส์", "ขายยังไง", "ถุงละ", "ซองละ",
+        )
+        if not any(w in low for w in known_promo_or_greeting):
+            self.last_escalation = {
+                "needs_human": True,
+                "escalation_reason": "คำถามแปลกใหม่นอกเหนือข้อมูลมาตรฐานในระบบ",
+            }
+            return (
+                "ขอบพระคุณสำหรับคำถามนะคะคุณลูกค้า 🙏💚|||"
+                "เพื่อให้ได้ข้อมูลที่ถูกต้องและชัดเจนที่สุด น้องบุกขออนุญาตส่งเรื่องให้พี่แอดมินผู้ดูแลช่วยตรวจสอบรายละเอียดและรีบมาตอบกลับให้โดยเร็วที่สุดเลยนะคะ รบกวนรอสักครู่นะคะ 😊",
+                current_state,
+                "none",
             )
 
         return (

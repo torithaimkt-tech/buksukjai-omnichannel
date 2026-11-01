@@ -165,6 +165,7 @@ def audit_outgoing_reply(
     proposed_state: str,
     proposed_image_key: str,
     config: dict[str, Any] | None = None,
+    llm_escalation: dict[str, Any] | None = None,
 ) -> tuple[list[str], str, list[dict[str, Any]], dict[str, Any]]:
     """Run Layer-1 Pre-Send Audit on AI output.
 
@@ -175,6 +176,8 @@ def audit_outgoing_reply(
 
     checks: list[dict[str, Any]] = []
     auto_fixes: list[str] = []
+    escalate_to_line_group: bool = bool((llm_escalation or {}).get("needs_human", False))
+    escalation_reason: str = str((llm_escalation or {}).get("escalation_reason") or "").strip()
 
     user_text = (history[-1].get("content") or "").strip() if history else ""
     u_low = user_text.lower()
@@ -198,22 +201,43 @@ def audit_outgoing_reply(
         "status": "ok",
     })
 
-    # 2. Ad-Safe & Medical/Body Claim Filter
+    # 2. Ad-Safe & Medical/Body Claim Filter + Complete Sentence Integrity Check
     sanitized_bubbles: list[str] = []
     medical_fixed = False
+    sentence_repaired = False
+    thank_you_pool = (
+        "ด้วยความยินดีเลยค่ะ 😊 ขอบพระคุณที่ไว้วางใจให้ข้าวบุกสุขใจดูแลมื้ออร่อยนะคะ 💚🙏",
+        "ยินดีมากๆ เลยค่ะคุณลูกค้า 🍚✨ ขอบพระคุณที่อุดหนุนข้าวบุกสุขใจนะคะ หากมีข้อสงสัยเพิ่มเติมทักหาน้องบุกได้ตลอดเลยค่า 💚",
+        "ด้วยความยินดีค่ะ 🙏💚 ขอบพระคุณคุณลูกค้ามากๆ เลยนะคะ ขอให้ทานข้าวบุกสุขใจให้อร่อยและสบายท้องนะคะ 😊",
+    )
+    is_user_thank_you = u_low.strip() in (
+        "ขอบคุณค่ะ", "ขอบคุณคะ", "ขอบคุณนะคะ", "ขอบคุณจ้า", "ขอบคุณมากค่ะ", "ขอบคุณมากๆค่ะ", "ขอบพระคุณค่ะ",
+    )
     for b in bubbles:
         clean_b = b
         for bad_word, safe_word in BANNED_MEDICAL_OR_BODY_TERMS.items():
             if bad_word in clean_b:
                 clean_b = clean_b.replace(bad_word, safe_word)
                 medical_fixed = True
+        if re.match(r"^ดีมากๆ\s*(?:เลย)?(?:ค่ะ|นะคะ|ค่า)", clean_b.strip()):
+            import random
+
+            clean_b = random.choice(thank_you_pool)
+            sentence_repaired = True
+        elif is_user_thank_you and len(clean_b.strip()) <= 32 and ("ดีมากๆ" in clean_b or "ขอบพระคุณมากๆนะคะ" in clean_b):
+            import random
+
+            clean_b = random.choice(thank_you_pool)
+            sentence_repaired = True
         sanitized_bubbles.append(clean_chat_text(clean_b))
     bubbles = sanitized_bubbles
     if medical_fixed:
         auto_fixes.append("กรองคำต้องห้ามด้านสุขภาพ/รูปร่างให้เป็นคำที่ปลอดภัยตามกฎแบรนด์")
+    if sentence_repaired:
+        auto_fixes.append("แก้ไขประโยคตอบรับคำขอบคุณที่ตกหล่น ('ดีมากๆค่ะ...' -> ประโยคเต็ม 'ด้วยความยินดีเลยค่ะ...')")
     checks.append({
-        "name": "ตรวจกฎเหล็ก Ad-Safe (ห้ามเคลมโรค/ทักปมรูปร่าง)",
-        "status": "fixed" if medical_fixed else "ok",
+        "name": "ตรวจกฎเหล็ก Ad-Safe & ความสมบูรณ์ของประโยค",
+        "status": "fixed" if (medical_fixed or sentence_repaired) else "ok",
     })
 
     # 3. Bank Account Integrity Audit
@@ -255,6 +279,13 @@ def audit_outgoing_reply(
             "name": "ตรวจสถานะลูกค้าติดดาว ⭐ (ซื้อแล้วห้ามส่งตารางโปรซ้ำ)",
             "status": "ok",
         })
+    elif escalate_to_line_group:
+        audited_image_key = "none"
+        audited_state = proposed_state
+        checks.append({
+            "name": "ตรวจคำถามแปลกใหม่/ไม่มั่นใจ (งดแนบรูปโปรขายของและส่งต่อแอดมิน)",
+            "status": "ok",
+        })
     else:
         before_promo_bubbles = list(bubbles)
         before_img = audited_image_key
@@ -294,6 +325,8 @@ def audit_outgoing_reply(
             ]
         audited_image_key = "none"
         audited_state = "browsing"
+        escalate_to_line_group = True
+        escalation_reason = "ลูกค้าสอบถามเรื่องเลข อย. (พักบอทและแจ้งเตือนแอดมิน)"
         try:
             database.set_bot_enabled(psid, False)
             updated_tags = database._add_tag_str(getattr(user_session, "broadcast_tags", "") or "", "ถาม อย. (รอแอดมิน)")
@@ -385,14 +418,102 @@ def audit_outgoing_reply(
         audited_image_key = "none"
         auto_fixes.append("ป้องกันการสรุปเป็น COD ไปเองโดยที่ลูกค้ายังไม่เลือกวิธีชำระเงิน (ถามลูกค้าพร้อมแนบเลขบัญชีเผื่อลูกค้าโอนตามมา)")
 
-    # E) Complaint / Parcel Tracking Shield
+    # E) Complaint / Parcel Tracking / Damaged Claim Shield
     is_tracking_complaint = any(
-        w in u_low for w in ("ยังไม่ได้รับของ", "โอนเงินไปแล้วตั้งแต่", "ช่วยเช็คการส่ง", "เช็คการส่ง", "ตามของ", "ส่งของหรือยัง", "ส่งสินค้าไปเปลี่ยน")
+        w in u_low
+        for w in (
+            "ยังไม่ได้รับของ",
+            "โอนเงินไปแล้วตั้งแต่",
+            "ช่วยเช็คการส่ง",
+            "เช็คการส่ง",
+            "ตามของ",
+            "ส่งของหรือยัง",
+            "ส่งสินค้าไปเปลี่ยน",
+            "ถุงแตก",
+            "ถุงรั่ว",
+            "ของเสียหาย",
+            "ได้ของไม่ครบ",
+            "ส่งผิด",
+            "ขอเคลม",
+            "ขอคืนเงิน",
+        )
     )
     if is_tracking_complaint:
+        bubbles = [
+            "ต้องขออภัยคุณลูกค้าเป็นอย่างสูงเลยนะคะ 🙏💚",
+            "น้องบุกขออนุญาตส่งเรื่องประสานพี่แอดมินตรวจสอบสถานะพัสดุและรายละเอียดในระบบให้ด่วนที่สุดเลยค่ะ รบกวนรอสักครู่นะคะ 😊",
+        ]
         audited_image_key = "none"
         audited_state = "pending_payment"
-        auto_fixes.append("ตรวจพบข้อความติดตามพัสดุ/ทวงของ — บล็อกการส่งโปรโมชั่นและไม่สรุปเป็นออเดอร์ใหม่")
+        escalate_to_line_group = True
+        escalation_reason = "ลูกค้าติดตามสถานะพัสดุ / แจ้งปัญหาการส่งหรือเคลมสินค้า"
+        try:
+            database.set_bot_enabled(psid, False)
+            updated_tags = database._add_tag_str(getattr(user_session, "broadcast_tags", "") or "", "ตามพัสดุ/เคลม (รอแอดมิน)")
+            database.update_session_meta(psid=psid, broadcast_tags=updated_tags)
+        except Exception:
+            pass
+        auto_fixes.append("ตรวจพบข้อความติดตามพัสดุ/เคลมสินค้า — ตอบรับอย่างสุภาพ พักบอท และส่งแจ้งเตือนเข้ากลุ่ม LINE สรุปยอด")
+
+    # F) Unfamiliar / Out-of-Scope / Uncertain Question Handover Shield (ห้ามตอบมั่ว ให้ตอบรับกลางๆ อย่างสุภาพแล้วแจ้งเข้า LINE สรุปยอด)
+    unfamiliar_or_special_triggers = (
+        "ใบกำกับภาษี",
+        "บิลเงินสด",
+        "บิลบริษัท",
+        "ออกบิล",
+        "ตัวแทนจำหน่าย",
+        "สมัครตัวแทน",
+        "ราคาส่ง",
+        "ขายส่ง",
+        "รับไปขาย",
+        "สั่งยกลัง",
+        "โรงงานอยู่ที่ไหน",
+        "ผลิตที่ไหน",
+        "นำเข้าจากไหน",
+        "ค่า gi",
+        "ดัชนีน้ำตาล",
+        "โรคไต",
+        "ฟอกไต",
+        "ค่าไต",
+    )
+    matched_special = next((kw for kw in unfamiliar_or_special_triggers if kw in u_low), "")
+    reply_joined_now = "\n".join(bubbles)
+    ai_admitted_uncertainty = any(
+        phrase in reply_joined_now
+        for phrase in (
+            "ส่งเรื่องให้พี่แอดมิน",
+            "ประสานแอดมิน",
+            "ให้แอดมินติดต่อกลับ",
+            "ไม่สามารถตอบคำถามนี้ได้",
+            "แอดมินผู้ดูแลช่วยตรวจสอบ",
+            "แอดมินผู้เชี่ยวชาญ",
+        )
+    )
+    if not is_fda_oy_question and not is_cancel_request and not is_tracking_complaint:
+        if matched_special or escalate_to_line_group or ai_admitted_uncertainty:
+            escalate_to_line_group = True
+            if not escalation_reason:
+                if matched_special:
+                    escalation_reason = f"คำถามพิเศษ/นอกเหนือข้อมูลมาตรฐาน ({matched_special})"
+                else:
+                    escalation_reason = "คำถามแปลกใหม่ / AI ไม่มั่นใจคำตอบ"
+            audited_image_key = "none"
+            # If the AI reply still accidentally contains promo price lists or didn't give a clean holding reply, replace with safe holding reply
+            has_sales_clutter = any(
+                p in reply_joined_now for p in ("รวมโปรโมชั่นพิเศษ", "459 บาท", "899 บาท", "1,299 บาท", "สนใจรับโปรไหนดีคะ")
+            )
+            if has_sales_clutter or not ai_admitted_uncertainty:
+                bubbles = [
+                    "ขอบพระคุณสำหรับคำถามนะคะคุณลูกค้า 🙏💚",
+                    "เพื่อให้ได้ข้อมูลที่ถูกต้องและชัดเจนที่สุด น้องบุกขออนุญาตส่งเรื่องให้พี่แอดมินผู้ดูแลช่วยตรวจสอบรายละเอียดและรีบมาตอบกลับให้โดยเร็วที่สุดเลยนะคะ รบกวนรอสักครู่นะคะ 😊",
+                ]
+            try:
+                database.set_bot_enabled(psid, False)
+                updated_tags = database._add_tag_str(getattr(user_session, "broadcast_tags", "") or "", "รอแอดมินตอบ (คำถามใหม่)")
+                database.update_session_meta(psid=psid, broadcast_tags=updated_tags)
+            except Exception:
+                pass
+            auto_fixes.append(f"ตรวจพบคำถามที่ AI ไม่มั่นใจ/คำถามพิเศษ ({escalation_reason}) — ตอบรับแบบสุภาพกลางๆ พักบอท และส่งแจ้งเตือนเข้ากลุ่ม LINE สรุปยอด")
 
     # 6. Order Confirmation Gate Audit (ห้ามข้ามเป็น completed ถ้าลูกค้ายังไม่ยืนยันหรือยังไม่มีสลิป)
     if not is_paid_or_starred and audited_state == "completed":
@@ -479,6 +600,8 @@ def audit_outgoing_reply(
         checks=checks,
         auto_fixes=auto_fixes,
     )
+    report["escalate_to_line_group"] = escalate_to_line_group
+    report["escalation_reason"] = escalation_reason
     return bubbles, audited_state, selected_media_items, report
 
 

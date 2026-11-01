@@ -269,7 +269,10 @@ GOOGLE_SHEET_FILE_ID = "1mMO_aZnaCaDskrJMreJiaonFqna-WNKBhOoozAWxIhE"
 GOOGLE_SHEET_URL = f"https://docs.google.com/spreadsheets/d/{GOOGLE_SHEET_FILE_ID}/edit?gid=0#gid=0"
 DAILY_LINE_GROUP_HOUR_BKK = 7  # 07:00 AM Bangkok time (แจ้งสรุปยอดในกลุ่มไลน์งานหลังคีย์ออเดอร์ 06:00 น. เสร็จ)
 LINE_GROUP_CONFIG_FILE = Path(__file__).resolve().parent.parent / "line_group_config.json"
-DEFAULT_LINE_WORK_GROUPS = ["C814be1f1cc536059190b79ac21d4e562"]  # กลุ่มไลน์งาน แอม+นัด
+DEFAULT_LINE_WORK_GROUPS = [
+    "C5e760c74d6b020ae8b8cc831970517dc",
+    "C814be1f1cc536059190b79ac21d4e562",
+]  # กลุ่มไลน์งานสรุปยอด
 
 
 def load_line_group_config() -> dict[str, Any]:
@@ -279,15 +282,21 @@ def load_line_group_config() -> dict[str, Any]:
     cfg: dict[str, Any] = {
         "groups": list(DEFAULT_LINE_WORK_GROUPS),
         "group_meta": {
+            "C5e760c74d6b020ae8b8cc831970517dc": {
+                "group_id": "C5e760c74d6b020ae8b8cc831970517dc",
+                "brand_id": "workbot",
+                "group_type": "group",
+                "name": "กลุ่มสรุปยอด",
+            },
             "C814be1f1cc536059190b79ac21d4e562": {
                 "group_id": "C814be1f1cc536059190b79ac21d4e562",
                 "brand_id": "workbot",
                 "group_type": "group",
                 "name": "แอม+นัด",
-            }
+            },
         },
-        "last_7am_report_date": "2026-10-30",
-        "last_7am_sent_at": "2026-10-31T12:48:50+07:00",
+        "last_7am_report_date": "2026-10-31",
+        "last_7am_sent_at": "2026-11-01T07:00:32+07:00",
     }
     if LINE_GROUP_CONFIG_FILE.exists():
         try:
@@ -1009,6 +1018,300 @@ def send_daily_summary_to_line_groups(
             "tot_1kg": report["tot_1kg"],
             "tot_pieces": report["tot_pieces"],
         },
+    }
+
+
+_RECENT_ESCALATION_CACHE: dict[str, float] = {}
+
+
+def send_escalation_alert_to_line_groups(
+    psid: str,
+    brand_id: str,
+    platform: str,
+    customer_name: str,
+    customer_question: str,
+    ai_holding_reply: str,
+    reason: str = "คำถามแปลกใหม่ / AI ไม่มั่นใจคำตอบ",
+    target_group_id: str | None = None,
+) -> dict[str, Any]:
+    """Send an instant alert to the registered LINE Summary Work Group(s) whenever the AI encounters
+    an unfamiliar/uncertain question, replies with a safe holding message, and pauses itself for human review.
+    Records the pending escalation in line_group_config.json so any admin reply in the LINE group
+    is automatically forwarded back to the customer and unpauses the AI bot.
+    """
+    import time as _time
+    from . import database
+    from .messenger import LINE_PUSH_URL, _get_channel_token
+
+    dedup_key = f"{psid}:{customer_question.strip()[:80]}"
+    now_ts = _time.time()
+    if dedup_key in _RECENT_ESCALATION_CACHE and (now_ts - _RECENT_ESCALATION_CACHE[dedup_key]) < 300:
+        return {"status": "skipped_duplicate", "psid": psid}
+    _RECENT_ESCALATION_CACHE[dedup_key] = now_ts
+
+    cfg = load_line_group_config()
+    seq = int(cfg.get("escalation_seq") or 0) + 1
+    cfg["escalation_seq"] = seq
+    case_id = f"Q{seq}"
+
+    now_dt = datetime.now(BKK_TZ)
+    now_bkk = now_dt.strftime("%d/%m/%Y %H:%M น.")
+    plat_map = {
+        "facebook": "Facebook เพจ",
+        "line": "LINE OA",
+        "instagram": "Instagram DM",
+    }
+    plat_label = plat_map.get(platform.lower(), platform)
+    brand_label = "มิสเตอร์บุก" if brand_id == "mrbuk" else "ข้าวบุกสุขใจ"
+    ext_uid = psid.split(":", 2)[-1] if ":" in psid else psid
+    disp_name = (customer_name or "").strip() or f"ลูกค้า ({ext_uid[:10]})"
+    clean_q = (customer_question or "").strip()
+    clean_a = (ai_holding_reply or "").replace("|||", "\n").strip()
+
+    alert_text = (
+        f"🔔 แจ้งเตือนคำถามใหม่ / AI ไม่มั่นใจค่ะ [#{case_id}]\n"
+        f"({now_bkk})\n"
+        f"━━━━━━━━━━━━━━━\n"
+        f"👤 ลูกค้า : {disp_name}\n"
+        f"📱 ช่องทาง : {plat_label} ({brand_label})\n"
+        f"🏷️ สาเหตุ : {reason}\n\n"
+        f"💬 คำถามจากลูกค้า :\n"
+        f"“{clean_q}”\n\n"
+        f"🤖 AI ตอบรับเบื้องต้นไว้ว่า :\n"
+        f"“{clean_a}”\n"
+        f"━━━━━━━━━━━━━━━\n"
+        f"💡 ตอบกลับลูกค้าจากในกลุ่มนี้ได้เลยค่ะ:\n"
+        f"• กด Reply ข้อความนี้ หรือพิมพ์คำตอบในกลุ่มได้เลยค่ะ (หรือพิมพ์ {case_id} ตามด้วยคำตอบ)\n"
+        f"• บอทจะนำคำตอบไปส่งให้ลูกค้าทันที พร้อมเปิดบอทดูแลต่อให้อัตโนมัติค่ะ 🙏💚"
+    )
+
+    token = _get_channel_token("workbot", "line") or _get_channel_token(brand_id, "line")
+    if not token:
+        return {
+            "status": "error",
+            "reason": "missing_line_channel_access_token",
+            "alert_text": alert_text,
+        }
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+    msg_payload = [{"type": "text", "text": alert_text}]
+
+    groups_to_send = [target_group_id] if target_group_id else list(cfg.get("groups") or [])
+    sent_groups: list[str] = []
+    sent_line_msg_ids: list[str] = []
+    errors: list[dict[str, Any]] = []
+
+    with httpx.Client(timeout=15.0) as client:
+        for gid in groups_to_send:
+            if not gid:
+                continue
+            resp = client.post(
+                LINE_PUSH_URL,
+                headers=headers,
+                json={"to": gid, "messages": msg_payload},
+            )
+            if resp.status_code == 200:
+                sent_groups.append(gid)
+                try:
+                    r_json = resp.json() or {}
+                    for sm in r_json.get("sentMessages") or []:
+                        mid = str(sm.get("id") or "").strip()
+                        if mid:
+                            sent_line_msg_ids.append(mid)
+                except Exception:
+                    pass
+                try:
+                    grp_psid = database.make_session_key("workbot", "line_group", gid)
+                    database.log_message(grp_psid, "bot", alert_text, sender_label=f"แจ้งเตือนคำถาม AI [#{case_id}]")
+                except Exception:
+                    pass
+            else:
+                errors.append({"group_id": gid, "status_code": resp.status_code, "body": resp.text})
+
+    # Record pending escalation so LINE group replies can be routed back to the customer
+    pending_list: list[dict[str, Any]] = list(cfg.get("pending_escalations") or [])
+    pending_list.append(
+        {
+            "case_id": case_id,
+            "psid": psid,
+            "brand_id": brand_id,
+            "platform": platform,
+            "external_user_id": ext_uid,
+            "customer_name": disp_name,
+            "question": clean_q,
+            "reason": reason,
+            "created_at": now_dt.isoformat(),
+            "created_ts": now_ts,
+            "status": "pending",
+            "line_message_ids": sent_line_msg_ids,
+        }
+    )
+    # Keep last 40 escalation records
+    cfg["pending_escalations"] = pending_list[-40:]
+    save_line_group_config(cfg)
+
+    return {
+        "status": "ok" if sent_groups else "error",
+        "case_id": case_id,
+        "sent_groups": sent_groups,
+        "errors": errors,
+        "alert_text": alert_text,
+    }
+
+
+def resolve_line_group_escalation_reply(
+    text: str,
+    quoted_message_id: str | None = None,
+) -> dict[str, Any] | None:
+    """Check if an incoming message in the LINE Summary Work Group is an admin's answer to a pending
+    customer escalation. Supports:
+      1. Swiping/Quote-replying (`quoted_message_id`) to the bot's alert message in LINE
+      2. Prefixing with `#Q1 ...`, `Q1 ...`, `ตอบ: ...`, `ตอบ ...`, `ตอบลูกค้า ...`
+      3. Typing the answer directly in the group while there is an active `pending` escalation (within 6 hours)
+    Returns the matched escalation dict + polished `customer_reply`, and records the learned Q&A.
+    """
+    import time as _time
+    from .llm import clean_chat_text
+
+    raw = (text or "").strip()
+    if not raw:
+        return None
+
+    # Ignore internal report/test commands
+    report_triggers = ("สรุปยอด", "เช็กยอด", "เช็คยอด", "รายงานยอด", "ยอดขายเมื่อวาน", "ลงทะเบียนกลุ่ม", "ทดสอบบอท", "เทสบอท")
+    if any(k in raw for k in report_triggers):
+        return None
+
+    cfg = load_line_group_config()
+    escalations: list[dict[str, Any]] = list(cfg.get("pending_escalations") or [])
+    if not escalations:
+        # Cloud container restart fallback: check SQLite for the most recently paused customer session
+        try:
+            from . import database
+
+            for s in database.list_all_sessions(brand_id="all", platform="all", state="all"):
+                plat_s = str(s.get("platform") or "")
+                if plat_s in ("facebook", "line", "instagram") and not s.get("bot_enabled", True):
+                    escalations.append(
+                        {
+                            "case_id": "Q1",
+                            "psid": s["psid"],
+                            "brand_id": s.get("brand_id") or "buksukjai",
+                            "platform": plat_s,
+                            "external_user_id": s.get("external_user_id") or "",
+                            "customer_name": s.get("customer_name") or "คุณลูกค้า",
+                            "question": s.get("last_message") or "",
+                            "status": "pending",
+                            "created_ts": _time.time(),
+                            "line_message_ids": [],
+                        }
+                    )
+                    break
+        except Exception:
+            pass
+    if not escalations:
+        return None
+
+    matched_idx: int | None = None
+    reply_body = raw
+
+    # 1. Match by LINE Quote Reply (`quotedMessageId`)
+    if quoted_message_id:
+        for i in range(len(escalations) - 1, -1, -1):
+            mids = escalations[i].get("line_message_ids") or []
+            if quoted_message_id in mids:
+                matched_idx = i
+                break
+
+    # 2. Match by explicit case ID prefix (e.g. `#Q1 ...` or `Q1 ...` or `q1: ...`)
+    if matched_idx is None:
+        m_case = re.match(r"^#?(Q\d+)\s*[:：\-]?\s*(.+)$", raw, flags=re.IGNORECASE | re.DOTALL)
+        if m_case:
+            target_cid = m_case.group(1).upper()
+            candidate_body = m_case.group(2).strip()
+            for i in range(len(escalations) - 1, -1, -1):
+                if str(escalations[i].get("case_id") or "").upper() == target_cid:
+                    matched_idx = i
+                    reply_body = candidate_body
+                    break
+
+    # 3. Match by explicit prefix (`ตอบ:`, `ตอบ `, `ตอบลูกค้า:`, `ฝากตอบ:`)
+    explicit_prefix_used = False
+    if matched_idx is None:
+        m_pref = re.match(r"^(?:ตอบลูกค้า|ฝากตอบ|ตอบกลับ|ตอบ)\s*[:：\-]?\s*(.+)$", raw, flags=re.DOTALL)
+        if m_pref and m_pref.group(1).strip():
+            explicit_prefix_used = True
+            reply_body = m_pref.group(1).strip()
+            # Find latest pending escalation (or latest escalation overall if none pending)
+            for i in range(len(escalations) - 1, -1, -1):
+                if escalations[i].get("status") == "pending":
+                    matched_idx = i
+                    break
+            if matched_idx is None:
+                matched_idx = len(escalations) - 1
+
+    # 4. Direct reply in the group when an escalation is actively pending (within 6 hours)
+    if matched_idx is None:
+        internal_chatter = (
+            "โอเค", "โอเคค่ะ", "โอเคคะ", "รับทราบ", "รับทราบค่ะ", "เค", "เคค่ะ", "ok", "okay",
+            "รอแป๊บ", "รอแป๊บนะคะ", "เดี๋ยวดูให้", "เดี๋ยวเช็คให้", "แป๊บนึง", "ขอบคุณค่ะ", "ค่ะ", "จ้า",
+        )
+        if raw.lower() in internal_chatter or len(raw) <= 2:
+            return None
+
+        now_ts = _time.time()
+        for i in range(len(escalations) - 1, -1, -1):
+            esc = escalations[i]
+            if esc.get("status") == "pending" and (now_ts - float(esc.get("created_ts") or 0)) <= 21600:
+                matched_idx = i
+                break
+
+    if matched_idx is None:
+        return None
+
+    # Clean explicit prefix if user both swipe-replied AND typed "ตอบ: ..."
+    if not explicit_prefix_used:
+        m_pref2 = re.match(r"^(?:ตอบลูกค้า|ฝากตอบ|ตอบกลับ|ตอบ)\s*[:：\-]\s*(.+)$", reply_body, flags=re.DOTALL)
+        if m_pref2 and m_pref2.group(1).strip():
+            reply_body = m_pref2.group(1).strip()
+
+    polished = clean_chat_text(reply_body)
+    if not polished:
+        return None
+
+    # Ensure warm, polite female particle ending if the admin typed a brief note
+    if not any(polished.endswith(p) for p in ("ค่ะ", "คะ", "นะคะ", "ค่า", "จ้า", "🙏", "💚", "😊", "✨", "🍚")):
+        polished = f"{polished} ค่ะ 😊💚"
+
+    target_esc = dict(escalations[matched_idx])
+    now_iso = datetime.now(BKK_TZ).isoformat()
+    escalations[matched_idx]["status"] = "answered"
+    escalations[matched_idx]["answered_at"] = now_iso
+    escalations[matched_idx]["admin_reply"] = polished
+    cfg["pending_escalations"] = escalations
+
+    # Save into learned_faq so AI knows the answer next time a customer asks a similar question
+    learned_list: list[dict[str, str]] = list(cfg.get("learned_faq") or [])
+    q_txt = str(target_esc.get("question") or "").strip()
+    if q_txt and len(q_txt) >= 4:
+        # Remove existing entry with same question if any
+        learned_list = [item for item in learned_list if item.get("question") != q_txt]
+        learned_list.append(
+            {
+                "question": q_txt,
+                "answer": polished,
+                "updated_at": now_iso,
+            }
+        )
+        cfg["learned_faq"] = learned_list[-100:]
+
+    save_line_group_config(cfg)
+    return {
+        **target_esc,
+        "customer_reply": polished,
     }
 
 

@@ -533,13 +533,163 @@ def verify_and_auto_confirm_jst_slips(limit: int = 50) -> dict[str, Any]:
             }
         )
 
+    express_fixed = auto_fix_missing_express_orders(all_rows=all_rows)
+
     return {
         "status": "ok",
         "auto_confirmed_count": len(auto_confirmed),
         "auto_confirmed": auto_confirmed,
+        "express_fixed_count": len(express_fixed),
+        "express_fixed": express_fixed,
         "rejected_count": len(rejected),
         "rejected": rejected,
     }
+
+
+JST_EXPRESS_AUTO_ID = "219956"  # J&T Express AutoId in /OMS/Order/GetExpress
+
+
+def assign_express_and_audit_orders(
+    order_ids: list[int | str],
+    express_auto_id: str = JST_EXPRESS_AUTO_ID,
+    run_audit: bool = True,
+) -> dict[str, Any]:
+    """Assign courier (default: J&T Express `219956`) via `/OMS/MiniShopOrder/SaveOrderExpress`,
+    clear any `ผิดปกติ (ยังไม่ตั้งค่าการขนส่ง)` status, and run `/OMS/Order/Audit` to generate tracking numbers."""
+    clean_ids = [str(x).strip() for x in order_ids if str(x).strip().isdigit()]
+    if not clean_ids:
+        return {"status": "empty", "order_ids": []}
+
+    h = _headers(json_body=True)
+    h["Origin"] = "https://asia.jsterp.com"
+    h["Referer"] = "https://asia.jsterp.com/OMS/Order/OrderManage"
+
+    exp_res = {}
+    norm_res = {}
+    aud_res = {}
+    try:
+        r_exp = httpx.post(
+            "https://asia.jsterp.com/OMS/MiniShopOrder/SaveOrderExpress",
+            headers=h,
+            json={
+                "OrderIds": clean_ids,
+                "ExpressId": express_auto_id,
+                "Calculation": "page",
+                "Method": "",
+            },
+            timeout=20.0,
+        )
+        exp_res = r_exp.json()
+    except Exception as exc:
+        logger.warning("SaveOrderExpress warning for %s: %s", clean_ids, exc)
+
+    try:
+        r_norm = httpx.post(
+            "https://asia.jsterp.com/OMS/Order/ChangeNormal",
+            headers=h,
+            json={"OrderIds": clean_ids, "QueryRequest": {}},
+            timeout=15.0,
+        )
+        norm_res = r_norm.json()
+    except Exception as exc:
+        logger.debug("ChangeNormal info for %s: %s", clean_ids, exc)
+
+    if run_audit:
+        try:
+            r_aud = httpx.post(
+                "https://asia.jsterp.com/OMS/Order/Audit",
+                headers=h,
+                json={"AuditType": "manual", "OrderIds": clean_ids},
+                timeout=20.0,
+            )
+            aud_res = r_aud.json()
+        except Exception as exc:
+            logger.warning("Order Audit warning for %s: %s", clean_ids, exc)
+
+    return {
+        "status": "ok",
+        "order_ids": clean_ids,
+        "save_express": exp_res,
+        "change_normal": norm_res,
+        "audit": aud_res,
+    }
+
+
+def auto_fix_missing_express_orders(
+    limit: int = 50,
+    all_rows: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Find any non-cancelled, non-duplicate ManualOrder stuck in `ยังไม่ตั้งค่าการขนส่ง` (or missing courier)
+    and automatically set `J&T Express` + approve it so it moves to `รอตัวแทน / จัดส่งออกจากคลังสินค้า`."""
+    if all_rows is None:
+        h = _headers(json_body=True)
+        h["Origin"] = "https://asia.jsterp.com"
+        h["Referer"] = "https://asia.jsterp.com/OMS/MiniShopOrder/Index"
+        resp = httpx.post(
+            "https://asia.jsterp.com/OMS/MiniShopOrder/NewQueryOrders",
+            headers=h,
+            json={
+                "RequestModel": {"SendFrom": "NewQueryOrders"},
+                "DataPage": {"pageSize": limit, "pageIndex": 1, "total": 0, "sizes": [50, 100]},
+            },
+            timeout=20.0,
+        )
+        resp.raise_for_status()
+        rows_obj = (resp.json() or {}).get("Rows") or {}
+        cols = rows_obj.get("cols") or []
+        raw_rows = rows_obj.get("rows") or []
+        all_rows = [dict(zip(cols, r)) for r in raw_rows]
+
+    # Collect phone numbers that ALREADY have a shipped/delivering order in the current list to avoid auto-approving duplicates
+    shipped_phones: set[str] = set()
+    for d in all_rows:
+        st_disp = str(d.get("StatusDisplay") or "")
+        if "จัดส่งแล้ว" in st_disp:
+            ph = normalize_thai_phone(str(d.get("ReceiverMobileEn") or ""))
+            if ph:
+                shipped_phones.add(ph)
+
+    fixed_list: list[dict[str, Any]] = []
+    for d in all_rows:
+        oid = str(d.get("OrderId") or "").strip()
+        if not oid or d.get("SaveType") != "ManualOrder":
+            continue
+        st_disp = str(d.get("StatusDisplay") or "")
+        if "ยกเลิก" in st_disp or "Cancel" in str(d.get("Status") or "") or "จัดส่งแล้ว" in st_disp:
+            continue
+
+        st_obj = d.get("Status") if isinstance(d.get("Status"), dict) else {}
+        q_status = str((st_obj or {}).get("QuestionStatus") or "")
+        co_code = str(d.get("LogisticsCompanyCode") or "").strip()
+        prov = str(d.get("LogisticProvider") or "").strip()
+
+        needs_express = (
+            "ยังไม่ตั้งค่าการขนส่ง" in q_status
+            or not co_code
+            or prov == "NotNeed"
+        )
+        if not needs_express:
+            continue
+
+        ph = normalize_thai_phone(str(d.get("ReceiverMobileEn") or ""))
+        if ph and ph in shipped_phones:
+            # Skip duplicate of an already-shipped order so warehouse doesn't ship twice!
+            continue
+
+        # Only run_audit if COD or payment already confirmed (`WaitPay` hasn't confirmed payment yet)
+        can_audit = bool(d.get("IsCod")) or ("รอชำระเงิน" not in st_disp and "WaitPay" not in str(d.get("StatusCode") or ""))
+        res = assign_express_and_audit_orders([oid], run_audit=can_audit)
+        fixed_list.append(
+            {
+                "order_id": oid,
+                "receiver_name": d.get("ReceiverName"),
+                "phone": ph,
+                "audited": can_audit,
+                "result": res,
+            }
+        )
+
+    return fixed_list
 
 
 def recognize_and_clean_address(
@@ -1018,13 +1168,19 @@ def create_order_in_jst(
     verify_info = check_duplicate_order(phone, within_days=1)
     created_order = verify_info["recent_orders"][0] if verify_info["recent_orders"] else None
 
-    if not is_cod and voucher_id and created_order and created_order.get("order_id"):
+    if created_order and created_order.get("order_id"):
+        oid_created = created_order["order_id"]
+        if not is_cod and voucher_id:
+            try:
+                # Wait briefly for JST ERP's async pay-ocr worker to finish scanning the slip, then verify & confirm
+                time.sleep(4.0)
+                verify_and_auto_confirm_jst_slips(limit=25)
+            except Exception as exc:
+                logger.warning("Auto ConfirmOrder warning for %s: %s", oid_created, exc)
         try:
-            # Wait briefly for JST ERP's async pay-ocr worker to finish scanning the slip, then verify & confirm
-            time.sleep(4.0)
-            verify_and_auto_confirm_jst_slips(limit=25)
+            assign_express_and_audit_orders([oid_created], run_audit=True)
         except Exception as exc:
-            logger.warning("Auto ConfirmOrder warning for %s: %s", created_order.get("order_id"), exc)
+            logger.warning("Auto assign_express_and_audit_orders warning for %s: %s", oid_created, exc)
 
     return {
         "status": "created",
