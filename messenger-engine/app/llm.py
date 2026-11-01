@@ -69,6 +69,15 @@ def clean_chat_text(text: str) -> str:
     cleaned = re.sub(r"(ไหม|มั้ย|ดี|ไหน|อะไร|เท่าไหร่|กี่บาท|ยังไง|อย่างไร|หรือเปล่า|รึเปล่า)\s*ครับ", r"\1คะ", cleaned)
     cleaned = cleaned.replace("ครับ", "ค่ะ").replace("คับ", "ค่ะ")
 
+    # 4.5 Fix truncated "ดีมากๆค่ะ..." (missing "ยิน" from "ยินดีมากๆ ค่ะ") and squished polite phrases
+    cleaned = re.sub(
+        r"^(?:ดีมากๆ\s*(?:เลย)?(?:ค่ะ|นะคะ|ค่า)\s*ขอบพระคุณ.*|ดีค่ะ\s*ขอบพระคุณ.*)$",
+        "ด้วยความยินดีเลยค่ะ 😊 ขอบพระคุณที่ไว้วางใจให้ข้าวบุกสุขใจดูแลมื้ออร่อยนะคะ 💚🙏",
+        cleaned.strip(),
+    )
+    cleaned = re.sub(r"^ดีมากๆ\s*(?=ค่ะ|นะคะ|ค่า|เลยค่ะ)", "ยินดีมากๆ ", cleaned)
+    cleaned = re.sub(r"(ค่ะ|นะคะ|ค่า)(?=ขอบพระคุณ|ขอบคุณ|ยินดี|หาก|ถ้า)", r"\1 ", cleaned)
+
     # 5. Ensure consecutive bullet lines (• ...) have a blank line between them so they aren't squished
     raw_lines = [line.strip() for line in cleaned.splitlines()]
     spaced_lines: list[str] = []

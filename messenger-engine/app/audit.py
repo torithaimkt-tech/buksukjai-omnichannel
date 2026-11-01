@@ -198,22 +198,43 @@ def audit_outgoing_reply(
         "status": "ok",
     })
 
-    # 2. Ad-Safe & Medical/Body Claim Filter
+    # 2. Ad-Safe & Medical/Body Claim Filter + Complete Sentence Integrity Check
     sanitized_bubbles: list[str] = []
     medical_fixed = False
+    sentence_repaired = False
+    thank_you_pool = (
+        "ด้วยความยินดีเลยค่ะ 😊 ขอบพระคุณที่ไว้วางใจให้ข้าวบุกสุขใจดูแลมื้ออร่อยนะคะ 💚🙏",
+        "ยินดีมากๆ เลยค่ะคุณลูกค้า 🍚✨ ขอบพระคุณที่อุดหนุนข้าวบุกสุขใจนะคะ หากมีข้อสงสัยเพิ่มเติมทักหาน้องบุกได้ตลอดเลยค่า 💚",
+        "ด้วยความยินดีค่ะ 🙏💚 ขอบพระคุณคุณลูกค้ามากๆ เลยนะคะ ขอให้ทานข้าวบุกสุขใจให้อร่อยและสบายท้องนะคะ 😊",
+    )
+    is_user_thank_you = u_low.strip() in (
+        "ขอบคุณค่ะ", "ขอบคุณคะ", "ขอบคุณนะคะ", "ขอบคุณจ้า", "ขอบคุณมากค่ะ", "ขอบคุณมากๆค่ะ", "ขอบพระคุณค่ะ",
+    )
     for b in bubbles:
         clean_b = b
         for bad_word, safe_word in BANNED_MEDICAL_OR_BODY_TERMS.items():
             if bad_word in clean_b:
                 clean_b = clean_b.replace(bad_word, safe_word)
                 medical_fixed = True
+        if re.match(r"^ดีมากๆ\s*(?:เลย)?(?:ค่ะ|นะคะ|ค่า)", clean_b.strip()):
+            import random
+
+            clean_b = random.choice(thank_you_pool)
+            sentence_repaired = True
+        elif is_user_thank_you and len(clean_b.strip()) <= 32 and ("ดีมากๆ" in clean_b or "ขอบพระคุณมากๆนะคะ" in clean_b):
+            import random
+
+            clean_b = random.choice(thank_you_pool)
+            sentence_repaired = True
         sanitized_bubbles.append(clean_chat_text(clean_b))
     bubbles = sanitized_bubbles
     if medical_fixed:
         auto_fixes.append("กรองคำต้องห้ามด้านสุขภาพ/รูปร่างให้เป็นคำที่ปลอดภัยตามกฎแบรนด์")
+    if sentence_repaired:
+        auto_fixes.append("แก้ไขประโยคตอบรับคำขอบคุณที่ตกหล่น ('ดีมากๆค่ะ...' -> ประโยคเต็ม 'ด้วยความยินดีเลยค่ะ...')")
     checks.append({
-        "name": "ตรวจกฎเหล็ก Ad-Safe (ห้ามเคลมโรค/ทักปมรูปร่าง)",
-        "status": "fixed" if medical_fixed else "ok",
+        "name": "ตรวจกฎเหล็ก Ad-Safe & ความสมบูรณ์ของประโยค",
+        "status": "fixed" if (medical_fixed or sentence_repaired) else "ok",
     })
 
     # 3. Bank Account Integrity Audit
