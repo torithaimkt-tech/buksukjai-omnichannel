@@ -271,9 +271,8 @@ DAILY_LINE_GROUP_HOUR_BKK = 7  # 07:00 AM Bangkok time (แจ้งสรุป
 LINE_GROUP_CONFIG_FILE = Path(__file__).resolve().parent.parent / "line_group_config.json"
 DEFAULT_LINE_WORK_GROUPS = [
     "C5e760c74d6b020ae8b8cc831970517dc",
-    "C1a437ddee70267ad6372696fe3e17a0e",
     "C814be1f1cc536059190b79ac21d4e562",
-]  # กลุ่มไลน์งานสรุปยอดและโค้ชบอท AI
+]  # เฉพาะกลุ่มสรุปยอด (แยกออกจากกลุ่ม Comment ของ @346zyzej และกลุ่มอื่นที่ไม่เกี่ยวข้อง)
 
 DEFAULT_LEARNED_RULES = [
     "เวลาพูดคุยกับลูกค้า ต้องคุยดีๆ ด้วยน้ำเสียงนุ่มนวล อบอุ่น เป็นธรรมชาติ และใส่ใจความรู้สึกของลูกค้า ตอบคำถามให้ตรงประเด็นก่อนเสมอ ห้ามตัดบทถามห้วนๆ ว่า 'คุณลูกค้าสนใจรับขนาดเท่าไหร่ค่ะ' หรือส่งตารางโปรซ้ำโดยไม่คุยดีๆ ก่อนเด็ดขาด (คอมเมนต์จากคุณแอมมี่)",
@@ -409,17 +408,22 @@ def load_line_group_config() -> dict[str, Any]:
         if g not in groups_list:
             groups_list.append(g)
 
-    # Also check SQLite sessions for any recorded `:line_group:` session keys
+    # Also check SQLite sessions ONLY for `workbot` `:line_group:` session keys (never `coachbot`!)
     try:
         from . import database
 
-        for s in database.list_all_sessions(brand_id="all", platform="line_group", state="all"):
+        for s in database.list_all_sessions(brand_id="workbot", platform="line_group", state="all"):
             ext_id = str(s.get("external_user_id") or "").strip()
-            if ext_id and ext_id not in groups_list:
+            if ext_id and ext_id not in groups_list and ext_id not in ("Cf0c8835b5b0711e80f7350ffc9af66f1", "C1a437ddee70267ad6372696fe3e17a0e"):
                 groups_list.append(ext_id)
     except Exception:
         pass
 
+    # Strictly exclude coachbot comment group and unrelated groups from daily sales summary
+    groups_list = [
+        g for g in groups_list
+        if g not in ("Cf0c8835b5b0711e80f7350ffc9af66f1", "C1a437ddee70267ad6372696fe3e17a0e")
+    ]
     cfg["groups"] = groups_list
     return cfg
 
@@ -459,7 +463,7 @@ def register_line_group(group_id: str, brand_id: str = "buksukjai", group_type: 
     Returns True if this is a newly registered group.
     """
     group_id = (group_id or "").strip()
-    if not group_id:
+    if not group_id or brand_id == "coachbot" or group_id in ("Cf0c8835b5b0711e80f7350ffc9af66f1", "C1a437ddee70267ad6372696fe3e17a0e"):
         return False
     cfg = load_line_group_config()
     groups: list[str] = list(cfg.get("groups") or [])
