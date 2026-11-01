@@ -455,6 +455,24 @@ def audit_outgoing_reply(
             pass
         auto_fixes.append("ตรวจพบข้อความติดตามพัสดุ/เคลมสินค้า — ตอบรับอย่างสุภาพ พักบอท และส่งแจ้งเตือนเข้ากลุ่ม LINE สรุปยอด")
 
+    # E2) Official Wholesale Rate Answer (เรทราคาส่ง 100 ถุง — ตอบได้ทันทีตามที่แอดมินสอนไว้ในกลุ่ม LINE)
+    is_wholesale_inquiry = any(w in u_low for w in ("ราคาส่ง", "เรทส่ง", "ขายส่ง", "เรทราคาส่ง"))
+    if is_wholesale_inquiry and not is_fda_oy_question and not is_cancel_request and not is_tracking_complaint:
+        escalate_to_line_group = False
+        audited_image_key = "none"
+        if "2,500" not in "\n".join(bubbles) and "16,500" not in "\n".join(bubbles):
+            bubbles = [
+                "🍚 เรทราคาส่ง ข้าวบุกสุขใจ (100 ถุง) ค่ะ 🌿\n\n"
+                "1. ขนาด 60 กรัม (100 ถุง)\n"
+                "• ถุงละ 25 บาท = 2,500 บาท (จากปกติ 39.-)\n\n"
+                "2. ขนาด 500 กรัม (100 ถุง)\n"
+                "• ถุงละ 165 บาท = 16,500 บาท (จากปกติ 239.-)\n\n"
+                "3. ขนาด 1 กิโลกรัม (100 ถุง)\n"
+                "• ถุงละ 290 บาท = 29,000 บาท (จากปกติ 459.-)",
+                "หมายเหตุ: ราคานี้ยังไม่รวมค่าจัดส่งตามจริงค่ะ คุณลูกค้าสนใจรับขนาดไหนแจ้งน้องบุกได้เลยนะคะ ยินดีมากๆ เลยค่ะ 😊💚",
+            ]
+            auto_fixes.append("ตอบเรทราคาส่งมาตรฐาน (100 ถุง) ตามที่แอดมินตั้งค่าไว้ในกลุ่ม LINE")
+
     # F) Unfamiliar / Out-of-Scope / Uncertain Question Handover Shield (ห้ามตอบมั่ว ให้ตอบรับกลางๆ อย่างสุภาพแล้วแจ้งเข้า LINE สรุปยอด)
     unfamiliar_or_special_triggers = (
         "ใบกำกับภาษี",
@@ -463,10 +481,11 @@ def audit_outgoing_reply(
         "ออกบิล",
         "ตัวแทนจำหน่าย",
         "สมัครตัวแทน",
-        "ราคาส่ง",
-        "ขายส่ง",
         "รับไปขาย",
         "สั่งยกลัง",
+        "โรงงานไหน",
+        "ซื้อมาจากโรงงาน",
+        "รับมาจากไหน",
         "โรงงานอยู่ที่ไหน",
         "ผลิตที่ไหน",
         "นำเข้าจากไหน",
@@ -489,7 +508,7 @@ def audit_outgoing_reply(
             "แอดมินผู้เชี่ยวชาญ",
         )
     )
-    if not is_fda_oy_question and not is_cancel_request and not is_tracking_complaint:
+    if not is_fda_oy_question and not is_cancel_request and not is_tracking_complaint and not is_wholesale_inquiry:
         if matched_special or escalate_to_line_group or ai_admitted_uncertainty:
             escalate_to_line_group = True
             if not escalation_reason:

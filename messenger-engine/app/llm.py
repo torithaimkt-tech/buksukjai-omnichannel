@@ -91,8 +91,30 @@ def clean_chat_text(text: str) -> str:
         "ด้วยความยินดีเลยค่ะ 😊 ขอบพระคุณที่ไว้วางใจให้ข้าวบุกสุขใจดูแลมื้ออร่อยนะคะ 💚🙏",
         cleaned.strip(),
     )
-    cleaned = re.sub(r"^ดีมากๆ\s*(?=ค่ะ|นะคะ|ค่า|เลยค่ะ)", "ยินดีมากๆ ", cleaned)
+    cleaned = re.sub(
+        r"(?<!ยิน)(?<!รสชาติ)(?<!ทาน)(?<!อร่อย)(?<!คุณภาพ)(?<!สุขภาพ)ดีมากๆ\s*(?=(?:เลย)?\s*(?:ค่ะ|นะคะ|ค่า))",
+        "ยินดีมากๆ ",
+        cleaned,
+    )
     cleaned = re.sub(r"(ค่ะ|นะคะ|ค่า)(?=ขอบพระคุณ|ขอบคุณ|ยินดี|หาก|ถ้า)", r"\1 ", cleaned)
+
+    # 4.6 Apply live custom phrase replacements taught via LINE Group AI Coach
+    try:
+        from . import daily_sheet_report
+
+        reps = dict(daily_sheet_report.DEFAULT_CUSTOM_REPLACEMENTS)
+        if daily_sheet_report.LINE_GROUP_CONFIG_FILE.exists():
+            raw_cfg = json.loads(daily_sheet_report.LINE_GROUP_CONFIG_FILE.read_text(encoding="utf-8"))
+            if isinstance(raw_cfg.get("custom_replacements"), dict):
+                reps.update(raw_cfg["custom_replacements"])
+        for bad_p, good_p in reps.items():
+            if bad_p and good_p and bad_p in cleaned and bad_p != good_p:
+                if bad_p.startswith("ดีมากๆ"):
+                    cleaned = re.sub(rf"(?<!ยิน){re.escape(bad_p)}", good_p, cleaned)
+                else:
+                    cleaned = cleaned.replace(bad_p, good_p)
+    except Exception:
+        pass
 
     # 5. Ensure consecutive bullet lines (• ...) have a blank line between them so they aren't squished
     raw_lines = [line.strip() for line in cleaned.splitlines()]
@@ -329,6 +351,7 @@ def enforce_all_promotions_when_asked(
     non_promo_intents = (
         "โอนแล้ว", "จ่ายแล้ว", "ชำระแล้ว", "ส่งสลิป", "แนบสลิป", "ยืนยัน", "คอนเฟิร์ม",
         "ขอเลขบัญชี", "ขอบัญชี", "ขอ บช", "เลขบัญชี", "เลขที่บัญชี", "อย.", "เลข อย",
+        "ราคาส่ง", "เรทส่ง", "ขายส่ง", "100 ถุง", "ตัวแทน", "โรงงาน", "ผลิตที่ไหน", "รับมาจากไหน",
     )
     if any(w in u_low for w in non_promo_intents):
         return bubbles, image_key
@@ -345,7 +368,7 @@ def enforce_all_promotions_when_asked(
         "สนใจ", "ราคา", "ขอราคา", "กี่บาท", "เท่าไหร่", "โปร", "มีโปร", "ดูโปร",
         "มีขนาด", "ขนาดไหน", "ไซส์ไหน", "ขายยังไง", "ถุงละ", "ซองละ", "สั่งซื้อยังไง",
     )
-    asked_general_promo = any(w in u_low for w in general_promo_triggers) or image_key in ("promo_3sizes", "promo_all")
+    asked_general_promo = any(w in u_low for w in general_promo_triggers)
 
     if not asked_general_promo:
         return bubbles, image_key
@@ -424,6 +447,13 @@ class LLMEngine:
             from . import daily_sheet_report
 
             l_cfg = daily_sheet_report.load_line_group_config()
+            learned_rules = [str(r).strip() for r in (l_cfg.get("learned_rules") or []) if str(r).strip()]
+            if learned_rules:
+                rule_lines = [f"• {r}" for r in learned_rules[-30:]]
+                learned_block += (
+                    "\n\n## กฎเหล็กและคอมเมนต์ปรับปรุงการตอบจากผู้บริหาร (คุณแอมมี่/คุณนัด) ผ่านกลุ่ม LINE (ต้องปฏิบัติตาม 100% ทุกแชท)\n"
+                    + "\n".join(rule_lines)
+                )
             learned_items = l_cfg.get("learned_faq") or []
             if learned_items:
                 lines = [
@@ -432,7 +462,10 @@ class LLMEngine:
                     if it.get("question") and it.get("answer")
                 ]
                 if lines:
-                    learned_block = "\n\n## คำถาม-คำตอบที่แอดมินเคยตอบไว้ในกลุ่ม LINE (ใช้ตอบลูกค้าได้ทันทีโดยไม่ต้องตั้ง needs_human=true ซ้ำ)\n" + "\n".join(lines)
+                    learned_block += (
+                        "\n\n## คำถาม-คำตอบที่แอดมินเคยตอบไว้ในกลุ่ม LINE (ใช้ตอบลูกค้าได้ทันทีโดยไม่ต้องตั้ง needs_human=true ซ้ำ)\n"
+                        + "\n".join(lines)
+                    )
         except Exception:
             pass
 
