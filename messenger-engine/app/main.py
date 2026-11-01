@@ -501,13 +501,47 @@ async def _handle_line_group_event(
 
     if event_type == "message":
         msg_obj = event.get("message", {})
-        if msg_obj.get("type") != "text":
+        msg_type = str(msg_obj.get("type") or "")
+        sender_uid = (event.get("source") or {}).get("userId") or "สมาชิกในกลุ่ม"
+
+        if msg_type == "image":
+            msg_id = str(msg_obj.get("id") or "").strip()
+            database.log_message(
+                psid,
+                "user",
+                f"[ส่งรูปแคปหน้าจอเข้ามาในกลุ่ม (ID: {msg_id})]",
+                sender_label=f"สมาชิกกลุ่ม ({sender_uid[-6:]})",
+            )
+            data_url = await asyncio.to_thread(
+                daily_sheet_report.download_line_message_image_b64,
+                msg_id,
+                brand_id,
+                group_id,
+            )
+            if data_url:
+                # Wait briefly in case the member immediately types a text comment right after the screenshot
+                await asyncio.sleep(7.0)
+                cached_img = daily_sheet_report._RECENT_GROUP_IMAGES.get(group_id) or {}
+                if cached_img.get("message_id") == msg_id and not cached_img.get("analyzed"):
+                    coach_res = await asyncio.to_thread(
+                        daily_sheet_report.process_line_group_coaching_feedback,
+                        group_id,
+                        "",
+                        data_url,
+                        sender_uid,
+                    )
+                    if coach_res and coach_res.get("reply_message"):
+                        reply_msg = str(coach_res["reply_message"])
+                        database.log_message(psid, "bot", reply_msg, sender_label="AI Coach (กลุ่มงาน)")
+                        await messenger.send_omnichannel_text("line", group_id, reply_msg, brand_id, None)
+            return
+
+        if msg_type != "text":
             return
         text = (msg_obj.get("text") or "").strip()
         if not text:
             return
         quoted_msg_id = str(msg_obj.get("quotedMessageId") or "").strip() or None
-        sender_uid = (event.get("source") or {}).get("userId") or "สมาชิกในกลุ่ม"
         database.log_message(psid, "user", text, sender_label=f"สมาชิกกลุ่ม ({sender_uid[-6:]})")
 
         trigger_keywords = ("สรุปยอด", "เช็กยอด", "เช็คยอด", "รายงานยอด", "ยอดขายเมื่อวาน", "ลงทะเบียนกลุ่ม", "ทดสอบบอท", "เทสบอท")
@@ -591,6 +625,20 @@ async def _handle_line_group_event(
                 )
                 database.log_message(psid, "bot", confirm_msg, sender_label="บอทสรุปยอดกลุ่มงาน")
                 await messenger.send_omnichannel_text("line", group_id, confirm_msg, brand_id, reply_token)
+                return
+
+        # Check if Amy or Nut sent a coaching comment / screenshot critique / rule update in the LINE Group!
+        coach_res = await asyncio.to_thread(
+            daily_sheet_report.process_line_group_coaching_feedback,
+            group_id,
+            text,
+            None,
+            sender_uid,
+        )
+        if coach_res and coach_res.get("reply_message"):
+            reply_msg = str(coach_res["reply_message"])
+            database.log_message(psid, "bot", reply_msg, sender_label="AI Coach (กลุ่มงาน)")
+            await messenger.send_omnichannel_text("line", group_id, reply_msg, brand_id, reply_token)
 
 
 # --- Unified Message Processor (AI + Human Handover) ----------------------------

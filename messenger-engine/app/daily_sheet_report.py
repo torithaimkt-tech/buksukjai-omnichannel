@@ -271,12 +271,50 @@ DAILY_LINE_GROUP_HOUR_BKK = 7  # 07:00 AM Bangkok time (แจ้งสรุป
 LINE_GROUP_CONFIG_FILE = Path(__file__).resolve().parent.parent / "line_group_config.json"
 DEFAULT_LINE_WORK_GROUPS = [
     "C5e760c74d6b020ae8b8cc831970517dc",
+    "C1a437ddee70267ad6372696fe3e17a0e",
     "C814be1f1cc536059190b79ac21d4e562",
-]  # กลุ่มไลน์งานสรุปยอด
+]  # กลุ่มไลน์งานสรุปยอดและโค้ชบอท AI
+
+DEFAULT_LEARNED_RULES = [
+    "เวลาพูดคุยกับลูกค้า ต้องคุยดีๆ ด้วยน้ำเสียงนุ่มนวล อบอุ่น เป็นธรรมชาติ และใส่ใจความรู้สึกของลูกค้า ตอบคำถามให้ตรงประเด็นก่อนเสมอ ห้ามตัดบทถามห้วนๆ ว่า 'คุณลูกค้าสนใจรับขนาดเท่าไหร่ค่ะ' หรือส่งตารางโปรซ้ำโดยไม่คุยดีๆ ก่อนเด็ดขาด (คอมเมนต์จากคุณแอมมี่)",
+    "เวลาตอบรับคำขอบคุณหรือแสดงความยินดี ต้องพิมพ์คำว่า 'ยินดีมากๆ เลยค่ะ' หรือ 'ด้วยความยินดีเลยค่ะ' เสมอ ห้ามพิมพ์คำว่า 'ดีมากๆค่ะ' หรือ 'ดีมากๆ' เฉยๆ โดยตกคำว่า 'ยิน' เด็ดขาด (คอมเมนต์จากคุณแอมมี่)",
+]
+
+DEFAULT_LEARNED_FAQ = [
+    {
+        "question": "ราคาส่งมีไหมเท่าไรหรอ / ขอเรทราคาส่งข้าวบุกสุขใจ",
+        "answer": (
+            "🍚 เรทราคาส่ง ข้าวบุกสุขใจ (100 ถุง) 🌿\n\n"
+            "1. ขนาด 60 กรัม (100 ถุง)\n"
+            "• ถุงละ 25 บาท = 2,500 บาท (จากปกติ 39.-)\n\n"
+            "2. ขนาด 500 กรัม (100 ถุง)\n"
+            "• ถุงละ 165 บาท = 16,500 บาท (จากปกติ 239.-)\n\n"
+            "3. ขนาด 1 กิโลกรัม (100 ถุง)\n"
+            "• ถุงละ 290 บาท = 29,000 บาท (จากปกติ 459.-)\n\n"
+            "หมายเหตุ: ราคานี้ยังไม่รวมค่าจัดส่งตามจริงค่ะ สนใจรับขนาดไหนแจ้งแอดมินได้เลยนะคะ 😊"
+        ),
+        "updated_at": "2026-11-01T20:21:26+07:00",
+    }
+]
+
+DEFAULT_CUSTOM_REPLACEMENTS: dict[str, str] = {
+    "ดีมากๆค่ะ": "ยินดีมากๆ เลยค่ะ",
+    "ดีมากๆ ค่ะ": "ยินดีมากๆ เลยค่ะ",
+    "ดีมากๆนะคะ": "ยินดีมากๆ นะคะ",
+    "ดีมากๆ นะคะ": "ยินดีมากๆ นะคะ",
+    "ดีมากๆค่า": "ยินดีมากๆ เลยค่า",
+    "ดีมากๆเลยค่ะ": "ยินดีมากๆ เลยค่ะ",
+    "สนใจรับขนาดเท่าไหร่ค่ะ": "สนใจรับเป็นขนาดไหนดีคะ",
+    "สะดวกกชำระ": "สะดวกชำระ",
+    "แจ้งน้องแอดมิได้เลยนะ": "แจ้งน้องบุกได้เลยนะคะ",
+}
+
+# In-memory cache of recent screenshots sent in LINE work groups (group_id -> dict)
+_RECENT_GROUP_IMAGES: dict[str, dict[str, Any]] = {}
 
 
 def load_line_group_config() -> dict[str, Any]:
-    """Load registered LINE work group IDs and 07:00 AM broadcast state."""
+    """Load registered LINE work group IDs, 07:00 AM broadcast state, and AI Coach learned rules."""
     import os
 
     cfg: dict[str, Any] = {
@@ -288,6 +326,12 @@ def load_line_group_config() -> dict[str, Any]:
                 "group_type": "group",
                 "name": "กลุ่มสรุปยอด",
             },
+            "C1a437ddee70267ad6372696fe3e17a0e": {
+                "group_id": "C1a437ddee70267ad6372696fe3e17a0e",
+                "brand_id": "workbot",
+                "group_type": "group",
+                "name": "กลุ่มงาน (C1a437dd)",
+            },
             "C814be1f1cc536059190b79ac21d4e562": {
                 "group_id": "C814be1f1cc536059190b79ac21d4e562",
                 "brand_id": "workbot",
@@ -297,6 +341,9 @@ def load_line_group_config() -> dict[str, Any]:
         },
         "last_7am_report_date": "2026-10-31",
         "last_7am_sent_at": "2026-11-01T07:00:32+07:00",
+        "learned_rules": list(DEFAULT_LEARNED_RULES),
+        "learned_faq": list(DEFAULT_LEARNED_FAQ),
+        "custom_replacements": dict(DEFAULT_CUSTOM_REPLACEMENTS),
     }
     if LINE_GROUP_CONFIG_FILE.exists():
         try:
@@ -305,6 +352,55 @@ def load_line_group_config() -> dict[str, Any]:
                 cfg.update(loaded)
         except Exception:
             pass
+
+    # Also restore any AI Coach rules saved in SQLite (survives file resets)
+    try:
+        from . import database
+
+        coach_sess = database.get_or_create_session(
+            psid="system:ai_coach:config",
+            brand_id="workbot",
+            platform="system",
+            external_user_id="ai_coach",
+            customer_name="AI Coach Memory",
+        )
+        raw_notes = getattr(coach_sess, "notes", "") or ""
+        if raw_notes.strip().startswith("{"):
+            db_coach = json.loads(raw_notes)
+            if isinstance(db_coach, dict):
+                for r in db_coach.get("learned_rules") or []:
+                    if r and r not in cfg["learned_rules"]:
+                        cfg["learned_rules"].append(r)
+                existing_qs = {it.get("question") for it in (cfg.get("learned_faq") or []) if isinstance(it, dict)}
+                for fq in db_coach.get("learned_faq") or []:
+                    if isinstance(fq, dict) and fq.get("question") not in existing_qs:
+                        cfg["learned_faq"].append(fq)
+                if isinstance(db_coach.get("custom_replacements"), dict):
+                    merged_rep = dict(DEFAULT_CUSTOM_REPLACEMENTS)
+                    merged_rep.update(cfg.get("custom_replacements") or {})
+                    merged_rep.update(db_coach["custom_replacements"])
+                    cfg["custom_replacements"] = merged_rep
+    except Exception:
+        pass
+
+    # Ensure default rules, FAQs, and replacements are always present
+    rules_list: list[str] = list(cfg.get("learned_rules") or [])
+    for dr in DEFAULT_LEARNED_RULES:
+        if dr not in rules_list:
+            rules_list.insert(0, dr)
+    cfg["learned_rules"] = rules_list[-60:]
+
+    faq_list: list[dict[str, str]] = list(cfg.get("learned_faq") or [])
+    existing_faq_qs = {it.get("question") for it in faq_list if isinstance(it, dict)}
+    for dfq in DEFAULT_LEARNED_FAQ:
+        if dfq["question"] not in existing_faq_qs:
+            faq_list.insert(0, dfq)
+    cfg["learned_faq"] = faq_list[-100:]
+
+    rep_dict = dict(DEFAULT_CUSTOM_REPLACEMENTS)
+    if isinstance(cfg.get("custom_replacements"), dict):
+        rep_dict.update(cfg["custom_replacements"])
+    cfg["custom_replacements"] = rep_dict
 
     # Merge default & any group IDs from environment variable LINE_WORK_GROUP_IDS (comma-separated)
     env_groups = [g.strip() for g in os.getenv("LINE_WORK_GROUP_IDS", "").split(",") if g.strip()]
@@ -329,11 +425,33 @@ def load_line_group_config() -> dict[str, Any]:
 
 
 def save_line_group_config(cfg: dict[str, Any]) -> None:
-    """Persist registered LINE work group IDs and broadcast state."""
+    """Persist registered LINE work group IDs, broadcast state, and AI Coach learned rules."""
     try:
         LINE_GROUP_CONFIG_FILE.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception as exc:
         logger.warning("Failed to write line_group_config.json: %s", exc)
+    try:
+        from . import database
+
+        database.get_or_create_session(
+            psid="system:ai_coach:config",
+            brand_id="workbot",
+            platform="system",
+            external_user_id="ai_coach",
+            customer_name="AI Coach Memory",
+        )
+        coach_payload = {
+            "learned_rules": cfg.get("learned_rules") or [],
+            "learned_faq": cfg.get("learned_faq") or [],
+            "custom_replacements": cfg.get("custom_replacements") or {},
+        }
+        database.update_session_meta(
+            psid="system:ai_coach:config",
+            bot_enabled=False,
+            notes=json.dumps(coach_payload, ensure_ascii=False),
+        )
+    except Exception:
+        pass
 
 
 def register_line_group(group_id: str, brand_id: str = "buksukjai", group_type: str = "group") -> bool:
@@ -1262,6 +1380,15 @@ def resolve_line_group_escalation_reply(
         if raw.lower() in internal_chatter or len(raw) <= 2:
             return None
 
+        # Do not mistake AI coaching/critique messages directed at the bot for a customer answer!
+        coaching_markers = (
+            "ทำไมไม่", "เธอต้องพิมพ์", "ไม่ใช่ดีมากๆ", "เธอยังทำงาน", "มนุษย์เข้าไปตอบ",
+            "ปรับการตอบ", "แก้การตอบ", "เวลาตอบลูกค้า", "ห้ามตอบว่า", "ห้ามพิมพ์ว่า",
+            "คุยกันดีดี", "คุยดีๆ", "แก้ไขในระบบ", "แก้ในระบบ", "บอทตอบ", "วิธีตอบ",
+        )
+        if any(cm in raw for cm in coaching_markers):
+            return None
+
         now_ts = _time.time()
         for i in range(len(escalations) - 1, -1, -1):
             esc = escalations[i]
@@ -1312,6 +1439,314 @@ def resolve_line_group_escalation_reply(
     return {
         **target_esc,
         "customer_reply": polished,
+    }
+
+
+def download_line_message_image_b64(
+    message_id: str,
+    brand_id: str = "workbot",
+    group_id: str = "",
+) -> str | None:
+    """Download an image (e.g. screenshot from Amy/Nut) sent inside the LINE Work Group via LINE Content API,
+    convert to a base64 data URL (`data:image/jpeg;base64,...`), and cache it for 10 minutes so follow-up
+    text comments in the group automatically include the screenshot in Gemini Vision!
+    """
+    import base64
+    import time as _time
+    from .messenger import _get_channel_token
+
+    message_id = (message_id or "").strip()
+    if not message_id:
+        return None
+
+    token = _get_channel_token(brand_id, "line") or _get_channel_token("workbot", "line") or _get_channel_token("buksukjai", "line")
+    if not token:
+        logger.warning("No LINE token available to download group image %s", message_id)
+        return None
+
+    url = f"https://api-data.line.me/v2/bot/message/{message_id}/content"
+    try:
+        resp = httpx.get(
+            url,
+            headers={"Authorization": f"Bearer {token}"},
+            follow_redirects=True,
+            timeout=20.0,
+        )
+        if resp.status_code != 200 or not resp.content:
+            logger.warning("LINE Content API returned %s for image %s", resp.status_code, message_id)
+            return None
+        ctype = (resp.headers.get("content-type") or "image/jpeg").split(";")[0].strip()
+        if not ctype.startswith("image/"):
+            ctype = "image/jpeg"
+        b64_str = base64.b64encode(resp.content).decode("ascii")
+        data_url = f"data:{ctype};base64,{b64_str}"
+        if group_id:
+            _RECENT_GROUP_IMAGES[group_id] = {
+                "message_id": message_id,
+                "data_url": data_url,
+                "ts": _time.time(),
+                "analyzed": False,
+            }
+        return data_url
+    except Exception as exc:
+        logger.warning("Failed to download LINE group image %s: %s", message_id, exc)
+        return None
+
+
+def claim_pending_group_image(group_id: str, max_age_sec: float = 600.0, mark_analyzed: bool = True) -> dict[str, Any] | None:
+    """Return the most recent screenshot in `group_id` if within `max_age_sec`, optionally marking it `analyzed=True`."""
+    import time as _time
+
+    entry = _RECENT_GROUP_IMAGES.get(group_id)
+    if not entry:
+        return None
+    if (_time.time() - float(entry.get("ts") or 0)) > max_age_sec:
+        return None
+    out = dict(entry)
+    if mark_analyzed:
+        entry["analyzed"] = True
+    return out
+
+
+def process_line_group_coaching_feedback(
+    group_id: str,
+    text: str = "",
+    image_data_url: str | None = None,
+    sender_uid: str = "",
+) -> dict[str, Any] | None:
+    """Analyze a screenshot and/or comment from Amy or Nut in the LINE Work Group using Gemini 2.5 Flash Vision.
+    Automatically updates `learned_rules`, `custom_replacements`, and `learned_faq` in the live system,
+    and returns a confirmation message to send back into the LINE group.
+    """
+    import os
+    import time as _time
+    from .llm import GEMINI_BASE_URL, clean_chat_text
+
+    raw_text = (text or "").strip()
+
+    # Check if there is a recent screenshot in this group (within 10 minutes) to pair with text comments
+    recent_img_info = claim_pending_group_image(group_id, max_age_sec=600.0, mark_analyzed=True)
+    if not image_data_url and recent_img_info:
+        image_data_url = recent_img_info.get("data_url")
+
+    # Ignore short casual acknowledgements if there is no new un-analyzed screenshot
+    casual_ignore = (
+        "โอเค", "โอเคค่ะ", "โอเคคะ", "โอเคร", "เค", "เคค่ะ", "รับทราบ", "รับทราบค่ะ",
+        "ขอบคุณ", "ขอบคุณค่ะ", "ขอบคุณนะคะ", "ค่ะ", "คะ", "จ้า", "ok", "okay", "555", "5555",
+    )
+    if not image_data_url and (raw_text.lower() in casual_ignore or len(raw_text) <= 2):
+        return None
+    if recent_img_info and recent_img_info.get("analyzed") and not raw_text:
+        return None
+
+    cfg = load_line_group_config()
+    current_rules: list[str] = list(cfg.get("learned_rules") or [])
+    current_faq: list[dict[str, str]] = list(cfg.get("learned_faq") or [])
+    current_reps: dict[str, str] = dict(cfg.get("custom_replacements") or {})
+
+    # Gather recent LINE group messages for conversation context
+    recent_group_context = ""
+    try:
+        from . import database
+
+        g_psid = database.make_session_key("workbot", "line_group", group_id)
+        g_hist = database.get_history(g_psid)[-8:]
+        if g_hist:
+            recent_group_context = "\n".join(
+                f"- {m.get('role')}: {str(m.get('content') or '')[:220]}" for m in g_hist
+            )
+    except Exception:
+        pass
+
+    gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
+    openai_key = os.getenv("OPENAI_API_KEY", "").strip()
+    if (openai_key.startswith("AIza") or openai_key.startswith("AQ.")) and not gemini_key:
+        gemini_key = openai_key
+
+    api_key = gemini_key or openai_key
+    base_url = GEMINI_BASE_URL.rstrip("/") if gemini_key else "https://api.openai.com/v1"
+    model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash") if gemini_key else os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+
+    schema = {
+        "name": "line_group_coach_action",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {
+                "should_reply": {
+                    "type": "boolean",
+                    "description": "True if this message/screenshot is feedback, critique, a question to the bot, or a rule update for how the chatbot answers customers. False ONLY if it is unrelated casual chat between humans with no screenshot.",
+                },
+                "screenshot_observation": {
+                    "type": "string",
+                    "description": "Short Thai summary of what is shown in the screenshot (if an image was provided), or empty string.",
+                },
+                "rule_to_save": {
+                    "type": "string",
+                    "description": "Clear, actionable Thai instruction to permanently add to the chatbot's system prompt so it improves its replies immediately, or empty string if no new rule is needed.",
+                },
+                "bad_phrase": {
+                    "type": "string",
+                    "description": "Exact wrong phrase/word pointed out by the admin (e.g. 'ดีมากๆค่ะ') to auto-replace before sending, or empty string.",
+                },
+                "good_phrase": {
+                    "type": "string",
+                    "description": "Exact replacement phrase/word to use instead of bad_phrase (e.g. 'ยินดีมากๆ เลยค่ะ'), or empty string.",
+                },
+                "faq_question": {
+                    "type": "string",
+                    "description": "Customer question if the admin is teaching a specific Q&A pair, or empty string.",
+                },
+                "faq_answer": {
+                    "type": "string",
+                    "description": "Approved answer for faq_question, or empty string.",
+                },
+                "reply_message": {
+                    "type": "string",
+                    "description": "Warm, polite, concise Thai reply (ending with ค่ะ/คะ/นะคะ, NEVER ครับ) to send back into the LINE group confirming what was understood from the screenshot/comment and what was updated in the live system immediately.",
+                },
+            },
+            "required": [
+                "should_reply",
+                "screenshot_observation",
+                "rule_to_save",
+                "bad_phrase",
+                "good_phrase",
+                "faq_question",
+                "faq_answer",
+                "reply_message",
+            ],
+            "additionalProperties": False,
+        },
+    }
+
+    system_instruction = (
+        "คุณคือระบบ AI Coach & Live System Updater ของแบรนด์ 'ข้าวบุกสุขใจ' (น้องบุก) ที่อยู่ในกลุ่ม LINE สรุปยอดร่วมกับผู้บริหาร (คุณนัด และ คุณแอมมี่)\n"
+        "หน้าที่ของคุณ:\n"
+        "1. เมื่อคุณแอมมี่หรือคุณนัดส่ง 'รูปแคปหน้าจอแชทลูกค้า' และ/หรือ พิมพ์คอมเมนต์ติชม แนะนำวิธีตอบ สอนคำพูดใหม่ หรือถามสถานะการทำงานของบอทในกลุ่ม LINE นี้:\n"
+        "   - ให้อ่านรูปแคปหน้าจออย่างละเอียด (ดูว่าลูกค้าถามอะไร แอดมิน/บอทตอบว่าอย่างไร มีจุดไหนที่ห้วนไป พิมพ์ผิด หรือควรปรับปรุง)\n"
+        "   - สกัดเป็นกฎการตอบแชท (`rule_to_save`) เพื่อนำไปอัปเดตใส่สมองของบอทในระบบ Cloud ทันที!\n"
+        "   - หากมีการระบุคำที่พิมพ์ผิดหรือคำที่ไม่ควรใช้ (เช่น 'ดีมากๆ' -> 'ยินดีมากๆ เลยค่ะ') ให้สกัด `bad_phrase` และ `good_phrase` เพื่อนำไปใส่ตัวกรองคำอัตโนมัติ\n"
+        "   - หากเป็นการสอนคำถาม-คำตอบใหม่ ให้สกัด `faq_question` และ `faq_answer`\n"
+        "2. สร้างข้อความตอบกลับในกลุ่ม (`reply_message`) ที่สุภาพ อบอุ่น ชัดเจน ลงท้ายด้วย ค่ะ/คะ/นะคะ เสมอ (ห้ามใช้ ครับ เด็ดขาด):\n"
+        "   - บอกว่าน้องบุกได้รับคอมเมนต์/อ่านรูปแคปหน้าจอแล้ว เห็นจุดไหน และได้แก้ไขกฎการตอบในระบบออนไลน์ให้ทันทีเรียบร้อยแล้วอย่างไรบ้าง\n"
+        "   - ยกตัวอย่างประโยคที่น้องบุกจะใช้ตอบลูกค้าในครั้งต่อไปให้ดูสั้นๆ เพื่อความมั่นใจค่ะ\n"
+        f"\nบริบทข้อความล่าสุดในกลุ่ม LINE:\n{recent_group_context or '-'}\n"
+        f"\nกฎที่บันทึกไว้แล้วในระบบล่าสุด:\n" + "\n".join(f"• {r}" for r in current_rules[-10:])
+    )
+
+    user_content: list[dict[str, Any]] = []
+    if image_data_url:
+        user_content.append(
+            {
+                "type": "image_url",
+                "image_url": {"url": image_data_url},
+            }
+        )
+    prompt_txt = raw_text if raw_text else "[แอดมินส่งรูปแคปหน้าจอแชทเข้ามาในกลุ่มเพื่อให้ AI ตรวจสอบและปรับปรุงวิธีตอบแชทค่ะ กรุณาอ่านข้อความในรูปแคปหน้าจอและสรุปการปรับปรุงวิธีตอบลงในระบบทันทีค่ะ]"
+    user_content.append({"type": "text", "text": prompt_txt})
+
+    parsed: dict[str, Any] | None = None
+    if api_key:
+        try:
+            payload: dict[str, Any] = {
+                "model": model_name,
+                "max_tokens": 1024,
+                "temperature": 0.2,
+                "messages": [
+                    {"role": "system", "content": system_instruction},
+                    {"role": "user", "content": user_content},
+                ],
+                "response_format": {"type": "json_schema", "json_schema": schema},
+            }
+            if gemini_key:
+                payload["reasoning_effort"] = "none"
+            resp = httpx.post(
+                f"{base_url}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+                timeout=25.0,
+            )
+            if resp.status_code == 200:
+                content_str = (resp.json()["choices"][0]["message"]["content"] or "").strip()
+                if content_str.startswith("```"):
+                    content_str = content_str.strip("`").removeprefix("json").strip()
+                parsed = json.loads(content_str)
+            else:
+                logger.warning("AI Coach LLM call returned %s: %s", resp.status_code, resp.text[:250])
+        except Exception as exc:
+            logger.warning("AI Coach LLM call failed: %s", exc)
+
+    if not parsed:
+        # Deterministic fallback if API call fails or times out
+        if not image_data_url and len(raw_text) < 4:
+            return None
+        rule_fallback = raw_text if len(raw_text) >= 6 else ""
+        parsed = {
+            "should_reply": True,
+            "screenshot_observation": "ได้รับรูปแคปหน้าจอแชทที่ส่งเข้ามาในกลุ่มเรียบร้อยค่ะ" if image_data_url else "",
+            "rule_to_save": f"ปรับปรุงตามคอมเมนต์แอดมินในกลุ่ม LINE: {rule_fallback}" if rule_fallback else "",
+            "bad_phrase": "",
+            "good_phrase": "",
+            "faq_question": "",
+            "faq_answer": "",
+            "reply_message": (
+                "✅ น้องบุกรับทราบคอมเมนต์และบันทึกกฎการปรับปรุงวิธีตอบแชทลงในระบบออนไลน์ทันทีเรียบร้อยแล้วค่ะ 🙏💚\n"
+                + (f"• สิ่งที่ปรับปรุง: {rule_fallback}\n" if rule_fallback else "• ตรวจสอบจากรูปแคปหน้าจอที่ส่งมาในกลุ่มเรียบร้อยค่ะ\n")
+                + "ตั้งแต่วินาทีนี้เป็นต้นไป น้องบุกจะใช้แนวทางใหม่นี้ในการตอบลูกค้าทุกแชททันทีเลยนะคะ 😊"
+            ),
+        }
+
+    if not parsed.get("should_reply"):
+        return None
+
+    rule_to_save = clean_chat_text(str(parsed.get("rule_to_save") or "").strip())
+    bad_phrase = str(parsed.get("bad_phrase") or "").strip()
+    good_phrase = clean_chat_text(str(parsed.get("good_phrase") or "").strip())
+    faq_q = str(parsed.get("faq_question") or "").strip()
+    faq_a = clean_chat_text(str(parsed.get("faq_answer") or "").strip())
+    reply_msg = clean_chat_text(str(parsed.get("reply_message") or "").strip())
+
+    updated_anything = False
+    if rule_to_save and rule_to_save not in current_rules:
+        current_rules.append(rule_to_save)
+        cfg["learned_rules"] = current_rules[-60:]
+        updated_anything = True
+
+    if bad_phrase and good_phrase and bad_phrase != good_phrase:
+        current_reps[bad_phrase] = good_phrase
+        cfg["custom_replacements"] = current_reps
+        updated_anything = True
+
+    if faq_q and faq_a:
+        current_faq = [it for it in current_faq if it.get("question") != faq_q]
+        current_faq.append(
+            {
+                "question": faq_q,
+                "answer": faq_a,
+                "updated_at": datetime.now(BKK_TZ).isoformat(),
+            }
+        )
+        cfg["learned_faq"] = current_faq[-100:]
+        updated_anything = True
+
+    if updated_anything:
+        save_line_group_config(cfg)
+
+    if not reply_msg:
+        return None
+
+    return {
+        "replied": True,
+        "updated_system": updated_anything,
+        "rule_saved": rule_to_save,
+        "bad_phrase": bad_phrase,
+        "good_phrase": good_phrase,
+        "faq_question": faq_q,
+        "reply_message": reply_msg,
     }
 
 

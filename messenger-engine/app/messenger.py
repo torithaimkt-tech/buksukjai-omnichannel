@@ -455,11 +455,16 @@ STARRED_META_PSIDS = {
 HUMAN_ADMIN_MARKERS = (
     "น้องนีนี่มาให้บริการ",
     "แจ้งน้องแอดมินได้เลยนะคะ",
+    "แจ้งน้องแอดมิ",
     "แจ้งน้อง admin ได้เลยนะคะ",
     "ส่งคำขอให้โอนแล้ว",
     "คุณร้องขอไป ฿",
     "messenger automatically created a transfer request",
     "รบกวนขอรหัสไปรษณีย์ค่ะ",
+    "สนใจรับขนาดเท่าไหร่ค่ะ",
+    "สะดวกกชำระแบบโอนเงิน",
+    "ลูกค้าสะดวกชำระแบบใดค่ะ",
+    "เก็บได้นานถึง24เดือนค่ะ",
 )
 
 
@@ -920,14 +925,15 @@ def _apply_facebook_sync_to_db(info: dict, brand_id: str = "buksukjai") -> dict:
                 row.broadcast_tags = new_tags
                 if info.get("has_unanswered_question"):
                     row.state = "pending_payment"
-                row.bot_enabled = not bool(info.get("human_admin_active"))
+                if "รอแอดมิน" not in (row.broadcast_tags or ""):
+                    row.bot_enabled = not bool(info.get("human_admin_active"))
                 db.commit()
     elif info.get("human_admin_active"):
         database.set_bot_enabled(session_key, False)
         if info.get("customer_name"):
             database.update_session_meta(session_key, customer_name=info["customer_name"])
     else:
-        if not user.bot_enabled:
+        if not user.bot_enabled and "รอแอดมิน" not in (user.broadcast_tags or ""):
             database.set_bot_enabled(session_key, True)
         if info.get("customer_name"):
             database.update_session_meta(session_key, customer_name=info["customer_name"])
