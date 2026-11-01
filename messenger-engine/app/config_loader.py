@@ -90,6 +90,15 @@ def load_pages_registry() -> list[dict]:
                     "WORKBOT_LINE_CHANNEL_ACCESS_TOKEN",
                     "eDkS5MNncETiXi7yvVJ4Cj4kGwKvZ7qfN94SV5uexiHVzNpc0QpoYdKwlrWEPHpKlJqPWnEmMCNxl+iVcCrUB5r7vDHLsbrZ1UJSTKZp5vtT7EJvo5NC2ZKAfb1AkO0E/3bQ2r+OoZPJTkah2HSR/AdB04t89/1O/w1cDnyilFU=",
                 )
+        elif p.get("brand_id") == "coachbot":
+            ch = p.setdefault("channels", {})
+            if not ch.get("line_channel_secret"):
+                ch["line_channel_secret"] = os.getenv("COACHBOT_LINE_CHANNEL_SECRET", "cf67d9f2284a6ff9e17cf171608e5840")
+            if not ch.get("line_channel_access_token"):
+                ch["line_channel_access_token"] = os.getenv(
+                    "COACHBOT_LINE_CHANNEL_ACCESS_TOKEN",
+                    "lsGtsLvra6142HJBsYMmS6UkqD+7uf23BIXzOsUwWvj5cFpDd8SZJA5eaM4hZdVD0wYXLX339lZFof5oLlIdYMIQOpz6OxZZc/q4e/I5J+QkbHqymOK4V5RfOs2BVKG0XR7kY1h/XxgkMN3cED2JxwdB04t89/1O/w1cDnyilFU=",
+                )
     if not any(p.get("brand_id") == "workbot" for p in pages):
         pages.append(
             {
@@ -103,6 +112,27 @@ def load_pages_registry() -> list[dict]:
                     "line_channel_access_token": os.getenv(
                         "WORKBOT_LINE_CHANNEL_ACCESS_TOKEN",
                         "eDkS5MNncETiXi7yvVJ4Cj4kGwKvZ7qfN94SV5uexiHVzNpc0QpoYdKwlrWEPHpKlJqPWnEmMCNxl+iVcCrUB5r7vDHLsbrZ1UJSTKZp5vtT7EJvo5NC2ZKAfb1AkO0E/3bQ2r+OoZPJTkah2HSR/AdB04t89/1O/w1cDnyilFU=",
+                    ),
+                    "fb_page_id": "",
+                    "fb_page_access_token": "",
+                    "ig_account_id": "",
+                    "ig_access_token": "",
+                },
+            }
+        )
+    if not any(p.get("brand_id") == "coachbot" for p in pages):
+        pages.append(
+            {
+                "brand_id": "coachbot",
+                "slot": len(pages) + 1,
+                "name": "Muzart พามู (@346zyzej — AI Coach)",
+                "active": True,
+                "config_file": "config.json",
+                "channels": {
+                    "line_channel_secret": os.getenv("COACHBOT_LINE_CHANNEL_SECRET", "cf67d9f2284a6ff9e17cf171608e5840"),
+                    "line_channel_access_token": os.getenv(
+                        "COACHBOT_LINE_CHANNEL_ACCESS_TOKEN",
+                        "lsGtsLvra6142HJBsYMmS6UkqD+7uf23BIXzOsUwWvj5cFpDd8SZJA5eaM4hZdVD0wYXLX339lZFof5oLlIdYMIQOpz6OxZZc/q4e/I5J+QkbHqymOK4V5RfOs2BVKG0XR7kY1h/XxgkMN3cED2JxwdB04t89/1O/w1cDnyilFU=",
                     ),
                     "fb_page_id": "",
                     "fb_page_access_token": "",

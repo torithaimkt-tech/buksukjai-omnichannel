@@ -1416,7 +1416,12 @@ def download_line_message_image_b64(
     if not message_id:
         return None
 
-    token = _get_channel_token(brand_id, "line") or _get_channel_token("workbot", "line") or _get_channel_token("buksukjai", "line")
+    token = (
+        _get_channel_token(brand_id, "line")
+        or _get_channel_token("coachbot", "line")
+        or _get_channel_token("workbot", "line")
+        or _get_channel_token("buksukjai", "line")
+    )
     if not token:
         logger.warning("No LINE token available to download group image %s", message_id)
         return None
@@ -1506,8 +1511,9 @@ def process_line_group_coaching_feedback(
     try:
         from . import database
 
-        g_psid = database.make_session_key("workbot", "line_group", group_id)
-        g_hist = database.get_history(g_psid)[-8:]
+        g_hist = database.get_history(database.make_session_key("coachbot", "line_group", group_id))[-8:]
+        if not g_hist:
+            g_hist = database.get_history(database.make_session_key("workbot", "line_group", group_id))[-8:]
         if g_hist:
             recent_group_context = "\n".join(
                 f"- {m.get('role')}: {str(m.get('content') or '')[:220]}" for m in g_hist
