@@ -1,8 +1,16 @@
 {
   "groups": [
+    "C5e760c74d6b020ae8b8cc831970517dc",
     "C814be1f1cc536059190b79ac21d4e562"
   ],
   "group_meta": {
+    "C5e760c74d6b020ae8b8cc831970517dc": {
+      "group_id": "C5e760c74d6b020ae8b8cc831970517dc",
+      "brand_id": "workbot",
+      "group_type": "group",
+      "joined_at": "2026-10-31T15:01:44.771964+07:00",
+      "last_active_at": "2026-10-31T15:02:08.926888+07:00"
+    },
     "C814be1f1cc536059190b79ac21d4e562": {
       "group_id": "C814be1f1cc536059190b79ac21d4e562",
       "brand_id": "workbot",
@@ -11,8 +19,8 @@
       "last_active_at": "2026-10-31T12:48:38.942340+07:00"
     }
   },
-  "last_7am_report_date": "2026-10-30",
-  "last_7am_sent_at": "2026-10-31T12:48:40.184285+07:00",
+  "last_7am_report_date": "2026-10-31",
+  "last_7am_sent_at": "2026-11-01T07:00:32.370211+07:00",
   "last_warehouse_stock": {
     "status": "ok",
     "available_60g": 1066,

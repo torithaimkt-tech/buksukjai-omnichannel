@@ -269,7 +269,10 @@ GOOGLE_SHEET_FILE_ID = "1mMO_aZnaCaDskrJMreJiaonFqna-WNKBhOoozAWxIhE"
 GOOGLE_SHEET_URL = f"https://docs.google.com/spreadsheets/d/{GOOGLE_SHEET_FILE_ID}/edit?gid=0#gid=0"
 DAILY_LINE_GROUP_HOUR_BKK = 7  # 07:00 AM Bangkok time (แจ้งสรุปยอดในกลุ่มไลน์งานหลังคีย์ออเดอร์ 06:00 น. เสร็จ)
 LINE_GROUP_CONFIG_FILE = Path(__file__).resolve().parent.parent / "line_group_config.json"
-DEFAULT_LINE_WORK_GROUPS = ["C814be1f1cc536059190b79ac21d4e562"]  # กลุ่มไลน์งาน แอม+นัด
+DEFAULT_LINE_WORK_GROUPS = [
+    "C5e760c74d6b020ae8b8cc831970517dc",
+    "C814be1f1cc536059190b79ac21d4e562",
+]  # กลุ่มไลน์งานสรุปยอด
 
 
 def load_line_group_config() -> dict[str, Any]:
@@ -279,15 +282,21 @@ def load_line_group_config() -> dict[str, Any]:
     cfg: dict[str, Any] = {
         "groups": list(DEFAULT_LINE_WORK_GROUPS),
         "group_meta": {
+            "C5e760c74d6b020ae8b8cc831970517dc": {
+                "group_id": "C5e760c74d6b020ae8b8cc831970517dc",
+                "brand_id": "workbot",
+                "group_type": "group",
+                "name": "กลุ่มสรุปยอด",
+            },
             "C814be1f1cc536059190b79ac21d4e562": {
                 "group_id": "C814be1f1cc536059190b79ac21d4e562",
                 "brand_id": "workbot",
                 "group_type": "group",
                 "name": "แอม+นัด",
-            }
+            },
         },
-        "last_7am_report_date": "2026-10-30",
-        "last_7am_sent_at": "2026-10-31T12:48:50+07:00",
+        "last_7am_report_date": "2026-10-31",
+        "last_7am_sent_at": "2026-11-01T07:00:32+07:00",
     }
     if LINE_GROUP_CONFIG_FILE.exists():
         try:
