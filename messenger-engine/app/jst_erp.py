@@ -515,10 +515,19 @@ def verify_and_auto_confirm_jst_slips(limit: int = 50) -> dict[str, Any]:
                 dup_det = (r_dup.json() or {}).get("data") or {}
                 dup_status = str(dup_det.get("statusDisplay") or dup_det.get("statusCode") or "")
                 if "ยกเลิก" not in dup_status and "Cancel" not in dup_status:
+                    if "จัดส่งแล้ว" not in status_disp:
+                        try:
+                            cancel_orders_in_jst(
+                                [oid],
+                                f"ยกเลิกอัตโนมัติ: สลิปและออเดอร์ซ้ำกับใบสั่งซื้อ #{dup_oid} ({dup_status}) ค่ะ",
+                            )
+                            cancelled_oids.add(oid)
+                        except Exception as exc:
+                            logger.warning("Auto-cancel duplicate slip order %s failed: %s", oid, exc)
                     rejected.append(
                         {
                             "order_id": oid,
-                            "reason": f"สลิปซ้ำกับออเดอร์ #{dup_oid} ที่ยังไม่ได้ยกเลิก ({dup_status})",
+                            "reason": f"สลิปซ้ำกับออเดอร์ #{dup_oid} ที่ยังไม่ได้ยกเลิก ({dup_status}) — ยกเลิกใบซ้ำให้อัตโนมัติแล้วค่ะ",
                             "platformPayId": ref_id,
                         }
                     )
@@ -643,19 +652,58 @@ def auto_fix_missing_express_orders(
         raw_rows = rows_obj.get("rows") or []
         all_rows = [dict(zip(cols, r)) for r in raw_rows]
 
-    # Collect phone numbers that ALREADY have a shipped/delivering order in the current list to avoid auto-approving duplicates
-    shipped_phones: set[str] = set()
+    # Collect phone numbers that ALREADY have an active shipped or ready-to-ship order in the current list
+    # so we NEVER auto-approve a 2nd duplicate order for the same phone!
+    active_phones: dict[str, list[dict[str, Any]]] = {}
     for d in all_rows:
         st_disp = str(d.get("StatusDisplay") or "")
-        if "จัดส่งแล้ว" in st_disp:
-            ph = normalize_thai_phone(str(d.get("ReceiverMobileEn") or ""))
-            if ph:
-                shipped_phones.add(ph)
+        if "ยกเลิก" in st_disp or "Cancel" in str(d.get("Status") or ""):
+            continue
+        ph = normalize_thai_phone(str(d.get("ReceiverMobileEn") or ""))
+        if ph and len(ph) == 10:
+            active_phones.setdefault(ph, []).append(d)
+
+    # Auto-cancel unshipped duplicates where the same 10-digit phone already has a shipped order with the same amount
+    cancelled_dup_ids: set[str] = set()
+    for ph, ph_orders in active_phones.items():
+        if len(ph_orders) <= 1:
+            continue
+        shipped_list = [x for x in ph_orders if "จัดส่งแล้ว" in str(x.get("StatusDisplay") or "")]
+        unshipped_list = [
+            x
+            for x in ph_orders
+            if "จัดส่งแล้ว" not in str(x.get("StatusDisplay") or "")
+            and str(x.get("SaveType") or "") == "ManualOrder"
+        ]
+        if shipped_list and unshipped_list:
+            shipped_amts = {float(x.get("PayAmount") or 0.0) for x in shipped_list}
+            for u_ord in unshipped_list:
+                u_oid = str(u_ord.get("OrderId") or "").strip()
+                u_amt = float(u_ord.get("PayAmount") or 0.0)
+                if u_oid and any(abs(u_amt - s_amt) < 1.0 for s_amt in shipped_amts):
+                    try:
+                        cancel_orders_in_jst(
+                            [u_oid],
+                            f"ป้องกันการส่งซ้ำอัตโนมัติ: เบอร์ {ph} มีออเดอร์ยอด {u_amt:.0f}฿ ที่จัดส่งไปแล้วค่ะ",
+                        )
+                        cancelled_dup_ids.add(u_oid)
+                    except Exception as exc:
+                        logger.warning("Failed to auto-cancel unshipped duplicate %s: %s", u_oid, exc)
 
     fixed_list: list[dict[str, Any]] = []
+    approved_phones_in_pass: set[str] = {
+        ph
+        for ph, ph_orders in active_phones.items()
+        if any(
+            "จัดส่งแล้ว" in str(x.get("StatusDisplay") or "")
+            or str(x.get("LogisticsTrackingNumber") or "").strip()
+            for x in ph_orders
+        )
+    }
+
     for d in all_rows:
         oid = str(d.get("OrderId") or "").strip()
-        if not oid or d.get("SaveType") != "ManualOrder":
+        if not oid or oid in cancelled_dup_ids or d.get("SaveType") != "ManualOrder":
             continue
         st_disp = str(d.get("StatusDisplay") or "")
         if "ยกเลิก" in st_disp or "Cancel" in str(d.get("Status") or "") or "จัดส่งแล้ว" in st_disp:
@@ -675,9 +723,11 @@ def auto_fix_missing_express_orders(
             continue
 
         ph = normalize_thai_phone(str(d.get("ReceiverMobileEn") or ""))
-        if ph and ph in shipped_phones:
-            # Skip duplicate of an already-shipped order so warehouse doesn't ship twice!
+        if ph and ph in approved_phones_in_pass:
+            # Skip duplicate of an already-shipped or already-assigned order so warehouse doesn't ship twice!
             continue
+        if ph:
+            approved_phones_in_pass.add(ph)
 
         # Only run_audit if COD or payment already confirmed (`WaitPay` hasn't confirmed payment yet)
         can_audit = bool(d.get("IsCod")) or ("รอชำระเงิน" not in st_disp and "WaitPay" not in str(d.get("StatusCode") or ""))

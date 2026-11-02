@@ -916,8 +916,17 @@ async def followup_loop(config: dict, public_base_url_getter=None) -> None:
 
             # Heavy background scans run every 10 cycles (~10 minutes)
             if cycle_idx % 10 == 0:
+                # 0.58 Real-Time Duplicate Order Guard & Chat-to-JST Reconciliation (ป้องกันคีย์ออเดอร์ซ้ำ 2 บิลทุก 10 นาที)
+                try:
+                    from . import audit as _audit_mod
+
+                    importlib.reload(_audit_mod)
+                    await asyncio.to_thread(_audit_mod.audit_jst_orders_against_chat, 3, True)
+                except Exception as exc:
+                    logger.warning("Periodic JST duplicate guard warning: %s", exc)
+
                 # 0.6 Smart Slip Verifier & Auto-Confirm (ตรวจสลิปที่ติด Fail เวลาชำระเงินไม่ตรงกัน แล้วกดยืนยันให้อัตโนมัติ)
-                await asyncio.to_thread(jst_erp.verify_and_auto_confirm_jst_slips, 40)
+                await asyncio.to_thread(jst_erp.verify_and_auto_confirm_jst_slips, 80)
 
                 # 0.7 2-Stage Automated Parcel Tracking Notifier (แจ้งเลขพัสดุเมื่อขนส่งเข้ารับแล้ว & แจ้งเมื่อพัสดุส่งถึงมือลูกค้าพร้อมเวลา)
                 from . import parcel_tracker

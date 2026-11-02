@@ -922,14 +922,59 @@ def audit_jst_orders_against_chat(days_lookback: int = 1, auto_clean: bool = Fal
     if auto_clean and duplicates:
         for grp in duplicates:
             orders_list = grp["orders"]
-            # If one order is manual/admin (empty remark or already shipped) and another is an unshipped FB bot duplicate, cancel the bot duplicate
-            has_primary = any((not x["seller_remark"].startswith("FB:")) or ("จัดส่งแล้ว" in x["status"]) for x in orders_list)
-            if has_primary:
-                for x in orders_list:
-                    if x["seller_remark"].startswith("FB:") and "จัดส่งแล้ว" not in x["status"]:
+            # Check how many distinct order summaries (#BUY or 'เพจ : ข้าวบุก สุขใจ') exist in the customer's chat within the lookback window
+            allowed_active_count = 1
+            sample_o = orders_list[0]
+            matched_psid_for_dup = ""
+            for s in sessions:
+                cname = (s.get("customer_name") or "").strip()
+                if cname and (cname in sample_o["seller_remark"] or cname == sample_o["receiver_name"]):
+                    matched_psid_for_dup = s["psid"]
+                    break
+            if matched_psid_for_dup:
+                recent_chat_msgs = database.get_full_messages(matched_psid_for_dup, limit=60)
+                summary_cnt = sum(
+                    1
+                    for m in recent_chat_msgs
+                    if ("เพจ :" in str(m.get("content") or "") or "เพจ:" in str(m.get("content") or ""))
+                    and "จัดส่ง" in str(m.get("content") or "")
+                )
+                # Only allow >1 active order if customer genuinely placed multiple separate orders on different days
+                distinct_order_days = {x["order_time"][:10] for x in orders_list if x.get("order_time")}
+                if summary_cnt > 1 and len(distinct_order_days) > 1:
+                    allowed_active_count = summary_cnt
+
+            if len(orders_list) > allowed_active_count:
+                shipped_orders = [x for x in orders_list if "จัดส่งแล้ว" in x["status"]]
+                unshipped_orders = [x for x in orders_list if "จัดส่งแล้ว" not in x["status"]]
+
+                if shipped_orders:
+                    # At least one order is ALREADY shipped! Cancel ALL unshipped duplicates (whether bot 'FB:' or admin manual '')
+                    # so the warehouse never ships a 2nd parcel for the same order!
+                    for x in unshipped_orders:
                         if x["order_id"] not in auto_cancelled_ids:
                             try:
-                                jst_erp.cancel_orders_in_jst([x["order_id"]], "Audit ชั้นที่ 2 ยกเลิกอัตโนมัติ: ออเดอร์ซ้ำกับใบหลักของแอดมินค่ะ")
+                                jst_erp.cancel_orders_in_jst(
+                                    [x["order_id"]],
+                                    f"Audit ชั้นที่ 2 ยกเลิกอัตโนมัติ: ออเดอร์ซ้ำกับใบที่จัดส่งไปแล้ว (#{shipped_orders[0]['order_id']}) ค่ะ",
+                                )
+                                auto_cancelled_ids.append(x["order_id"])
+                            except Exception as exc:
+                                logger.warning("Auto-cancel duplicate order %s failed: %s", x["order_id"], exc)
+                else:
+                    # None of the duplicates are shipped yet. Keep 1 primary order (prefer human admin manual order where remark doesn't start with 'FB:')
+                    sorted_unshipped = sorted(
+                        unshipped_orders,
+                        key=lambda item: (1 if item["seller_remark"].startswith("FB:") else 0, item["order_id"]),
+                    )
+                    primary_order = sorted_unshipped[0]
+                    for x in sorted_unshipped[1:]:
+                        if x["order_id"] not in auto_cancelled_ids:
+                            try:
+                                jst_erp.cancel_orders_in_jst(
+                                    [x["order_id"]],
+                                    f"Audit ชั้นที่ 2 ยกเลิกอัตโนมัติ: ออเดอร์ซ้ำกับใบหลัก #{primary_order['order_id']} ค่ะ",
+                                )
                                 auto_cancelled_ids.append(x["order_id"])
                             except Exception as exc:
                                 logger.warning("Auto-cancel duplicate order %s failed: %s", x["order_id"], exc)

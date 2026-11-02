@@ -283,7 +283,8 @@ def _build_session_lookup_maps() -> tuple[dict[str, str], dict[str, str], dict[s
 
 
 def _has_already_sent_in_chat(psid: str, tracking_no: str, stage: int) -> bool:
-    """Check UserSession.notes and MessageLog to guarantee we never send duplicate notifications."""
+    """Check UserSession.notes and MessageLog to guarantee we never send duplicate notifications
+    (including when a duplicate JST order generated a 2nd tracking number for the same chat order)."""
     user = database.get_or_create_session(psid)
     notes = user.notes or ""
     if stage == 1 and (
@@ -295,11 +296,24 @@ def _has_already_sent_in_chat(psid: str, tracking_no: str, stage: int) -> bool:
         return True
 
     msgs = database.get_full_messages(psid, limit=60)
-    assistant_texts = [
-        str(m.get("content") or "")
-        for m in msgs
-        if m.get("role") != "user"
-    ]
+
+    # Find the index of the latest official order summary ('เพจ : ข้าวบุก สุขใจ' or '#BUY') in chat
+    last_order_idx = -1
+    for idx, m in enumerate(msgs):
+        c = str(m.get("content") or "")
+        if (("เพจ :" in c or "เพจ:" in c) and "จัดส่ง" in c) or re.search(r"#BUY\s*\d+", c, re.I):
+            last_order_idx = idx
+
+    msgs_since_order = msgs[last_order_idx + 1 :] if last_order_idx >= 0 else msgs
+
+    stage1_markers = (
+        "เลขพัสดุ:",
+        "หมายเลขพัสดุ:",
+        "แจ้งอัปเดตสถานะจัดส่ง",
+        "จัดส่งพัสดุออกเรียบร้อยแล้ว",
+        "แจ้งเลขพัสดุข้าวบุกสุขใจ",
+        "พัสดุเดินทางออกจากร้านแล้ว",
+    )
     stage2_markers = (
         "ตอนนี้พัสดุจัดส่งถึงเรียบร้อยแล้ว",
         "แจ้งอัปเดตพัสดุค่ะคุณลูกค้า 🎉📦",
@@ -309,14 +323,39 @@ def _has_already_sent_in_chat(psid: str, tracking_no: str, stage: int) -> bool:
         "ของถึงเรียบร้อยแล้วนะคะคุณลูกค้า",
         "ส่งถึงมือสำเร็จแล้วค่า",
     )
+    user_already_received_or_issue_markers = (
+        "ได้รับสินค้าแล้ว",
+        "ได้รับของแล้ว",
+        "ได้รับข้าวแล้ว",
+        "ของถึงแล้ว",
+        "ไปส่งมา 2 บิล",
+        "ส่งมา2บิล",
+        "2 บิล",
+        "2บิล",
+        "จ่าย2รอบ",
+        "จ่าย 2 รอบ",
+        "ส่งซ้ำ",
+        "ตีกลับ",
+    )
 
+    # First check all messages for exact tracking_no match
     for m in msgs:
-        if m.get("role") == "user":
-            continue
+        if m.get("role") != "user" and tracking_no and tracking_no in str(m.get("content") or ""):
+            if stage == 1:
+                return True
+
+    # Next check messages since the latest order summary so a 2nd duplicate order never sends a 2nd tracking number!
+    for m in msgs_since_order:
+        role = m.get("role")
         content = str(m.get("content") or "")
         s_label = str(m.get("sender_label") or "")
+        if role == "user":
+            if any(umk in content for umk in user_already_received_or_issue_markers):
+                # Customer already received the parcel or reported duplicate bills — do not send automated tracking/delivery messages!
+                return True
+            continue
         if stage == 1:
-            if "ระยะที่ 1" in s_label or tracking_no in content:
+            if "ระยะที่ 1" in s_label or any(mk in content for mk in stage1_markers):
                 return True
         if stage == 2:
             if "ระยะที่ 2" in s_label or any(mk in content for mk in stage2_markers):
