@@ -281,9 +281,24 @@ async def receive_meta_webhook(request: Request, background_tasks: BackgroundTas
 
             # If a human admin replies from Meta Business Suite / Page Inbox (is_echo=True and app_id != our bot),
             # automatically pause AI for that customer so we NEVER interfere with the human admin!
+            # (Ignore Meta automated system echoes like transfer requests or Ad welcome templates!)
             if message.get("is_echo"):
                 echo_app_id = str(message.get("app_id") or "")
                 if recipient_id and echo_app_id != "1414062917046427":
+                    echo_txt = (text or "").strip()
+                    echo_low = echo_txt.lower()
+                    auto_meta_echo_markers = (
+                        "messenger automatically created a transfer request",
+                        "ส่งคำขอให้โอนแล้ว",
+                        "คุณร้องขอไป ฿",
+                        "ทำเครื่องหมายคำสั่งซื้อว่าชำระเงินแล้ว",
+                        "เอเจนต์ ai ของคุณจะตอบกลับ",
+                        "you took over this chat",
+                        "ตอบกลับโฆษณา",
+                        "กำลังตอบกลับความคิดเห็น",
+                        "โปรโมชั่น ข้าวบุกสุขใจ",
+                    )
+                    is_auto_system_echo = (not echo_txt) or any(mk in echo_low for mk in auto_meta_echo_markers)
                     session_key = database.make_session_key(brand_id, platform, recipient_id)
                     database.get_or_create_session(
                         psid=session_key,
@@ -291,10 +306,11 @@ async def receive_meta_webhook(request: Request, background_tasks: BackgroundTas
                         platform=platform,
                         external_user_id=recipient_id,
                     )
-                    if text:
-                        database.log_message(session_key, "admin", text)
-                    database.set_bot_enabled(session_key, False)
-                    logger.info("Human admin replied in Meta Inbox for %s — auto-paused AI bot", session_key)
+                    if echo_txt:
+                        database.log_message(session_key, "admin", echo_txt)
+                    if not is_auto_system_echo:
+                        database.set_bot_enabled(session_key, False)
+                        logger.info("Human admin replied in Meta Inbox for %s — auto-paused AI bot", session_key)
                 continue
 
             if attachments:
@@ -725,6 +741,21 @@ async def process_omnichannel_message(
         if not skip_user_log:
             database.log_message(session_key, "user", text)
 
+        from .llm import is_active_order_or_payment_intent, is_bank_transfer_request
+
+        transfer_req = is_bank_transfer_request(text)
+        # If customer explicitly asks for bank account or chooses bank transfer, ALWAYS auto-wake the bot
+        # so the human admin never has to manually copy-paste the bank account!
+        if not user.bot_enabled and transfer_req:
+            raw_tags = getattr(user, "broadcast_tags", "") or ""
+            cleaned_tags = ",".join(
+                t.strip() for t in raw_tags.split(",") if t.strip() and "รอแอดมิน" not in t
+            )
+            database.update_session_meta(session_key, bot_enabled=True, broadcast_tags=cleaned_tags)
+            user.bot_enabled = True
+            user.broadcast_tags = cleaned_tags
+            logger.info("Auto-re-enabled AI bot for %s on bank transfer request: %s", session_key, text)
+
         # If Human Admin paused the AI bot for this customer, do not auto-reply
         if not user.bot_enabled:
             logger.info("AI paused for %s — waiting for human admin reply", session_key)
@@ -743,8 +774,10 @@ async def process_omnichannel_message(
             or ("ชำระเงินแล้ว" in (user.broadcast_tags or ""))
             or ("ติดดาว" in (user.broadcast_tags or ""))
         )
-        wants_to_reorder = any(
-            w in low_txt for w in ("สั่งเพิ่ม", "ซื้อเพิ่ม", "สั่งอีก", "เอาอีก", "โปรลูกค้าเก่า", "สั่งซื้อเพิ่ม")
+        wants_to_reorder = (
+            is_active_order_or_payment_intent(text)
+            or transfer_req
+            or (user.state == "pending_payment")
         )
         wants_to_cancel = (
             "ไม่ยกเลิก" not in low_txt
@@ -789,13 +822,19 @@ async def process_omnichannel_message(
                 }
             )
 
+        global CONFIG, LLM
+        if not CONFIG:
+            CONFIG = load_config()
+        if LLM is None:
+            LLM = LLMEngine(build_system_prompt(CONFIG), CONFIG)
+
         reply, new_state, image_key = await LLM.generate(clean_history, user.state)
 
         # Smart fallback: whenever customer asks for promo/price/sizes/interest, send ALL 4 promo images ('promo_all') at once!
-        explicitly_asked_pic = (not is_attachment_placeholder) and (not is_paid_customer or wants_to_reorder) and any(
+        explicitly_asked_pic = (not is_attachment_placeholder) and (not transfer_req) and (not is_paid_customer or wants_to_reorder) and any(
             w in low_txt for w in ("รูป", "ภาพ", "โปร", "ราคา", "สนใจ", "กี่บาท", "เท่าไหร่", "ขนาด", "ไซส์", "ขายยังไง")
         )
-        if is_attachment_placeholder or (is_paid_customer and not wants_to_reorder):
+        if is_attachment_placeholder or transfer_req or (is_paid_customer and not wants_to_reorder):
             image_key = "none"
             if is_paid_customer and not wants_to_reorder:
                 new_state = "completed"

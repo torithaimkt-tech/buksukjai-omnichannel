@@ -172,7 +172,7 @@ def audit_outgoing_reply(
     Returns:
       (audited_bubbles, audited_state, audited_media_items, audit_report)
     """
-    from .llm import split_into_bubbles
+    from .llm import is_active_order_or_payment_intent, is_history_bank_transfer_request, split_into_bubbles
 
     checks: list[dict[str, Any]] = []
     auto_fixes: list[str] = []
@@ -188,8 +188,10 @@ def audit_outgoing_reply(
         or ("ชำระเงินแล้ว" in (getattr(user_session, "broadcast_tags", "") or ""))
         or ("ติดดาว" in (getattr(user_session, "broadcast_tags", "") or ""))
     )
-    wants_to_reorder = any(
-        w in u_low for w in ("สั่งเพิ่ม", "ซื้อเพิ่ม", "สั่งอีก", "เอาอีก", "โปรลูกค้าเก่า", "สั่งซื้อเพิ่ม")
+    wants_to_reorder = (
+        is_active_order_or_payment_intent(user_text)
+        or is_history_bank_transfer_request(history)
+        or getattr(user_session, "state", "") == "pending_payment"
     )
 
     # 1. Split & Clean Polite Particles + Markdown

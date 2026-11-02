@@ -134,11 +134,13 @@ def clean_chat_text(text: str) -> str:
     return result
 
 
-def split_into_bubbles(text: str, max_bubbles: int = 4) -> list[str]:
+def split_into_bubbles(text: str, max_bubbles: int = 5) -> list[str]:
     """Split a reply into short, natural Thai chat bubbles.
 
-    Strictly isolates any `#BUY<amount>` tag (e.g. `#BUY399`, `#BUY459`) into its own
-    standalone bubble with zero surrounding text so ROI Tracking captures it cleanly.
+    Strictly isolates:
+    1) Any `#BUY<amount>` tag (e.g. `#BUY399`, `#BUY459`) into its own standalone bubble.
+    2) Any 10-digit raw bank account number (`3044075455` / `9892136243`) into its own standalone bubble
+       with zero surrounding text so customers can one-tap copy-paste it in LINE / Messenger.
     """
     if not text:
         return []
@@ -181,9 +183,12 @@ def split_into_bubbles(text: str, max_bubbles: int = 4) -> list[str]:
         return [clean_chat_text(text)]
 
     if len(isolated_bubbles) > max_bubbles:
-        isolated_bubbles = isolated_bubbles[: max_bubbles - 1] + [
-            "\n\n".join(isolated_bubbles[max_bubbles - 1 :])
-        ]
+        # Never merge a standalone 10-digit bank account bubble into another bubble
+        has_standalone_acct = any(b.strip() in ("3044075455", "9892136243") for b in isolated_bubbles)
+        if not has_standalone_acct:
+            isolated_bubbles = isolated_bubbles[: max_bubbles - 1] + [
+                "\n\n".join(isolated_bubbles[max_bubbles - 1 :])
+            ]
 
     if seen_buy_tag:
         # Place the standalone #BUY<amount> bubble right before the final thank-you bubble (or at the end if 1 bubble)
@@ -198,9 +203,6 @@ def split_into_bubbles(text: str, max_bubbles: int = 4) -> list[str]:
 def _get_official_payment_info(config: dict | None = None) -> dict:
     cfg = config or {}
     brand_id = cfg.get("brand_id", "buksukjai")
-    pay = cfg.get("payment_info")
-    if pay and pay.get("account_number"):
-        return pay
     if brand_id == "mrbuk":
         return {
             "bank_name": "ธนาคารกสิกรไทย",
@@ -214,109 +216,334 @@ def _get_official_payment_info(config: dict | None = None) -> dict:
                 "เลขที่บัญชี 989-2-13624-3"
             ),
         }
+    pay = cfg.get("payment_info") or {}
+    acct_name = pay.get("account_name") or "บริษัท ดิจิสท์ ฮับ จำกัด"
+    bank_name = pay.get("bank_name") or "ธนาคารไทยพาณิชย์ จำกัด (มหาชน) / สาขา สำโรง"
+    acct_num = pay.get("account_number") or "304-407545-5"
+    acct_raw = pay.get("account_number_raw") or "3044075455"
     return {
-        "bank_name": "ธนาคารไทยพาณิชย์ จำกัด (มหาชน) / สาขา สำโรง",
-        "account_name": "บริษัท ดิจิสท์ ฮับ จำกัด",
-        "account_number": "304-407545-5",
-        "account_number_raw": "3044075455",
+        "bank_name": bank_name,
+        "account_name": acct_name,
+        "account_number": acct_num,
+        "account_number_raw": acct_raw,
         "formatted_block": (
-            "Account Name: บริษัท ดิจิสท์ ฮับ จำกัด\n"
-            "ธนาคาร : ธนาคารไทยพาณิชย์ จำกัด (มหาชน) / สาขา สำโรง\n"
-            "Account Number / เลขที่บัญชี : 304-407545-5"
+            "ได้เลยค่ะคุณลูกค้า 🍚 สามารถโอนชำระได้ที่\n\n"
+            f"Account Name: {acct_name}\n"
+            f"ธนาคาร : {bank_name}\n"
+            f"Account Number / เลขที่บัญชี : {acct_num}"
         ),
     }
+
+
+BANK_TRANSFER_ALREADY_PAID_MARKERS = (
+    "โอนแล้ว",
+    "โอนเงินแล้ว",
+    "โอนเรียบร้อย",
+    "โอนให้แล้ว",
+    "โอนไปเมื่อ",
+    "โอนเมื่อวาน",
+    "โอนพรุ่งนี้",
+    "โอนวันพรุ่งนี้",
+    "จ่ายแล้ว",
+    "ชำระแล้ว",
+    "ส่งสลิป",
+    "แนบสลิป",
+    "ส่งการชำระเงินจำนวน",
+    "ทำเครื่องหมายคำสั่งซื้อว่าชำระเงินแล้ว",
+)
+
+BANK_TRANSFER_NEGATIVE_MARKERS = (
+    "ไม่โอน",
+    "ยังไม่โอน",
+    "โอนไม่ได้",
+    "โอนไม่เป็น",
+    "ไม่มีแอปโอน",
+    "ไม่สะดวกโอน",
+    "เปลี่ยนเป็นปลายทาง",
+    "ขอเก็บปลายทาง",
+)
+
+BANK_ACCOUNT_EXPLICIT_KEYWORDS = (
+    "ขอเลขบัญชี",
+    "ขอบัญชี",
+    "ขอ บช",
+    "ขอบช",
+    "เลขบัญชี",
+    "เลขที่บัญชี",
+    "เลข บช",
+    "เลขบช",
+    "เบอร์บัญชี",
+    "โอนเข้าบัญชีไหน",
+    "โอนเข้าไหน",
+    "โอนธนาคารไหน",
+    "โอนที่ไหน",
+    "บัญชีไหน",
+    "บัญชีอะไร",
+    "พร้อมเพย์",
+    "สแกนจ่าย",
+    "คิวอาร์โค้ด",
+)
+
+BANK_TRANSFER_CHOICE_KEYWORDS = (
+    "โอนค่ะ",
+    "โอนคะ",
+    "โอนค่า",
+    "โอนค้า",
+    "โอนครับ",
+    "โอนคับ",
+    "โอนจ้า",
+    "โอนจ้ะ",
+    "โอนจร้า",
+    "โอนนะ",
+    "โอนน้า",
+    "โอนเลย",
+    "โอนเรย",
+    "โอนเงิน",
+    "แบบโอน",
+    "แบโอน",
+    "เอาโอน",
+    "รับโอน",
+    "ขอโอน",
+    "เลือกโอน",
+    "ชำระแบบโอน",
+    "ชำระโอน",
+    "จ่ายโอน",
+    "โอนจ่าย",
+    "โอนชำระ",
+    "สะดวกโอน",
+)
+
+
+def _strip_system_override(text: str) -> str:
+    if not text:
+        return ""
+    return text.split("\n[ข้อมูลสำคัญจากระบบ:")[0].strip()
+
+
+def is_bank_transfer_request(user_text: str) -> bool:
+    """Return True whenever a customer asks for the bank account or chooses bank transfer."""
+    clean_t = _strip_system_override(user_text).strip()
+    if not clean_t or clean_t.startswith("[ลูกค้า"):
+        return False
+    u_low = clean_t.lower()
+    compact = re.sub(r"\s+", "", u_low)
+
+    if any(w in u_low or w in compact for w in BANK_TRANSFER_ALREADY_PAID_MARKERS):
+        return False
+    if any(w in u_low or w in compact for w in BANK_TRANSFER_NEGATIVE_MARKERS):
+        return False
+
+    if any(w in u_low or w in compact for w in BANK_ACCOUNT_EXPLICIT_KEYWORDS):
+        return True
+
+    # Exclude pure shipping fee questions like "โอนเงินส่งฟรีไหมคะ" unless they explicitly asked for the account
+    if any(q in u_low or q in compact for q in ("ส่งฟรีไหม", "ส่งฟรีมั้ย", "เสียค่าส่งไหม", "บวกค่าส่งไหม")):
+        return False
+
+    if any(w in u_low or w in compact for w in BANK_TRANSFER_CHOICE_KEYWORDS):
+        return True
+
+    bare = re.sub(r"[\s.!~🙏😊💚🍚🫶🏻,]+", "", u_low)
+    if bare in ("โอน", "บช", "เลขบช", "บัญชี", "โอนเงิน", "สแกน", "qr"):
+        return True
+
+    return False
+
+
+def is_history_bank_transfer_request(history: list[dict]) -> bool:
+    """Check if the latest user message (or any consecutive trailing user message in this turn) asked to transfer."""
+    if not history:
+        return False
+    for msg in reversed(history):
+        role = str(msg.get("role") or "")
+        if role in ("assistant", "admin", "bot"):
+            break
+        if role == "user" and is_bank_transfer_request(str(msg.get("content") or "")):
+            return True
+    return False
+
+
+def is_active_order_or_payment_intent(user_text: str) -> bool:
+    """Return True whenever a customer (including a returning/starred customer) is ordering, choosing a size, or paying."""
+    clean_t = _strip_system_override(user_text).strip()
+    if not clean_t:
+        return False
+    if is_bank_transfer_request(clean_t):
+        return True
+    u_low = clean_t.lower()
+    compact = re.sub(r"\s+", "", u_low)
+    order_keywords = (
+        "สั่งเพิ่ม",
+        "ซื้อเพิ่ม",
+        "สั่งอีก",
+        "เอาอีก",
+        "รับเพิ่ม",
+        "โปรลูกค้าเก่า",
+        "สั่งซื้อ",
+        "สนใจสั่ง",
+        "รับข้าว",
+        "เอาข้าว",
+        "สั่งข้าว",
+        "รับชุด",
+        "เอาชุด",
+        "รับเซ็ต",
+        "เอาเซ็ต",
+        "รับโปร",
+        "เอาโปร",
+        "รับขนาด",
+        "เอาขนาด",
+        "เอาแบบ",
+        "รับแบบ",
+        "ปลายทาง",
+        "เก็บเงินปลายทาง",
+        "cod",
+        "1kg",
+        "1กก",
+        "1กิโล",
+        "2กิโล",
+        "3กิโล",
+        "500g",
+        "500กรัม",
+        "60g",
+        "60กรัม",
+        "459",
+        "899",
+        "1299",
+        "1,299",
+        "555",
+        "720",
+        "239",
+        "2แถม2",
+        "3แถม3",
+    )
+    if any(k in u_low or k in compact for k in order_keywords):
+        return True
+    if re.search(r"(?:รับ|เอา|สั่ง)\s*\d+\s*(?:ถุง|ซอง|ชุด|กิโล|กก|โล|ห่อ)", u_low):
+        return True
+    return False
 
 
 def enforce_authentic_bank_account(bubbles: list[str], history: list[dict], config: dict | None = None) -> list[str]:
     """Hard guardrail:
     1) Never allow hallucinated bank names or fake account numbers (e.g. 043-1-X007X, บริษัท สุขใจ จำกัด).
-    2) Always include the authentic bank account block + raw copyable digits when the customer asks for
-       a bank account or chooses bank transfer.
+    2) Whenever bank details are sent or requested, strictly format them as TWO separate bubbles:
+       - Bubble A:
+         ได้เลยค่ะคุณลูกค้า 🍚 สามารถโอนชำระได้ที่
+
+         Account Name: บริษัท ดิจิสท์ ฮับ จำกัด
+         ธนาคาร : ธนาคารไทยพาณิชย์ จำกัด (มหาชน) / สาขา สำโรง
+         Account Number / เลขที่บัญชี : 304-407545-5
+       - Bubble B (strictly standalone for easy one-tap copy):
+         3044075455
     """
     pay = _get_official_payment_info(config)
     acct_num = pay["account_number"]
     acct_raw = pay["account_number_raw"]
-    official_block = pay.get("formatted_block") or (
-        f"Account Name: {pay['account_name']}\n"
-        f"ธนาคาร : {pay['bank_name']}\n"
-        f"Account Number / เลขที่บัญชี : {acct_num}"
-    )
+    official_block = pay["formatted_block"]
     brand_id = (config or {}).get("brand_id", "buksukjai")
 
     fake_markers = ("043-1", "x007x", "สุขใจ จำกัด", "xxx-", "123-4", "เลขบัญชีสมมติ")
     wrong_banks_for_buksukjai = ("กสิกร", "กรุงไทย", "กรุงเทพ", "กรุงศรี", "ออมสิน", "ทหารไทย")
 
+    transfer_requested = is_history_bank_transfer_request(history)
+
     cleaned_bubbles: list[str] = []
-    replaced_fake = False
+    has_official_block = False
 
     for b in bubbles:
-        b_low = b.lower()
+        b_strip = b.strip()
+        if not b_strip:
+            continue
+        b_low = b_strip.lower()
+
+        # If customer is requesting bank transfer, suppress any mistaken after-sales greeting bubble
+        if transfer_requested and ("ได้รับสินค้าเรียบร้อยดีไหมคะ" in b_strip or "ทานแล้วรสชาติเป็นอย่างไรบ้าง" in b_strip):
+            continue
+
+        # If this bubble is already the standalone raw account number, skip for now (we insert it right after official_block)
+        if b_strip == acct_raw:
+            continue
+
         has_fake_marker = any(fm in b_low for fm in fake_markers)
         has_wrong_bank = (
             brand_id == "buksukjai"
-            and any(wb in b for wb in wrong_banks_for_buksukjai)
-            and any(k in b for k in ("บัญชี", "ธนาคาร", "โอน", "เลข"))
+            and any(wb in b_strip for wb in wrong_banks_for_buksukjai)
+            and any(k in b_strip for k in ("บัญชี", "ธนาคาร", "โอน", "เลข"))
         )
-        # Check for any dashed bank account number that is not the official one
-        dashed_numbers = re.findall(r"\b\d{3}-\d{1,6}-\d{1,5}(?:-\d)?\b", b)
+        dashed_numbers = re.findall(r"\b\d{3}-\d{1,6}-\d{1,5}(?:-\d)?\b", b_strip)
         has_wrong_dashed = any(
             dn != acct_num and not dn.startswith(("08", "09", "06", "02"))
             for dn in dashed_numbers
         )
 
-        if has_fake_marker or has_wrong_bank or has_wrong_dashed:
-            if not replaced_fake:
-                cleaned_bubbles.append(official_block)
-                cleaned_bubbles.append(acct_raw)
-                replaced_fake = True
-            continue
-        cleaned_bubbles.append(b)
-
-    # Check if customer explicitly asked for bank account or chose bank transfer
-    user_text = (history[-1].get("content") or "").strip() if history else ""
-    u_low = user_text.lower()
-    already_paid = any(w in u_low for w in ("โอนแล้ว", "จ่ายแล้ว", "ชำระแล้ว", "ส่งสลิป", "แนบสลิป", "โอนพรุ่งนี้"))
-    asked_account = any(
-        w in u_low
-        for w in (
-            "ขอเลขบัญชี",
-            "ขอบัญชี",
-            "ขอ บช",
-            "ขอบช",
-            "เลขบัญชี",
-            "เลขที่บัญชี",
-            "เลข บช",
-            "เบอร์บัญชี",
-            "โอนเข้าบัญชีไหน",
-            "พร้อมเพย์",
-        )
-    )
-    chose_transfer = (
-        not already_paid
-        and len(user_text) <= 45
-        and any(
-            w in u_low
-            for w in (
-                "โอนค่ะ",
-                "โอนคะ",
-                "โอนครับ",
-                "โอนจ้า",
-                "โอนนะ",
-                "โอนเงิน",
-                "แบบโอน",
-                "ชำระแบบโอน",
-                "จ่ายโอน",
+        mentions_official_bank = any(
+            m in b_strip
+            for m in (
+                acct_num,
+                pay["account_name"],
+                "Account Name:",
+                "Account Number",
+                "สามารถโอนชำระได้ที่",
+                "สาขา สำโรง",
             )
         )
-    ) or u_low in ("โอน", "บช", "เลขบช")
 
-    combined_out = "\n".join(cleaned_bubbles)
-    if (asked_account or chose_transfer) and acct_num not in combined_out and acct_raw not in combined_out:
-        # Insert official bank account + raw digits before the final closing bubble if multiple bubbles exist
-        if len(cleaned_bubbles) >= 2:
-            cleaned_bubbles = cleaned_bubbles[:-1] + [official_block, acct_raw, cleaned_bubbles[-1]]
+        if has_fake_marker or has_wrong_bank or has_wrong_dashed or mentions_official_bank:
+            # Check if the model combined an order price summary (• ... / ยอดรวม ...) BEFORE the bank block in the same bubble
+            if mentions_official_bank and any(k in b_strip for k in ("สรุปยอด", "ยอดรวม", "• ")):
+                split_marker = None
+                for mk in ("ได้เลยค่ะคุณลูกค้า 🍚 สามารถโอนชำระได้ที่", "สามารถโอนชำระได้ที่", "Account Name:"):
+                    if mk in b_strip:
+                        split_marker = mk
+                        break
+                if split_marker:
+                    prefix = b_strip.split(split_marker)[0].strip()
+                    prefix = re.sub(rf"\b{re.escape(acct_raw)}\b", "", prefix).strip()
+                    if prefix and any(k in prefix for k in ("สรุปยอด", "ยอดรวม", "• ", "บาท")):
+                        cleaned_bubbles.append(clean_chat_text(prefix))
+            if not has_official_block:
+                cleaned_bubbles.append(official_block)
+                cleaned_bubbles.append(acct_raw)
+                has_official_block = True
+            continue
+
+        # If another bubble accidentally contains the raw 10-digit account number inline, strip it out
+        if acct_raw in b_strip:
+            b_without_raw = re.sub(
+                rf"(?:\(?\s*(?:ตัวเลข(?:ล้วน)?(?:สำหรับ(?:ให้ลูกค้า)?คัดลอก)?|เลขบัญชี)\s*[:：]?\s*)?{re.escape(acct_raw)}\s*\)?",
+                "",
+                b_strip,
+            ).strip()
+            if b_without_raw:
+                cleaned_bubbles.append(clean_chat_text(b_without_raw))
+            if not has_official_block:
+                cleaned_bubbles.append(official_block)
+                cleaned_bubbles.append(acct_raw)
+                has_official_block = True
+            continue
+
+        cleaned_bubbles.append(b_strip)
+
+    if transfer_requested and not has_official_block:
+        if not cleaned_bubbles:
+            cleaned_bubbles = [
+                official_block,
+                acct_raw,
+                "เมื่อโอนแล้วรบกวนแจ้งสลิป พร้อมชื่อ-นามสกุล ที่อยู่จัดส่ง และเบอร์โทรได้เลยนะคะ 😊🙏",
+            ]
+        elif len(cleaned_bubbles) == 1:
+            b0 = cleaned_bubbles[0]
+            if any(k in b0 for k in ("แจ้งสลิป", "ส่งสลิป", "ชื่อ-นามสกุล", "ที่อยู่จัดส่ง")):
+                cleaned_bubbles = [official_block, acct_raw, b0]
+            else:
+                cleaned_bubbles = [
+                    b0,
+                    official_block,
+                    acct_raw,
+                    "เมื่อโอนแล้วรบกวนแจ้งสลิป พร้อมชื่อ-นามสกุล ที่อยู่จัดส่ง และเบอร์โทรได้เลยนะคะ 😊🙏",
+                ]
         else:
-            cleaned_bubbles.extend([official_block, acct_raw])
+            cleaned_bubbles = cleaned_bubbles[:-1] + [official_block, acct_raw, cleaned_bubbles[-1]]
 
     return cleaned_bubbles
 
@@ -343,23 +570,33 @@ def enforce_all_promotions_when_asked(
     """
     user_text = (history[-1].get("content") or "").strip() if history else ""
     u_low = user_text.lower()
+    compact = re.sub(r"\s+", "", u_low)
 
-    # Do not inject full promo menu if this is an after-sales system prompt or customer is confirming/paying
+    # Do not inject full promo menu if this is an after-sales system prompt or customer is confirming/paying/transferring
     if "[ข้อมูลสำคัญจากระบบ: ลูกค้าท่านนี้ได้สั่งซื้อ" in user_text:
+        return bubbles, "none"
+
+    if is_history_bank_transfer_request(history):
+        return bubbles, "none"
+
+    combined_initial = "\n".join(bubbles)
+    if "304-407545-5" in combined_initial or "3044075455" in combined_initial:
         return bubbles, "none"
 
     non_promo_intents = (
         "โอนแล้ว", "จ่ายแล้ว", "ชำระแล้ว", "ส่งสลิป", "แนบสลิป", "ยืนยัน", "คอนเฟิร์ม",
         "ขอเลขบัญชี", "ขอบัญชี", "ขอ บช", "เลขบัญชี", "เลขที่บัญชี", "อย.", "เลข อย",
         "ราคาส่ง", "เรทส่ง", "ขายส่ง", "100 ถุง", "ตัวแทน", "โรงงาน", "ผลิตที่ไหน", "รับมาจากไหน",
+        "shopee", "ช้อปปี้", "tiktok", "ติ๊กต๊อก",
     )
     if any(w in u_low for w in non_promo_intents):
         return bubbles, image_key
 
-    # Check if customer is placing a specific order already (e.g. "เอา 1 กิโล", "สั่งเซ็ต 899", "รับ 500g")
-    specific_order_words = ("เอา ", "รับ ", "สั่ง ", "สั่งซื้อ ", "เอาขนาด", "รับขนาด", "รับเซ็ต", "เอาโปร")
-    is_specific_order = any(w in u_low for w in specific_order_words) and any(
-        sz in u_low for sz in ("60", "39", "500", "239", "1 กิโล", "1 กก", "1kg", "459", "555", "720", "899", "1299", "1,299", "2 แถม 2", "3 แถม 3")
+    # Check if customer is placing a specific order already (e.g. "เอา 1 กิโล", "สั่งเซ็ต 899", "รับ500g", "เอาแบบ 15")
+    specific_order_words = ("เอา", "รับ", "สั่ง", "สั่งซื้อ", "เอาขนาด", "รับขนาด", "รับเซ็ต", "เอาโปร")
+    is_specific_order = any(w in u_low or w in compact for w in specific_order_words) and any(
+        sz in u_low or sz in compact
+        for sz in ("60", "39", "500", "239", "1กิโล", "1กก", "1kg", "459", "555", "720", "899", "1299", "1,299", "2แถม2", "3แถม3", "15", "20")
     )
     if is_specific_order:
         return bubbles, image_key
@@ -527,16 +764,21 @@ class LLMEngine:
                 data = json.loads(text)
                 needs_human = bool(data.get("needs_human", False))
                 esc_reason = str(data.get("escalation_reason") or "").strip()
+                out_state = str(data.get("state") or current_state)
+                if is_history_bank_transfer_request(history):
+                    needs_human = False
+                    esc_reason = ""
+                    out_state = "pending_payment"
                 self.last_escalation = {
                     "needs_human": needs_human,
                     "escalation_reason": esc_reason or ("คำถามแปลกใหม่ / AI ไม่มั่นใจคำตอบ" if needs_human else ""),
                 }
                 bubbles = split_into_bubbles(data["reply"])
                 bubbles = enforce_authentic_bank_account(bubbles, history, self.config)
-                image_key = "none" if needs_human else (data.get("image_key") or "none")
+                image_key = "none" if (needs_human or is_history_bank_transfer_request(history)) else (data.get("image_key") or "none")
                 if not needs_human:
                     bubbles, image_key = enforce_all_promotions_when_asked(bubbles, history, image_key)
-                return "|||".join(bubbles), data["state"], image_key
+                return "|||".join(bubbles), out_state, image_key
             except Exception as e:
                 logger.warning("Model %s call failed (%s)", model_name, e)
                 continue
@@ -658,16 +900,11 @@ class LLMEngine:
                 "none",
             )
 
-        acct_words = ("ขอเลขบัญชี", "ขอบัญชี", "ขอ บช", "เลขบัญชี", "เลขที่บัญชี", "เบอร์บัญชี", "โอนค่ะ", "โอนคะ", "โอนเงิน", "แบบโอน")
-        if any(w in low for w in acct_words) or low in ("โอน", "บช"):
+        if is_bank_transfer_request(user_text) or is_history_bank_transfer_request(history):
             pay = _get_official_payment_info(self.config)
-            block = pay.get("formatted_block") or (
-                f"Account Name: {pay['account_name']}\n"
-                f"ธนาคาร : {pay['bank_name']}\n"
-                f"Account Number / เลขที่บัญชี : {pay['account_number']}"
-            )
+            block = pay["formatted_block"]
             return (
-                f"ได้เลยค่ะคุณลูกค้า 🍚 สามารถโอนชำระได้ที่\n\n{block}|||{pay['account_number_raw']}|||"
+                f"{block}|||{pay['account_number_raw']}|||"
                 f"เมื่อโอนแล้วรบกวนแจ้งสลิป พร้อมชื่อ-นามสกุล ที่อยู่จัดส่ง และเบอร์โทรให้น้องบุกได้เลยนะคะ 😊🙏",
                 "pending_payment",
                 "none",

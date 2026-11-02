@@ -457,9 +457,6 @@ HUMAN_ADMIN_MARKERS = (
     "แจ้งน้องแอดมินได้เลยนะคะ",
     "แจ้งน้องแอดมิ",
     "แจ้งน้อง admin ได้เลยนะคะ",
-    "ส่งคำขอให้โอนแล้ว",
-    "คุณร้องขอไป ฿",
-    "messenger automatically created a transfer request",
     "รบกวนขอรหัสไปรษณีย์ค่ะ",
     "สนใจรับขนาดเท่าไหร่ค่ะ",
     "สะดวกกชำระแบบโอนเงิน",
@@ -649,30 +646,42 @@ def analyze_facebook_conversation_dict(conv: dict, page_id: str = "8061291092408
                 if hours_ago <= 0.25:
                     human_admin_active = True
 
-    # 2. Check if the current inquiry has an unanswered admin question at the end
+    # 2. Check if a new order or payment question occurred AFTER the last completed order summary
+    from .llm import is_active_order_or_payment_intent, is_bank_transfer_request
+
     current_msgs = chron_msgs[current_start_idx:]
     has_unanswered_question = False
     last_question_idx = -1
     last_summary_idx = -1
+    last_customer_order_idx = -1
+    last_customer_transfer_idx = -1
+
     for i, m in enumerate(current_msgs):
         sender_id = str((m.get("from") or {}).get("id") or "")
         m_txt = str(m.get("message") or "")
-        if ("เพจ : ข้าวบุก สุขใจ" in m_txt and "จัดส่ง" in m_txt) or "#BUY" in m_txt:
+        m_low = m_txt.lower()
+        is_ord_sum = "เพจ : ข้าวบุก สุขใจ" in m_txt and ("สินค้า :" in m_txt or "จัดส่ง" in m_txt)
+        if is_ord_sum or any(mk in m_low for mk in PAID_ORDER_MARKERS):
             last_summary_idx = i
         if sender_id == page_id:
             if any(re.search(pat, m_txt) for pat in PENDING_ADMIN_QUESTION_PATTERNS):
                 last_question_idx = i
+        elif sender_id == cust_id and m_txt.strip():
+            if is_active_order_or_payment_intent(m_txt):
+                last_customer_order_idx = i
+            if is_bank_transfer_request(m_txt):
+                last_customer_transfer_idx = i
 
-    if last_question_idx != -1 and last_question_idx > last_summary_idx:
-        # Check if the customer replied after the question
-        customer_replied_after = any(
-            str((m.get("from") or {}).get("id") or "") == cust_id
-            and bool(str(m.get("message") or "").strip())
-            for m in current_msgs[last_question_idx + 1 :]
-        )
-        if not customer_replied_after:
-            has_unanswered_question = True
-            is_paid_current = False
+    if (last_question_idx != -1 and last_question_idx > last_summary_idx) or (
+        last_customer_order_idx != -1 and last_customer_order_idx > last_summary_idx
+    ):
+        has_unanswered_question = True
+        is_paid_current = False
+
+    # If the customer is currently asking for the bank account / choosing transfer after the last summary,
+    # never let human_admin_active block the bot from sending the bank account!
+    if last_customer_transfer_idx != -1 and last_customer_transfer_idx > last_summary_idx:
+        human_admin_active = False
 
     target_texts = current_order_texts or [str(m.get("message") or "") for m in current_msgs] or historical_order_texts
     sku, qty = _infer_sku_and_qty_from_text("\n".join(target_texts))
@@ -925,6 +934,8 @@ def _apply_facebook_sync_to_db(info: dict, brand_id: str = "buksukjai") -> dict:
                 row.broadcast_tags = new_tags
                 if info.get("has_unanswered_question"):
                     row.state = "pending_payment"
+                elif row.state == "completed":
+                    row.state = "browsing"
                 if "รอแอดมิน" not in (row.broadcast_tags or ""):
                     row.bot_enabled = not bool(info.get("human_admin_active"))
                 db.commit()
