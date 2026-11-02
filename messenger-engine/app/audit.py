@@ -534,7 +534,42 @@ def audit_outgoing_reply(
                 pass
             auto_fixes.append(f"ตรวจพบคำถามที่ AI ไม่มั่นใจ/คำถามพิเศษ ({escalation_reason}) — ตอบรับแบบสุภาพกลางๆ พักบอท และส่งแจ้งเตือนเข้ากลุ่ม LINE สรุปยอด")
 
-    # 6. Order Confirmation Gate Audit (ห้ามข้ามเป็น completed ถ้าลูกค้ายังไม่ยืนยันหรือยังไม่มีสลิป)
+    # 6. Order Confirmation Gate & Direct Thank-You after Order Summary (ตามคอมเมนต์คุณนัด/คุณแอมมี่: ทวนรายการสั่งซื้อแล้วไม่ต้องให้ลูกค้าพิมพ์ยืนยัน ขอบคุณที่สั่งซื้อได้เลย)
+    has_user_phone = bool(re.search(r"(?:\+66\s*0?|\b0)[689]\d[\s\-]?\d{3}[\s\-]?\d{4}", all_user_text))
+    has_complete_cod_info = bool(
+        specified_any_size_or_price
+        and has_user_phone
+        and user_ever_said_cod
+        and not is_cancel_request
+        and not is_fda_oy_question
+        and not is_tracking_complaint
+    )
+    reply_joined_check = "\n".join(bubbles)
+    is_order_summary_turn = any(
+        k in reply_joined_check
+        for k in ("ทวนรายละเอียดคำสั่งซื้อ", "ทวนรายการสั่งซื้อ", "ยอดชำระปลายทาง", "ผู้รับ:", "• ที่อยู่:")
+    )
+
+    # Strip any redundant "รบกวนพิมพ์คำว่า 'ยืนยัน'..." bubble when summarizing an order
+    if any("พิมพ์คำว่า" in b and "ยืนยัน" in b for b in bubbles):
+        updated_bubbles: list[str] = []
+        for b in bubbles:
+            if "พิมพ์คำว่า" in b and "ยืนยัน" in b:
+                updated_bubbles.append(
+                    "ขอบคุณที่สั่งซื้อข้าวบุกสุขใจนะคะ 💚 น้องบุกจะรีบดำเนินการจัดส่งให้ทันที รอรับสินค้าภายใน 3–5 วันทำการได้เลยนะคะ 🙏✨"
+                )
+            else:
+                updated_bubbles.append(b)
+        bubbles = updated_bubbles
+        auto_fixes.append("ตัดประโยคขอให้ลูกค้าพิมพ์คำว่า 'ยืนยัน' ออก และเปลี่ยนเป็นกล่าวขอบคุณที่สั่งซื้อพร้อมแจ้งจัดส่งทันที")
+
+    # Never attach promo images on an order summary turn
+    if is_order_summary_turn:
+        audited_image_key = "none"
+        if has_complete_cod_info and audited_state != "completed":
+            audited_state = "completed"
+            auto_fixes.append("ลูกค้าแจ้งขนาด + ชื่อที่อยู่เบอร์โทร + เก็บปลายทางครบแล้ว — ปิดออเดอร์ (completed) ทันทีโดยไม่ต้องรอพิมพ์ยืนยันซ้ำ")
+
     if not is_paid_or_starred and audited_state == "completed":
         has_user_slip = any(
             m.get("role") == "user"
@@ -546,16 +581,16 @@ def audit_outgoing_reply(
             w in u_low
             for w in ("ยืนยัน", "คอนเฟิร์ม", "confirm", "ถูกต้อง", "ตามนี้", "ตกลงค่ะ", "โอเคค่ะ", "โอนแล้ว", "ส่งสลิป", "แนบสลิป")
         )
-        if not has_user_slip and not explicitly_confirmed:
+        if not has_user_slip and not explicitly_confirmed and not has_complete_cod_info:
             audited_state = "pending_payment"
-            auto_fixes.append("ชะลอสถานะไว้ที่ 'รอโอน/ทวนที่อยู่ (pending_payment)' เพื่อรอให้ลูกค้าคอนเฟิร์มก่อนส่งเข้า JST")
+            auto_fixes.append("ชะลอสถานะไว้ที่ 'รอโอน/ทวนที่อยู่ (pending_payment)' เนื่องจากยังขาดสลิปโอนเงินหรือข้อมูลที่อยู่/วิธีชำระเงินยังไม่ครบ")
             checks.append({
-                "name": "ตรวจการคอนเฟิร์มที่อยู่/สลิปก่อนปิดการขาย (Confirmation Gate)",
+                "name": "ตรวจข้อมูลที่อยู่/วิธีชำระเงิน/สลิปก่อนปิดการขาย (Confirmation Gate)",
                 "status": "fixed",
             })
         else:
             checks.append({
-                "name": "ตรวจการคอนเฟิร์มที่อยู่/สลิปก่อนปิดการขาย (Confirmation Gate)",
+                "name": "ตรวจข้อมูลที่อยู่/วิธีชำระเงิน/สลิปก่อนปิดการขาย (Confirmation Gate)",
                 "status": "ok",
             })
 

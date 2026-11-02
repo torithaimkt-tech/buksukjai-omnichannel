@@ -277,6 +277,8 @@ DEFAULT_LINE_WORK_GROUPS = [
 DEFAULT_LEARNED_RULES = [
     "เวลาพูดคุยกับลูกค้า ต้องคุยดีๆ ด้วยน้ำเสียงนุ่มนวล อบอุ่น เป็นธรรมชาติ และใส่ใจความรู้สึกของลูกค้า ตอบคำถามให้ตรงประเด็นก่อนเสมอ ห้ามตัดบทถามห้วนๆ ว่า 'คุณลูกค้าสนใจรับขนาดเท่าไหร่ค่ะ' หรือส่งตารางโปรซ้ำโดยไม่คุยดีๆ ก่อนเด็ดขาด (คอมเมนต์จากคุณแอมมี่)",
     "เวลาตอบรับคำขอบคุณหรือแสดงความยินดี ต้องพิมพ์คำว่า 'ยินดีมากๆ เลยค่ะ' หรือ 'ด้วยความยินดีเลยค่ะ' เสมอ ห้ามพิมพ์คำว่า 'ดีมากๆค่ะ' หรือ 'ดีมากๆ' เฉยๆ โดยตกคำว่า 'ยิน' เด็ดขาด (คอมเมนต์จากคุณแอมมี่)",
+    "เมื่อทวนรายละเอียดคำสั่งซื้อให้ลูกค้าเรียบร้อยแล้ว ไม่จำเป็นต้องให้ลูกค้าพิมพ์คำว่า 'ยืนยัน' เพื่อดำเนินการต่อ แต่ให้กล่าวขอบคุณลูกค้าที่สั่งซื้อและแจ้งว่าจะดำเนินการจัดส่งให้ทันที พร้อมแนบ #BUY<ยอดเงิน> แยกกล่องเดี่ยว และห้ามส่งรูปโปรโมชั่นซ้ำตอนทวนออเดอร์เด็ดขาด (คอมเมนต์จากคุณนัด/คุณแอมมี่)",
+    "เมื่อลูกค้าถามเกี่ยวกับระยะเวลาการเก็บรักษา ให้ตอบว่า 'ข้าวบุกสุขใจสามารถเก็บได้นาน 1 ปีในอุณหภูมิห้องปกติ ไม่จำเป็นต้องแช่ตู้เย็นเลยค่ะ'",
 ]
 
 DEFAULT_LEARNED_FAQ = [
@@ -293,7 +295,12 @@ DEFAULT_LEARNED_FAQ = [
             "หมายเหตุ: ราคานี้ยังไม่รวมค่าจัดส่งตามจริงค่ะ สนใจรับขนาดไหนแจ้งแอดมินได้เลยนะคะ 😊"
         ),
         "updated_at": "2026-11-01T20:21:26+07:00",
-    }
+    },
+    {
+        "question": "เก็บได้นานไหม",
+        "answer": "ข้าวบุกสุขใจสามารถเก็บได้นาน 1 ปีในอุณหภูมิห้องปกติ ไม่จำเป็นต้องแช่ตู้เย็นเลยค่ะ",
+        "updated_at": "2026-11-01T21:46:12+07:00",
+    },
 ]
 
 DEFAULT_CUSTOM_REPLACEMENTS: dict[str, str] = {
@@ -382,8 +389,11 @@ def load_line_group_config() -> dict[str, Any]:
     except Exception:
         pass
 
-    # Ensure default rules, FAQs, and replacements are always present
-    rules_list: list[str] = list(cfg.get("learned_rules") or [])
+    # Ensure default rules, FAQs, and replacements are always present, and purge any contradictory screenshot-only guessed rules
+    rules_list: list[str] = [
+        r for r in (cfg.get("learned_rules") or [])
+        if r and "ต้องการให้ลูกค้าพิมพ์คำว่า 'ยืนยัน' เพื่อดำเนินการต่อ" not in r
+    ]
     for dr in DEFAULT_LEARNED_RULES:
         if dr not in rules_list:
             rules_list.insert(0, dr)
@@ -414,7 +424,7 @@ def load_line_group_config() -> dict[str, Any]:
 
         for s in database.list_all_sessions(brand_id="workbot", platform="line_group", state="all"):
             ext_id = str(s.get("external_user_id") or "").strip()
-            if ext_id and ext_id not in groups_list and ext_id not in ("Cf0c8835b5b0711e80f7350ffc9af66f1", "C1a437ddee70267ad6372696fe3e17a0e"):
+            if ext_id and ext_id not in groups_list and ext_id not in ("Cf0c8835b5b0711e80f7350ffc9af66f1", "C1a437ddee70267ad6372696fe3e17a0e", "C_test_sim_coach"):
                 groups_list.append(ext_id)
     except Exception:
         pass
@@ -422,7 +432,7 @@ def load_line_group_config() -> dict[str, Any]:
     # Strictly exclude coachbot comment group and unrelated groups from daily sales summary
     groups_list = [
         g for g in groups_list
-        if g not in ("Cf0c8835b5b0711e80f7350ffc9af66f1", "C1a437ddee70267ad6372696fe3e17a0e")
+        if g not in ("Cf0c8835b5b0711e80f7350ffc9af66f1", "C1a437ddee70267ad6372696fe3e17a0e", "C_test_sim_coach")
     ]
     cfg["groups"] = groups_list
     return cfg
@@ -1678,10 +1688,18 @@ def process_line_group_coaching_feedback(
     reply_msg = clean_chat_text(str(parsed.get("reply_message") or "").strip())
 
     updated_anything = False
-    if rule_to_save and rule_to_save not in current_rules:
-        current_rules.append(rule_to_save)
-        cfg["learned_rules"] = current_rules[-60:]
-        updated_anything = True
+    if rule_to_save:
+        # If this is a text follow-up to a recent screenshot that had an auto-guessed rule, remove the earlier guess first
+        if raw_text and group_id in _RECENT_GROUP_IMAGES:
+            prev_auto = _RECENT_GROUP_IMAGES[group_id].get("auto_rule_saved")
+            if prev_auto and prev_auto in current_rules and prev_auto != rule_to_save:
+                current_rules = [r for r in current_rules if r != prev_auto]
+        if not raw_text and group_id in _RECENT_GROUP_IMAGES:
+            _RECENT_GROUP_IMAGES[group_id]["auto_rule_saved"] = rule_to_save
+        if rule_to_save not in current_rules:
+            current_rules.append(rule_to_save)
+            cfg["learned_rules"] = current_rules[-60:]
+            updated_anything = True
 
     if bad_phrase and good_phrase and bad_phrase != good_phrase:
         current_reps[bad_phrase] = good_phrase

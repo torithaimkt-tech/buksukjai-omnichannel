@@ -517,8 +517,8 @@ async def _handle_line_group_event(
                     group_id,
                 )
                 if data_url:
-                    # Wait briefly in case a text comment is sent right after the screenshot
-                    await asyncio.sleep(7.0)
+                    # Wait 20s in case a text comment is being typed right after the screenshot
+                    await asyncio.sleep(20.0)
                     cached_img = daily_sheet_report._RECENT_GROUP_IMAGES.get(group_id) or {}
                     if cached_img.get("message_id") == msg_id and not cached_img.get("analyzed"):
                         coach_res = await asyncio.to_thread(
