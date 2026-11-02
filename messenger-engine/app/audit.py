@@ -28,10 +28,12 @@ from typing import Any
 from . import database, media_generator
 from .llm import (
     FULL_PROMO_SUMMARY_BUBBLE,
+    MRBUK_FULL_PROMO_SUMMARY_BUBBLE,
     clean_chat_text,
     enforce_all_promotions_when_asked,
     enforce_authentic_bank_account,
 )
+from .prompt_engine import load_brand_config
 
 logger = logging.getLogger(__name__)
 
@@ -145,9 +147,10 @@ def _resolve_order_buy_amount(
     tail_text = "\n".join([str(m.get("content") or "") for m in history[-4:]] + list(bubbles))
     tail_clean = re.sub(r"(?:\+66\s*0?|\b0)[689]\d[\s\-]?\d{3}[\s\-]?\d{4}", " ", tail_text)
     known_amounts = (
-        1339, 1299, 1150, 1110, 969, 939, 899, 760, 720,
-        595, 580, 555, 529, 499, 459, 436, 420, 399, 390,
-        309, 269, 239, 225, 199, 195, 140, 108, 69, 39,
+        2390, 2270, 1339, 1299, 1230, 1190, 1150, 1130, 1110,
+        990, 969, 950, 939, 902, 899, 760, 720,
+        639, 599, 595, 580, 555, 530, 529, 499, 490, 465, 459, 436, 420, 399, 390,
+        319, 309, 279, 269, 249, 239, 225, 199, 195, 140, 114, 108, 74, 69, 44, 39,
     )
     for amt in known_amounts:
         if re.search(rf"\b{amt:,}\b|\b{amt}\b", tail_clean):
@@ -242,30 +245,69 @@ def audit_outgoing_reply(
         "status": "fixed" if (medical_fixed or sentence_repaired) else "ok",
     })
 
-    # 3. Bank Account Integrity Audit
-    cfg_with_brand = dict(config or {})
-    cfg_with_brand["brand_id"] = brand_id
+    # 3. Bank Account Integrity & Brand Isolation Audit
+    b_id_low = (brand_id or "buksukjai").strip().lower()
+    cfg_with_brand = dict(load_brand_config(b_id_low, fallback_config=config) or {})
+    cfg_with_brand["brand_id"] = b_id_low
+
+    # Strict Brand Isolation for non-konjac brands (PADA Academy & AIFY)
+    if b_id_low in ("pada", "aify"):
+        sanitized_non_konjac: list[str] = []
+        konjac_leaked = False
+        for b in bubbles:
+            if any(k in b for k in ("ข้าวบุกสุขใจ", "มิสเตอร์บุก", "ข้าวบุก", "304-407545-5", "3044075455")):
+                konjac_leaked = True
+                continue
+            sanitized_non_konjac.append(b)
+        if konjac_leaked or not sanitized_non_konjac:
+            greet = (cfg_with_brand.get("brand_persona") or {}).get("greeting_message", "")
+            sanitized_non_konjac = [p.strip() for p in greet.split("|||") if p.strip()]
+            auto_fixes.append(f"ป้องกันคำตอบข้าวบุกปะปนในแบรนด์ {b_id_low.upper()} (Brand Isolation Guardrail)")
+        bubbles = sanitized_non_konjac
+        audited_state = proposed_state if proposed_state in ("browsing", "pending_payment", "completed") else "browsing"
+        has_lead_phone = bool(re.search(r"(?:\+66\s*0?|\b0)[689]\d[\s\-]?\d{3}[\s\-]?\d{4}", u_low))
+        if has_lead_phone:
+            escalate_to_line_group = True
+            escalation_reason = f"ผู้สนใจแจ้งเบอร์โทรศัพท์ติดต่อกลับ ({b_id_low.upper()})"
+            audited_state = "pending_payment"
+        checks.append({
+            "name": f"ตรวจการแยกแบรนด์ 100% ({b_id_low.upper()}) ไม่ปนกับข้าวบุกสุขใจ",
+            "status": "fixed" if konjac_leaked else "ok",
+        })
+        report = record_audit_event(
+            psid=psid,
+            layer="pre_send_chat",
+            passed=True,
+            checks=checks,
+            auto_fixes=auto_fixes,
+        )
+        report["escalate_to_line_group"] = escalate_to_line_group
+        report["escalation_reason"] = escalation_reason
+        return bubbles, audited_state, [], report
+
     before_bank = list(bubbles)
     bubbles = enforce_authentic_bank_account(bubbles, history, cfg_with_brand)
     if bubbles != before_bank:
-        auto_fixes.append("บังคับใช้เลขบัญชีจริงของบริษัท (SCB 304-407545-5) พร้อมบล็อกเลขบัญชีสมมติ")
+        bank_lbl = "กสิกรไทย 989-2-13624-3" if b_id_low == "mrbuk" else "SCB 304-407545-5"
+        auto_fixes.append(f"บังคับใช้เลขบัญชีจริงของบริษัท ({bank_lbl}) แยก 2 บับเบิล พร้อมบล็อกเลขบัญชีสมมติ")
     checks.append({
-        "name": "ตรวจความถูกต้องเลขบัญชีธนาคารจริง (SCB 304-407545-5)",
+        "name": "ตรวจความถูกต้องเลขบัญชีธนาคารจริง (แยก 2 บับเบิล)",
         "status": "fixed" if bubbles != before_bank else "ok",
     })
 
     # 4. VIP 5% Box-Insert Discount Guardrail
-    mentioned_qr = any(w in u_low for w in ("qr", "คิวอาร์", "ใบแนบ", "ในกล่อง", "ลูกค้าเก่า", "ลด 5%"))
+    mentioned_qr = any(w in u_low for w in ("qr", "คิวอาร์", "ใบแนบ", "ในกล่อง", "ลูกค้าเก่า", "ลด 5%", "mrbukvip5"))
     if not mentioned_qr and not is_paid_or_starred:
         filtered_vip: list[str] = []
         vip_removed = False
         for b in bubbles:
-            if any(v in b for v in ("436", "854", "684", "1,234", "ลด 5%")):
+            if any(v in b for v in ("436", "854", "684", "1,234", "465", "902", "1,130", "2,270", "ลด 5%")):
                 vip_removed = True
                 continue
             filtered_vip.append(b)
         if vip_removed:
-            bubbles = filtered_vip or [FULL_PROMO_SUMMARY_BUBBLE]
+            fallback_promo = MRBUK_FULL_PROMO_SUMMARY_BUBBLE if b_id_low == "mrbuk" else FULL_PROMO_SUMMARY_BUBBLE
+            bubbles = filtered_vip or [fallback_promo]
             auto_fixes.append("บล็อกการเสนอโปรลด 5% (ใบแนบในกล่อง) ให้ลูกค้าใหม่ที่ไม่ได้สแกน QR")
     checks.append({
         "name": "ตรวจกติกาโปรลับ 5% (ห้ามเสนอให้ลูกค้าใหม่ทั่วไป)",
@@ -291,7 +333,9 @@ def audit_outgoing_reply(
     else:
         before_promo_bubbles = list(bubbles)
         before_img = audited_image_key
-        bubbles, audited_image_key = enforce_all_promotions_when_asked(bubbles, history, audited_image_key)
+        bubbles, audited_image_key = enforce_all_promotions_when_asked(
+            bubbles, history, audited_image_key, config=cfg_with_brand
+        )
         if bubbles != before_promo_bubbles or audited_image_key != before_img:
             auto_fixes.append("ปรับให้ส่งครบทุกโปรโมชั่น (7 รายการ) และส่งรูปโปรครบทั้ง 4 รูปในครั้งเดียว")
         checks.append({
@@ -420,8 +464,26 @@ def audit_outgoing_reply(
         audited_image_key = "none"
         auto_fixes.append("ป้องกันการสรุปเป็น COD ไปเองโดยที่ลูกค้ายังไม่เลือกวิธีชำระเงิน (ถามลูกค้าพร้อมแนบเลขบัญชีเผื่อลูกค้าโอนตามมา)")
 
-    # E) Complaint / Parcel Tracking / Damaged Claim Shield
-    is_tracking_complaint = any(
+    # E) Complaint / Parcel Tracking / Duplicate Delivery / Damaged Claim Shield
+    is_duplicate_delivery_complaint = any(
+        w in u_low
+        for w in (
+            "ส่งมา 2 บิล",
+            "ส่งมา2บิล",
+            "ไปส่งมา 2 บิล",
+            "ไปส่งมา2บิล",
+            "ทำไมส่งมา 2",
+            "ทำไมส่งมา2",
+            "ส่งซ้ำ",
+            "มาส่งซ้ำ",
+            "ส่งมา 2 รอบ",
+            "ส่งมา2รอบ",
+            "จ่าย 2 รอบ",
+            "จ่าย2รอบ",
+            "ต่องจ่าย2รอบ",
+        )
+    )
+    is_tracking_complaint = is_duplicate_delivery_complaint or any(
         w in u_low
         for w in (
             "ยังไม่ได้รับของ",
@@ -441,21 +503,28 @@ def audit_outgoing_reply(
         )
     )
     if is_tracking_complaint:
-        bubbles = [
-            "ต้องขออภัยคุณลูกค้าเป็นอย่างสูงเลยนะคะ 🙏💚",
-            "น้องบุกขออนุญาตส่งเรื่องประสานพี่แอดมินตรวจสอบสถานะพัสดุและรายละเอียดในระบบให้ด่วนที่สุดเลยค่ะ รบกวนรอสักครู่นะคะ 😊",
-        ]
+        if is_duplicate_delivery_complaint:
+            bubbles = [
+                "ทางร้านต้องกราบขออภัยคุณลูกค้าเป็นอย่างสูงเลยนะคะที่เกิดข้อผิดพลาดมีการจัดส่งพัสดุซ้ำไป 2 รอบค่ะ 🙏💚",
+                "สำหรับพัสดุรอบที่จัดส่งซ้ำ คุณลูกค้าสามารถแจ้งขนส่งปฏิเสธการรับและตีกลับได้เลยโดยไม่มีค่าใช้จ่ายนะคะ (หรือหากคุณลูกค้ารับไว้/ชำระแบบโอนเงิน น้องบุกขออนุญาตประสานพี่แอดมินตรวจสอบและมอบส่วนลดพิเศษเพิ่มให้ 10% ทันทีเลยค่ะ) รบกวนรอพี่แอดมินติดต่อดูแลสักครู่นะคะ 😊🙏",
+            ]
+            escalation_reason = "ลูกค้าแจ้งได้รับพัสดุซ้ำ 2 บิล (ด่วน! รอแอดมินตรวจสอบ)"
+        else:
+            bubbles = [
+                "ต้องขออภัยคุณลูกค้าเป็นอย่างสูงเลยนะคะ 🙏💚",
+                "น้องบุกขออนุญาตส่งเรื่องประสานพี่แอดมินตรวจสอบสถานะพัสดุและรายละเอียดในระบบให้ด่วนที่สุดเลยค่ะ รบกวนรอสักครู่นะคะ 😊",
+            ]
+            escalation_reason = "ลูกค้าติดตามสถานะพัสดุ / แจ้งปัญหาการส่งหรือเคลมสินค้า"
         audited_image_key = "none"
         audited_state = "pending_payment"
         escalate_to_line_group = True
-        escalation_reason = "ลูกค้าติดตามสถานะพัสดุ / แจ้งปัญหาการส่งหรือเคลมสินค้า"
         try:
             database.set_bot_enabled(psid, False)
             updated_tags = database._add_tag_str(getattr(user_session, "broadcast_tags", "") or "", "ตามพัสดุ/เคลม (รอแอดมิน)")
             database.update_session_meta(psid=psid, broadcast_tags=updated_tags)
         except Exception:
             pass
-        auto_fixes.append("ตรวจพบข้อความติดตามพัสดุ/เคลมสินค้า — ตอบรับอย่างสุภาพ พักบอท และส่งแจ้งเตือนเข้ากลุ่ม LINE สรุปยอด")
+        auto_fixes.append("ตรวจพบข้อความติดตามพัสดุ/แจ้งส่งซ้ำ/เคลมสินค้า — ตอบรับอย่างสุภาพ พักบอท และส่งแจ้งเตือนเข้ากลุ่ม LINE สรุปยอด")
 
     # E2) Official Wholesale Rate Answer (เรทราคาส่ง 100 ถุง — ตอบได้ทันทีตามที่แอดมินสอนไว้ในกลุ่ม LINE)
     is_wholesale_inquiry = any(w in u_low for w in ("ราคาส่ง", "เรทส่ง", "ขายส่ง", "เรทราคาส่ง"))
@@ -463,17 +532,47 @@ def audit_outgoing_reply(
         escalate_to_line_group = False
         audited_image_key = "none"
         if "2,500" not in "\n".join(bubbles) and "16,500" not in "\n".join(bubbles):
+            brand_title = "มิสเตอร์บุก" if b_id_low == "mrbuk" else "ข้าวบุกสุขใจ"
+            reg_60 = "44.-" if b_id_low == "mrbuk" else "39.-"
+            reg_500 = "249.-" if b_id_low == "mrbuk" else "239.-"
+            reg_1k = "490.-" if b_id_low == "mrbuk" else "459.-"
             bubbles = [
-                "🍚 เรทราคาส่ง ข้าวบุกสุขใจ (100 ถุง) ค่ะ 🌿\n\n"
-                "1. ขนาด 60 กรัม (100 ถุง)\n"
-                "• ถุงละ 25 บาท = 2,500 บาท (จากปกติ 39.-)\n\n"
-                "2. ขนาด 500 กรัม (100 ถุง)\n"
-                "• ถุงละ 165 บาท = 16,500 บาท (จากปกติ 239.-)\n\n"
-                "3. ขนาด 1 กิโลกรัม (100 ถุง)\n"
-                "• ถุงละ 290 บาท = 29,000 บาท (จากปกติ 459.-)",
+                f"🍚 เรทราคาส่ง {brand_title} (100 ถุง) ค่ะ 🌿\n\n"
+                f"1. ขนาด 60 กรัม (100 ถุง)\n"
+                f"• ถุงละ 25 บาท = 2,500 บาท (จากปกติ {reg_60})\n\n"
+                f"2. ขนาด 500 กรัม (100 ถุง)\n"
+                f"• ถุงละ 165 บาท = 16,500 บาท (จากปกติ {reg_500})\n\n"
+                f"3. ขนาด 1 กิโลกรัม (100 ถุง)\n"
+                f"• ถุงละ 290 บาท = 29,000 บาท (จากปกติ {reg_1k})",
                 "หมายเหตุ: ราคานี้ยังไม่รวมค่าจัดส่งตามจริงค่ะ คุณลูกค้าสนใจรับขนาดไหนแจ้งน้องบุกได้เลยนะคะ ยินดีมากๆ เลยค่ะ 😊💚",
             ]
             auto_fixes.append("ตอบเรทราคาส่งมาตรฐาน (100 ถุง) ตามที่แอดมินตั้งค่าไว้ในกลุ่ม LINE")
+
+    # E3) Official Shopee & TikTok Channel Answer (ตามคอมเมนต์ในกลุ่ม Comment)
+    is_marketplace_inquiry = (
+        b_id_low == "buksukjai"
+        and any(w in u_low for w in ("shopee", "ช้อปปี้", "ชอปปี้", "tiktok", "ติ๊กต๊อก", "ติ๊กตอก", "ตต."))
+    )
+    if (
+        is_marketplace_inquiry
+        and not is_fda_oy_question
+        and not is_cancel_request
+        and not is_tracking_complaint
+        and not is_wholesale_inquiry
+    ):
+        escalate_to_line_group = False
+        audited_image_key = "none"
+        joined_mp = "\n".join(bubbles)
+        if "s.shopee.co.th/7KvbzDtoOv" not in joined_mp or "vt.tiktok.com/ZSXtHF2kT" not in joined_mp:
+            bubbles = [
+                "เพื่อความสะดวกในการสั่งซื้อ ข้าวบุกสุขใจเรามีอีก 2 ช่องทางให้คุณลูกค้าเลือกซื้อนะคะ 🍚✨\n\n"
+                "🧡 ช่องทางสั่งซื้อ Shopee:\n"
+                "https://s.shopee.co.th/7KvbzDtoOv\n\n"
+                "🖤 ช่องทางสั่งซื้อ TikTok:\n"
+                "https://vt.tiktok.com/ZSXtHF2kT/?page=TikTokShop",
+                "หรือหากคุณลูกค้าสะดวกสั่งซื้อผ่านแชทนี้กับน้องบุกโดยตรง ก็ได้รับโปรโมชั่นพิเศษครบทุกชุดเช่นกันนะคะ สนใจรับขนาดไหนแจ้งน้องบุกได้เลยค่า 😊💚",
+            ]
+            auto_fixes.append("แนบลิงก์สั่งซื้อ Shopee และ TikTok Shop ของข้าวบุกสุขใจตามที่สอนไว้ในกลุ่ม Comment")
 
     # F) Unfamiliar / Out-of-Scope / Uncertain Question Handover Shield (ห้ามตอบมั่ว ให้ตอบรับกลางๆ อย่างสุภาพแล้วแจ้งเข้า LINE สรุปยอด)
     unfamiliar_or_special_triggers = (
@@ -510,7 +609,13 @@ def audit_outgoing_reply(
             "แอดมินผู้เชี่ยวชาญ",
         )
     )
-    if not is_fda_oy_question and not is_cancel_request and not is_tracking_complaint and not is_wholesale_inquiry:
+    if (
+        not is_fda_oy_question
+        and not is_cancel_request
+        and not is_tracking_complaint
+        and not is_wholesale_inquiry
+        and not is_marketplace_inquiry
+    ):
         if matched_special or escalate_to_line_group or ai_admitted_uncertainty:
             escalate_to_line_group = True
             if not escalation_reason:

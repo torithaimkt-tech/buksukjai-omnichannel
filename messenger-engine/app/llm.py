@@ -6,14 +6,21 @@ AND OpenAI (gpt-4o-mini / gpt-4o) automatically based on the API key prefix!
 - If no key is set -> Runs in Smart Brand Demo Mode for ข้าวบุกสุขใจ
 """
 
+import inspect
 import json
 import logging
 import os
 import re
+from typing import Any
 
 import openai
 
-from .prompt_engine import IMAGE_KEYS, ORDER_STATES
+from .prompt_engine import (
+    IMAGE_KEYS,
+    ORDER_STATES,
+    get_brand_system_prompt,
+    load_brand_config,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -202,7 +209,7 @@ def split_into_bubbles(text: str, max_bubbles: int = 5) -> list[str]:
 
 def _get_official_payment_info(config: dict | None = None) -> dict:
     cfg = config or {}
-    brand_id = cfg.get("brand_id", "buksukjai")
+    brand_id = str(cfg.get("brand_id") or "buksukjai").lower()
     if brand_id == "mrbuk":
         return {
             "bank_name": "ธนาคารกสิกรไทย",
@@ -210,10 +217,10 @@ def _get_official_payment_info(config: dict | None = None) -> dict:
             "account_number": "989-2-13624-3",
             "account_number_raw": "9892136243",
             "formatted_block": (
-                "โอนเงินบัญชี 🫶🏻\n"
-                "ธนาคารกสิกรไทย\n"
-                "บจก. ทูเคพี อิควิปเม้นท์\n"
-                "เลขที่บัญชี 989-2-13624-3"
+                "ได้เลยค่ะคุณลูกค้า 🍚 สามารถโอนชำระได้ที่\n\n"
+                "ธนาคาร : ธนาคารกสิกรไทย\n"
+                "ชื่อบัญชี : บจก. ทูเคพี อิควิปเม้นท์\n"
+                "เลขที่บัญชี : 989-2-13624-3"
             ),
         }
     pay = cfg.get("payment_info") or {}
@@ -440,7 +447,9 @@ def enforce_authentic_bank_account(bubbles: list[str], history: list[dict], conf
     acct_num = pay["account_number"]
     acct_raw = pay["account_number_raw"]
     official_block = pay["formatted_block"]
-    brand_id = (config or {}).get("brand_id", "buksukjai")
+    brand_id = str((config or {}).get("brand_id", "buksukjai")).lower()
+    if brand_id in ("pada", "aify"):
+        return [b.strip() for b in bubbles if b.strip()]
 
     fake_markers = ("043-1", "x007x", "สุขใจ จำกัด", "xxx-", "123-4", "เลขบัญชีสมมติ")
     wrong_banks_for_buksukjai = ("กสิกร", "กรุงไทย", "กรุงเทพ", "กรุงศรี", "ออมสิน", "ทหารไทย")
@@ -535,9 +544,15 @@ def enforce_authentic_bank_account(bubbles: list[str], history: list[dict], conf
             b0 = cleaned_bubbles[0]
             if any(k in b0 for k in ("แจ้งสลิป", "ส่งสลิป", "ชื่อ-นามสกุล", "ที่อยู่จัดส่ง")):
                 cleaned_bubbles = [official_block, acct_raw, b0]
-            else:
+            elif any(k in b0 for k in ("สรุปยอด", "ยอดรวม", "• ", "บาท")):
                 cleaned_bubbles = [
                     b0,
+                    official_block,
+                    acct_raw,
+                    "เมื่อโอนแล้วรบกวนแจ้งสลิป พร้อมชื่อ-นามสกุล ที่อยู่จัดส่ง และเบอร์โทรได้เลยนะคะ 😊🙏",
+                ]
+            else:
+                cleaned_bubbles = [
                     official_block,
                     acct_raw,
                     "เมื่อโอนแล้วรบกวนแจ้งสลิป พร้อมชื่อ-นามสกุล ที่อยู่จัดส่ง และเบอร์โทรได้เลยนะคะ 😊🙏",
@@ -559,15 +574,33 @@ FULL_PROMO_SUMMARY_BUBBLE = (
     "• โปรตุน 3 แถม 3 (1 กก. 3 ถุง + แถมฟรี 60g 3 ซอง) = โปร 1,299 บาท (ส่งฟรี!)"
 )
 
+MRBUK_FULL_PROMO_SUMMARY_BUBBLE = (
+    "📌 รวมโปรโมชั่นพิเศษ ข้าวบุกหอมมะลิ มิสเตอร์บุก (ครบทุกขนาด) ค่ะ\n\n"
+    "• ซองเล็กทดลองชิม 60 กรัม (1 มื้อ) = โปร 44 บาท\n\n"
+    "• ถุงกลางเริ่มลอง 500 กรัม (8–10 มื้อ) = โปร 249 บาท\n\n"
+    "• ถุงใหญ่ขายดีสุดคุ้ม 1 กก. (20 มื้อ) = โปร 490 บาท (โอนส่งฟรี! 🔥)\n\n"
+    "• เซ็ตพกพา 15 ซอง (60g × 15 ซอง) = โปร 599 บาท (ส่งฟรี!)\n\n"
+    "• เซ็ตพกพา 30 ซอง (60g × 30 ซอง อิ่มเป๊ะ 1 เดือน) = โปร 1,190 บาท (ส่งฟรี!)\n\n"
+    "• เซ็ตคู่สุดคุ้ม 41 มื้อ (1 กก. × 2 ถุง + แถมฟรี 60g 1 ซอง) = โปร 950 บาท (ส่งฟรี!)\n\n"
+    "• เซ็ตใหญ่คุ้มยกครัว 5 กก. (1 กก. × 5 ถุง + แถม 60g 2 ซอง + แถมกล่องแก้วฝาล็อค 1 ใบ) = โปร 2,390 บาท (ส่งฟรี! เก็บปลายทางไม่บวกเพิ่ม)"
+)
+
 
 def enforce_all_promotions_when_asked(
     bubbles: list[str],
     history: list[dict],
     image_key: str,
+    config: dict | None = None,
 ) -> tuple[list[str], str]:
     """Ensure that whenever a customer asks about price / promotions / sizes / 'สนใจ',
     we send ALL 4 promo images ('promo_all') AND all 7 promo tiers in a single turn.
+    Strictly isolated by brand_id so PADA / AIFY never get konjac rice promotions,
+    and Mr.Buk gets its own 44 / 249 / 490 / 599 / 1,190 / 950 / 2,390 pricing.
     """
+    brand_id = str((config or {}).get("brand_id") or "buksukjai").lower()
+    if brand_id in ("pada", "aify"):
+        return bubbles, "none"
+
     user_text = (history[-1].get("content") or "").strip() if history else ""
     u_low = user_text.lower()
     compact = re.sub(r"\s+", "", u_low)
@@ -580,14 +613,14 @@ def enforce_all_promotions_when_asked(
         return bubbles, "none"
 
     combined_initial = "\n".join(bubbles)
-    if "304-407545-5" in combined_initial or "3044075455" in combined_initial:
+    if any(acc in combined_initial for acc in ("304-407545-5", "3044075455", "989-2-13624-3", "9892136243")):
         return bubbles, "none"
 
     non_promo_intents = (
         "โอนแล้ว", "จ่ายแล้ว", "ชำระแล้ว", "ส่งสลิป", "แนบสลิป", "ยืนยัน", "คอนเฟิร์ม",
         "ขอเลขบัญชี", "ขอบัญชี", "ขอ บช", "เลขบัญชี", "เลขที่บัญชี", "อย.", "เลข อย",
         "ราคาส่ง", "เรทส่ง", "ขายส่ง", "100 ถุง", "ตัวแทน", "โรงงาน", "ผลิตที่ไหน", "รับมาจากไหน",
-        "shopee", "ช้อปปี้", "tiktok", "ติ๊กต๊อก",
+        "shopee", "ช้อปปี้", "ชอปปี้", "tiktok", "ติ๊กต๊อก", "ตต.",
     )
     if any(w in u_low for w in non_promo_intents):
         return bubbles, image_key
@@ -596,7 +629,11 @@ def enforce_all_promotions_when_asked(
     specific_order_words = ("เอา", "รับ", "สั่ง", "สั่งซื้อ", "เอาขนาด", "รับขนาด", "รับเซ็ต", "เอาโปร")
     is_specific_order = any(w in u_low or w in compact for w in specific_order_words) and any(
         sz in u_low or sz in compact
-        for sz in ("60", "39", "500", "239", "1กิโล", "1กก", "1kg", "459", "555", "720", "899", "1299", "1,299", "2แถม2", "3แถม3", "15", "20")
+        for sz in (
+            "60", "39", "44", "500", "239", "249", "1กิโล", "1กก", "1kg", "459", "490",
+            "555", "599", "720", "899", "950", "1190", "1,190", "1299", "1,299", "2390", "2,390",
+            "2แถม2", "3แถม3", "15", "20", "30",
+        )
     )
     if is_specific_order:
         return bubbles, image_key
@@ -610,7 +647,33 @@ def enforce_all_promotions_when_asked(
     if not asked_general_promo:
         return bubbles, image_key
 
-    # Always upgrade to promo_all so all 4 official promo images are sent together
+    if brand_id == "mrbuk":
+        new_image_key = "none"
+        combined = "\n".join(bubbles)
+        mrbuk_tiers = ("44", "249", "490", "599", "1,190", "950", "2,390")
+        tier_hits = sum(1 for t in mrbuk_tiers if t in combined or t.replace(",", "") in combined)
+        if tier_hits < 5:
+            intro = (
+                "สวัสดีค่า 🍚✨ ข้าวบุกหอมมะลิ มิสเตอร์บุก (ไม่ต้องอด ลดแป้งได้ — ผงบุกเกรดพรีเมียมผสมข้าวหอมมะลิแท้ 44% "
+                "เพียง 23 kcal ชงง่ายใน 10 นาที มี อย. 13-4-06169-6-0001) น้องบุกส่งโปรโมชั่นพิเศษให้เลือกครบทุกชุดเลยนะคะ"
+            )
+            outro = (
+                "🚚 สั่งครบ 1 กก. หรือเซ็ตโปร โอนเงินส่งฟรีเลยค่ะ (เก็บปลายทาง +40 บาท ยกเว้นเซ็ตใหญ่ 2,390.- ปลายทางส่งฟรี / "
+                "ต่ำกว่า 1 กก. โอน +30 ปลายทาง +70 บาท) คุณลูกค้าสนใจรับโปรไหนดีคะ 😊💚"
+            )
+            if not bubbles:
+                bubbles = [intro, MRBUK_FULL_PROMO_SUMMARY_BUBBLE, outro]
+            elif len(bubbles) == 1:
+                bubbles = [bubbles[0], MRBUK_FULL_PROMO_SUMMARY_BUBBLE, outro]
+            else:
+                bubbles = [
+                    bubbles[0],
+                    MRBUK_FULL_PROMO_SUMMARY_BUBBLE,
+                    bubbles[-1] if "สนใจ" in bubbles[-1] or "ดีคะ" in bubbles[-1] else outro,
+                ]
+        return bubbles, new_image_key
+
+    # Default: buksukjai — always upgrade to promo_all so all 4 official promo images are sent together
     new_image_key = "promo_all"
 
     combined = "\n".join(bubbles)
@@ -637,16 +700,26 @@ class LLMEngine:
         self.config = config or {}
         self.provider = "demo"
         self.active_model = "smart-demo"
+        self.fallback_openai_client = None
+        self.fallback_openai_model = "gpt-4o-mini"
         self.last_escalation: dict = {"needs_human": False, "escalation_reason": ""}
         self.refresh_client()
 
     def refresh_client(self) -> None:
         gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
         openai_key = os.getenv("OPENAI_API_KEY", "").strip()
+        self.fallback_openai_client = None
+        self.fallback_openai_model = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip() or "gpt-4o-mini"
 
         # Auto-detect if user pasted a Gemini key (`AIza...` or `AQ....`) into OPENAI_API_KEY
         if (openai_key.startswith("AIza") or openai_key.startswith("AQ.")) and not gemini_key:
             gemini_key = openai_key
+            openai_key = ""
+
+        # If a real OpenAI key (`sk-...`) is present while Gemini is primary, keep it ready as automatic secondary brain
+        has_real_openai_backup = bool(
+            openai_key and not openai_key.startswith(("AIza", "AQ."))
+        )
 
         if gemini_key:
             self.mock_mode = False
@@ -656,11 +729,19 @@ class LLMEngine:
                 api_key=gemini_key,
                 base_url=GEMINI_BASE_URL,
             )
-            logger.info("LLM Engine initialized with Google Gemini (%s)", self.active_model)
-        elif openai_key:
+            if has_real_openai_backup:
+                self.fallback_openai_client = openai.AsyncOpenAI(api_key=openai_key)
+                logger.info(
+                    "LLM Engine initialized with Google Gemini (%s) + OpenAI Backup (%s)",
+                    self.active_model,
+                    self.fallback_openai_model,
+                )
+            else:
+                logger.info("LLM Engine initialized with Google Gemini (%s)", self.active_model)
+        elif has_real_openai_backup:
             self.mock_mode = False
             self.provider = "openai"
-            self.active_model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+            self.active_model = self.fallback_openai_model
             self.client = openai.AsyncOpenAI(api_key=openai_key)
             logger.info("LLM Engine initialized with OpenAI (%s)", self.active_model)
         else:
@@ -672,43 +753,90 @@ class LLMEngine:
 
     def get_status_label(self) -> str:
         if self.provider == "gemini":
-            return f"Google Gemini ({self.active_model}) — เชื่อมต่อ API จริงแล้ว"
+            if self.fallback_openai_client is not None:
+                return f"Google Gemini ({self.active_model}) + สมองสำรอง OpenAI ({self.fallback_openai_model}) พร้อมสลับอัตโนมัติ"
+            return f"Google Gemini ({self.active_model}) — เชื่อมต่อ API จริงแล้ว (รองรับการเติม OPENAI_API_KEY เป็นสมองสำรองอัตโนมัติ)"
         if self.provider == "openai":
             return f"OpenAI ({self.active_model}) — เชื่อมต่อ API จริงแล้ว"
         return "Smart Brand Demo Mode (ทดสอบฟรี — รองรับคีย์ Gemini หรือ OpenAI)"
 
-    def build_request(self, history: list[dict], current_state: str, model_override: str | None = None) -> dict:
+    def _resolve_active_brand_id(self, explicit_brand_id: str | None = None) -> str:
+        if explicit_brand_id:
+            return str(explicit_brand_id).strip().lower()
+        try:
+            frame = inspect.currentframe()
+            while frame:
+                loc_b = frame.f_locals.get("brand_id")
+                if isinstance(loc_b, str) and loc_b.strip() in ("buksukjai", "mrbuk", "pada", "aify"):
+                    return loc_b.strip().lower()
+                frame = frame.f_back
+        except Exception:
+            pass
+        return str(self.config.get("brand_id") or "buksukjai").strip().lower()
+
+    def build_request(
+        self,
+        history: list[dict],
+        current_state: str,
+        model_override: str | None = None,
+        brand_id: str | None = None,
+        provider_override: str | None = None,
+    ) -> dict:
+        active_brand = self._resolve_active_brand_id(brand_id)
+        active_provider = provider_override or self.provider
         model = model_override or self.active_model
+
+        if active_brand in ("mrbuk", "pada", "aify"):
+            base_prompt = get_brand_system_prompt(active_brand, fallback_config=self.config)
+        else:
+            base_prompt = self.system_prompt or get_brand_system_prompt("buksukjai", fallback_config=self.config)
+
         learned_block = ""
         try:
             from . import daily_sheet_report
 
             l_cfg = daily_sheet_report.load_line_group_config()
             learned_rules = [str(r).strip() for r in (l_cfg.get("learned_rules") or []) if str(r).strip()]
+            if active_brand in ("pada", "aify"):
+                # Keep only brand-neutral politeness/greeting rules for non-konjac brands
+                learned_rules = [
+                    r for r in learned_rules
+                    if "ข้าวบุก" not in r and "304-407545-5" not in r and "ดิจิสท์" not in r
+                ]
+            elif active_brand == "mrbuk":
+                # Exclude Buk Sukjai's SCB account or Buk Sukjai-only links when replying as Mr.Buk
+                learned_rules = [
+                    r for r in learned_rules
+                    if "304-407545-5" not in r and "ดิจิสท์" not in r and "ข้าวบุกสุขใจ" not in r
+                ]
+
             if learned_rules:
                 rule_lines = [f"• {r}" for r in learned_rules[-30:]]
                 learned_block += (
                     "\n\n## กฎเหล็กและคอมเมนต์ปรับปรุงการตอบจากผู้บริหาร (คุณแอมมี่/คุณนัด) ผ่านกลุ่ม LINE (ต้องปฏิบัติตาม 100% ทุกแชท)\n"
                     + "\n".join(rule_lines)
                 )
-            learned_items = l_cfg.get("learned_faq") or []
-            if learned_items:
-                lines = [
-                    f"• ถาม: {it['question']}\n  ตอบตามที่แอดมินสอนไว้: {it['answer']}"
-                    for it in learned_items[-30:]
-                    if it.get("question") and it.get("answer")
-                ]
-                if lines:
-                    learned_block += (
-                        "\n\n## คำถาม-คำตอบที่แอดมินเคยตอบไว้ในกลุ่ม LINE (ใช้ตอบลูกค้าได้ทันทีโดยไม่ต้องตั้ง needs_human=true ซ้ำ)\n"
-                        + "\n".join(lines)
-                    )
+
+            if active_brand == "buksukjai":
+                learned_items = l_cfg.get("learned_faq") or []
+                if learned_items:
+                    lines = [
+                        f"• ถาม: {it['question']}\n  ตอบตามที่แอดมินสอนไว้: {it['answer']}"
+                        for it in learned_items[-30:]
+                        if it.get("question") and it.get("answer")
+                    ]
+                    if lines:
+                        learned_block += (
+                            "\n\n## คำถาม-คำตอบที่แอดมินเคยตอบไว้ในกลุ่ม LINE (ใช้ตอบลูกค้าได้ทันทีโดยไม่ต้องตั้ง needs_human=true ซ้ำ)\n"
+                            + "\n".join(lines)
+                        )
         except Exception:
             pass
 
         combined_system_prompt = (
-            f"{self.system_prompt}{learned_block}\n\n"
+            f"{base_prompt}{learned_block}\n\n"
             f"## Current Customer Session State\n"
+            f"- Active Brand ID: {active_brand}\n"
             f"- Current order state for this customer: {current_state}\n"
             f"- Respond strictly as JSON with keys `reply` (string), `state` "
             f"(\"browsing\", \"pending_payment\", or \"completed\"), `image_key` "
@@ -726,24 +854,43 @@ class LLMEngine:
             "messages": messages,
             "response_format": {"type": "json_schema", "json_schema": RESPONSE_SCHEMA},
         }
-        if self.provider == "gemini":
+        if active_provider == "gemini":
             req["reasoning_effort"] = "none"
         return req
 
-    async def generate(self, history: list[dict], current_state: str) -> tuple[str, str, str]:
+    async def generate(
+        self,
+        history: list[dict],
+        current_state: str,
+        brand_id: str | None = None,
+    ) -> tuple[str, str, str]:
         """Returns (reply_text_with_bubble_delimiters, new_state, image_key)."""
         self.last_escalation = {"needs_human": False, "escalation_reason": ""}
+        active_brand = self._resolve_active_brand_id(brand_id)
+        brand_cfg = load_brand_config(active_brand, fallback_config=self.config)
+
         if self.mock_mode:
-            return self._smart_demo_generate(history, current_state)
+            return self._smart_demo_generate(history, current_state, brand_id=active_brand)
 
-        models_to_try = [self.active_model]
+        # Build prioritized execution chain: Primary (Gemini) -> Secondary Backup (OpenAI if configured)
+        attempts: list[tuple[Any, str, str]] = [(self.client, self.active_model, self.provider)]
         if self.provider == "gemini" and "2.5-flash-lite" not in self.active_model:
-            models_to_try.append("gemini-2.5-flash-lite")
+            attempts.append((self.client, "gemini-2.5-flash-lite", "gemini"))
+        if self.fallback_openai_client is not None:
+            attempts.append((self.fallback_openai_client, self.fallback_openai_model, "openai"))
 
-        for model_name in models_to_try:
+        for client_obj, model_name, prov_name in attempts:
+            if client_obj is None:
+                continue
             try:
-                request = self.build_request(history, current_state, model_override=model_name)
-                response = await self.client.chat.completions.create(**request)
+                request = self.build_request(
+                    history,
+                    current_state,
+                    model_override=model_name,
+                    brand_id=active_brand,
+                    provider_override=prov_name,
+                )
+                response = await client_obj.chat.completions.create(**request)
                 message = response.choices[0].message
 
                 if getattr(message, "refusal", None):
@@ -752,8 +899,9 @@ class LLMEngine:
                         "needs_human": True,
                         "escalation_reason": "คำถามนอกขอบเขตที่ AI ไม่สามารถตอบได้โดยตรง",
                     }
+                    bot_label = (brand_cfg.get("brand_persona") or {}).get("bot_name", "แอดมิน")
                     return (
-                        "ขอบพระคุณสำหรับคำถามนะคะคุณลูกค้า 🙏💚 เพื่อข้อมูลที่ถูกต้องชัดเจน น้องบุกขออนุญาตส่งเรื่องให้พี่แอดมินผู้ดูแลตรวจสอบและรีบมาตอบกลับให้โดยเร็วที่สุดเลยนะคะ รบกวนรอสักครู่นะคะ 😊",
+                        f"ขอบพระคุณสำหรับคำถามนะคะคุณลูกค้า 🙏💚 เพื่อข้อมูลที่ถูกต้องชัดเจน {bot_label}ขออนุญาตส่งเรื่องให้พี่แอดมินผู้ดูแลตรวจสอบและรีบมาตอบกลับให้โดยเร็วที่สุดเลยนะคะ รบกวนรอสักครู่นะคะ 😊",
                         current_state,
                         "none",
                     )
@@ -765,7 +913,7 @@ class LLMEngine:
                 needs_human = bool(data.get("needs_human", False))
                 esc_reason = str(data.get("escalation_reason") or "").strip()
                 out_state = str(data.get("state") or current_state)
-                if is_history_bank_transfer_request(history):
+                if active_brand in ("buksukjai", "mrbuk") and is_history_bank_transfer_request(history):
                     needs_human = False
                     esc_reason = ""
                     out_state = "pending_payment"
@@ -774,17 +922,23 @@ class LLMEngine:
                     "escalation_reason": esc_reason or ("คำถามแปลกใหม่ / AI ไม่มั่นใจคำตอบ" if needs_human else ""),
                 }
                 bubbles = split_into_bubbles(data["reply"])
-                bubbles = enforce_authentic_bank_account(bubbles, history, self.config)
-                image_key = "none" if (needs_human or is_history_bank_transfer_request(history)) else (data.get("image_key") or "none")
+                bubbles = enforce_authentic_bank_account(bubbles, history, brand_cfg)
+                image_key = (
+                    "none"
+                    if (needs_human or active_brand in ("pada", "aify") or is_history_bank_transfer_request(history))
+                    else (data.get("image_key") or "none")
+                )
                 if not needs_human:
-                    bubbles, image_key = enforce_all_promotions_when_asked(bubbles, history, image_key)
+                    bubbles, image_key = enforce_all_promotions_when_asked(
+                        bubbles, history, image_key, config=brand_cfg
+                    )
                 return "|||".join(bubbles), out_state, image_key
             except Exception as e:
-                logger.warning("Model %s call failed (%s)", model_name, e)
+                logger.warning("Model %s (%s) call failed (%s)", model_name, prov_name, e)
                 continue
 
         logger.error("All LLM calls failed; falling back to Smart Demo responder")
-        return self._smart_demo_generate(history, current_state)
+        return self._smart_demo_generate(history, current_state, brand_id=active_brand)
 
     async def extract_order_details(self, history: list[dict]) -> dict:
         """Extract structured order details for Meta ROAS & JST ERP Fulfillment with strict confirmation checks."""
@@ -843,23 +997,29 @@ class LLMEngine:
             "- สำคัญมาก: `customer_confirmed` จะเป็น true ได้ก็ต่อเมื่อลูกค้ามีชื่อ+เบอร์โทร+ที่อยู่ครบถ้วน และลูกค้ายืนยันคำสั่งซื้อชัดเจนแล้วเท่านั้น"
         )
         if not self.mock_mode and self.client:
-            try:
-                req = {
-                    "model": self.active_model,
-                    "max_tokens": 1024,
-                    "temperature": 0.1,
-                    "messages": [{"role": "system", "content": prompt}] + history,
-                    "response_format": {"type": "json_schema", "json_schema": schema},
-                }
-                if self.provider == "gemini":
-                    req["reasoning_effort"] = "none"
-                resp = await self.client.chat.completions.create(**req)
-                raw = (resp.choices[0].message.content or "").strip()
-                if raw.startswith("```"):
-                    raw = raw.strip("`").removeprefix("json").strip()
-                return json.loads(raw)
-            except Exception as e:
-                logger.warning("extract_order_details failed: %s", e)
+            attempts: list[tuple[Any, str, str]] = [(self.client, self.active_model, self.provider)]
+            if self.fallback_openai_client is not None:
+                attempts.append((self.fallback_openai_client, self.fallback_openai_model, "openai"))
+            for client_obj, model_name, prov_name in attempts:
+                if client_obj is None:
+                    continue
+                try:
+                    req = {
+                        "model": model_name,
+                        "max_tokens": 1024,
+                        "temperature": 0.1,
+                        "messages": [{"role": "system", "content": prompt}] + history,
+                        "response_format": {"type": "json_schema", "json_schema": schema},
+                    }
+                    if prov_name == "gemini":
+                        req["reasoning_effort"] = "none"
+                    resp = await client_obj.chat.completions.create(**req)
+                    raw = (resp.choices[0].message.content or "").strip()
+                    if raw.startswith("```"):
+                        raw = raw.strip("`").removeprefix("json").strip()
+                    return json.loads(raw)
+                except Exception as e:
+                    logger.warning("extract_order_details (%s) failed: %s", prov_name, e)
 
         return {
             "customer_confirmed": False,
@@ -878,10 +1038,59 @@ class LLMEngine:
             "jst_filter_text": "",
         }
 
-    def _smart_demo_generate(self, history: list[dict], current_state: str) -> tuple[str, str, str]:
+    def _smart_demo_generate(
+        self,
+        history: list[dict],
+        current_state: str,
+        brand_id: str | None = None,
+    ) -> tuple[str, str, str]:
         """Brand-accurate intelligent responder for local testing before API key is added."""
+        active_brand = self._resolve_active_brand_id(brand_id)
+        brand_cfg = load_brand_config(active_brand, fallback_config=self.config)
         user_text = (history[-1]["content"] if history else "").strip()
         low = user_text.lower()
+
+        if active_brand == "pada":
+            return (
+                "สวัสดีค่ะท่านผู้บริหาร 🙏✨ ยินดีต้อนรับสู่หลักสูตร PADA Academy รุ่นที่ 16 (การบริหารงานตำรวจในยุคดิจิทัล — เนื้อหาเด่น เครือข่ายดี ปาร์ตี้โดนใจ) นะคะ|||"
+                "• อบรมทุกวันศุกร์: 13.00-17.30 น. (เรียน 22 หัวข้อ 5 หมวดวิชา) | 18.00-23.00 น. (Exclusive Party)\n\n"
+                "• เปิดเรียน: 22 ม.ค. - 21 พ.ค. 2570 ณ Rama Gardens Hotel และ CDC Ballroom\n\n"
+                "• ค่าธรรมเนียมตลอดหลักสูตร: 150,000 บาท|||"
+                "หากท่านสนใจรับโบรชัวร์หลักสูตรหรือสำรองที่นั่ง สามารถแจ้ง ชื่อ + เบอร์โทรศัพท์ ไว้ในแชทนี้ หรือติดต่อ 087-233-8000 / Line OA: @padacourse ได้เลยนะคะ 😊",
+                current_state,
+                "none",
+            )
+
+        if active_brand == "aify":
+            return (
+                "สวัสดีค่ะคุณลูกค้า 🤖✨ ยินดีต้อนรับสู่ AIFY (@599fgktd) ผู้เชี่ยวชาญด้านระบบ AI Chatbot & Business Automation นะคะ|||"
+                "คุณลูกค้าสามารถแจ้งประเภทธุรกิจและรูปแบบระบบ AI ที่ต้องการ พร้อมฝาก ชื่อ + เบอร์โทรศัพท์ ไว้ในแชทนี้เพื่อให้ทีมผู้เชี่ยวชาญติดต่อกลับดูแลได้เลยนะคะ 😊🙏",
+                current_state,
+                "none",
+            )
+
+        if active_brand == "mrbuk":
+            if "อย." in low or "อย " in low or "เลข อย" in low or "มีอยไหม" in low.replace(" ", ""):
+                return (
+                    "ข้าวบุกหอมมะลิ มิสเตอร์บุก (Mr.Buk) มีเลขสารบบ อย. ถูกต้องครบถ้วน (เลขที่ 13-4-06169-6-0001) และมีใบรับรองมาตรฐานฮาลาล (Halal) ครบถ้วนค่ะ ทานได้อย่างมั่นใจและปลอดภัย 100% เลยค่ะ 😊💚",
+                    current_state,
+                    "none",
+                )
+            if is_bank_transfer_request(user_text) or is_history_bank_transfer_request(history):
+                pay = _get_official_payment_info(brand_cfg)
+                return (
+                    f"{pay['formatted_block']}|||{pay['account_number_raw']}|||"
+                    "เมื่อโอนแล้วรบกวนแจ้งสลิป พร้อมชื่อ-นามสกุล ที่อยู่จัดส่ง และเบอร์โทรให้น้องบุกได้เลยนะคะ 😊🙏",
+                    "pending_payment",
+                    "none",
+                )
+            return (
+                "สวัสดีค่า 🍚✨ ข้าวบุกหอมมะลิ มิสเตอร์บุก (ไม่ต้องอด ลดแป้งได้ — เพียง 23 kcal ชงง่ายใน 10 นาที มี อย. 13-4-06169-6-0001) น้องบุกส่งโปรโมชั่นพิเศษให้เลือกครบทุกชุดเลยนะคะ|||"
+                f"{MRBUK_FULL_PROMO_SUMMARY_BUBBLE}|||"
+                "คุณลูกค้าสนใจรับโปรไหนดีคะ แจ้งน้องบุกได้เลยนะคะ 😊💚",
+                current_state,
+                "none",
+            )
 
         if "อย." in low or "อย " in low or "เลข อย" in low or "มีอยไหม" in low.replace(" ", ""):
             return (
