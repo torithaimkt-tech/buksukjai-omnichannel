@@ -1135,6 +1135,12 @@ def load_or_build_daily_report(target_date: str) -> dict[str, Any]:
             save_daily_report_snapshot(jst_report, sync_google_sheet=True)
     except Exception as exc:
         logger.info("JST live query skipped/fallback to Google Sheet for %s: %s", target_date, exc)
+        err_s = str(exc).lower()
+        if any(k in err_s for k in ("401", "403", "login", "unauthorized", "expecting value")):
+            try:
+                send_jst_cookie_expired_alert_to_line_groups(str(exc))
+            except Exception:
+                pass
 
     sheet_report = fetch_report_from_google_sheet(target_date)
 
@@ -1281,6 +1287,56 @@ def send_daily_summary_to_line_groups(
 
 
 _RECENT_ESCALATION_CACHE: dict[str, float] = {}
+
+
+def send_jst_cookie_expired_alert_to_line_groups(error_detail: str = "") -> dict[str, Any]:
+    """Send an immediate alert to the LINE Summary Work Group(s) when `JST_ERP_COOKIE` expires,
+    with a 6-hour cooldown so the group is not spammed.
+    """
+    from .messenger import LINE_PUSH_URL, _get_channel_token
+
+    now_bkk = datetime.now(BKK_TZ)
+    cfg = load_line_group_config()
+    last_alert_str = str(cfg.get("last_jst_cookie_alert_at") or "").strip()
+    if last_alert_str:
+        try:
+            last_dt = datetime.fromisoformat(last_alert_str)
+            if (now_bkk - last_dt).total_seconds() < 6 * 3600:
+                return {"status": "cooldown_skipped", "last_alert_at": last_alert_str}
+        except Exception:
+            pass
+
+    token = _get_channel_token("workbot", "line")
+    if not token:
+        return {"status": "error", "reason": "missing_line_channel_access_token"}
+
+    alert_text = (
+        "⚠️ แจ้งเตือนระบบคลังสินค้า JST ERP (Cookie หมดอายุค่ะ)\n"
+        "━━━━━━━━━━━━━━━\n"
+        "ขณะนี้เซสชันล็อกอิน (`JST_ERP_COOKIE`) ของเว็บ asia-web.jsterp.com หมดอายุหรือถูกตัดการเชื่อมต่อค่ะ\n"
+        f"• สาเหตุ: {error_detail[:140] or 'Unauthorized / Session Expired'}\n"
+        "• ผลกระทบ: ระบบดึงสต็อก, คีย์ออเดอร์อัตโนมัติ และดึงยอดขายจากคลังจะพักชั่วคราวจนกว่าจะต่ออายุ Cookie\n\n"
+        "🔧 รบกวนล็อกอินเว็บ JST ERP แล้วส่ง Cookie ใหม่มาอัปเดตในระบบ เพื่อให้รอบสรุปยอด 01:00 น. และ 07:00 น. ทำงานได้ต่อเนื่องนะคะ 🙏"
+    )
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    groups_to_send = list(cfg.get("groups") or [])
+    sent_groups: list[str] = []
+    with httpx.Client(timeout=15.0) as client:
+        for gid in groups_to_send:
+            if not gid:
+                continue
+            resp = client.post(
+                LINE_PUSH_URL,
+                headers=headers,
+                json={"to": gid, "messages": [{"type": "text", "text": alert_text}]},
+            )
+            if resp.status_code == 200:
+                sent_groups.append(gid)
+
+    if sent_groups:
+        cfg["last_jst_cookie_alert_at"] = now_bkk.isoformat()
+        save_line_group_config(cfg)
+    return {"status": "ok" if sent_groups else "error", "sent_groups": sent_groups}
 
 
 def send_escalation_alert_to_line_groups(

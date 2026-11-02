@@ -46,12 +46,22 @@ def _append_session_note(psid: str, note_line: str) -> None:
                 db.commit()
 
 JST_SHOP_ID = 20759963
+JST_SHOP_ID_SHOPEE = 21406080
+JST_SHOP_ID_MRBUK = int(os.getenv("JST_SHOP_ID_MRBUK", "0") or 0)
 JST_WAREHOUSE_ID = 20421
 JST_SALESMAN_ID = "22755436"
 JST_LOGISTICS_ID = "59"
 JST_LOGISTICS_CODE = "J&T Express TH"
 JST_LOGISTICS_NAME = "J&T Express"
 JST_SCB_ACCOUNT = "3044075455"
+JST_KBANK_MRBUK_ACCOUNT = "9892136243"
+
+
+def get_shop_id_for_brand(brand_id: str = "buksukjai") -> int:
+    """Return the JST ERP ShopId for the given brand_id."""
+    if (brand_id or "").strip().lower() == "mrbuk" and JST_SHOP_ID_MRBUK > 0:
+        return JST_SHOP_ID_MRBUK
+    return JST_SHOP_ID
 
 FRESH_JST_COOKIE = (
     "client_id=8c55bf3e7cb90f3ba27a22ddfdcc3762_91cdae39f749baaed0f1c166d97c4583; "
@@ -197,7 +207,129 @@ KNOWN_SKUS: dict[str, dict[str, Any]] = {
         "isCombined": True,
         "skuType": "Combine",
     },
+    # Mister Buk (Mr.Buk ข้าวบุกหอมมะลิ) Official SKU Catalog
+    "MRBUK60G1": {
+        "itemId": "MRBUK60G1",
+        "skuId": "MRBUK60G1",
+        "name": "มิสเตอร์บุก ข้าวบุกหอมมะลิ ซองพกพา 60 กรัม (1 ซอง)",
+        "pic": "",
+        "price": 44.0,
+        "originPrice": 44.0,
+        "propertyShortName": "60 กรัม 1 ซอง",
+        "isCombined": False,
+        "skuType": "Normal",
+    },
+    "MRBUK500G1": {
+        "itemId": "MRBUK500G1",
+        "skuId": "MRBUK500G1",
+        "name": "มิสเตอร์บุก ข้าวบุกหอมมะลิ ถุงกลาง 500 กรัม (1 ถุง)",
+        "pic": "",
+        "price": 249.0,
+        "originPrice": 249.0,
+        "propertyShortName": "500 กรัม 1 ถุง",
+        "isCombined": False,
+        "skuType": "Normal",
+    },
+    "MRBUK1KG1": {
+        "itemId": "MRBUK1KG1",
+        "skuId": "MRBUK1KG1",
+        "name": "มิสเตอร์บุก ข้าวบุกหอมมะลิ ถุงใหญ่ 1 กิโลกรัม (1 ถุง)",
+        "pic": "",
+        "price": 490.0,
+        "originPrice": 490.0,
+        "propertyShortName": "1 กิโลกรัม 1 ถุง",
+        "isCombined": False,
+        "skuType": "Normal",
+    },
+    "MRBUK60G15": {
+        "itemId": "MRBUK60G15",
+        "skuId": "MRBUK60G15",
+        "name": "มิสเตอร์บุก เซ็ตพกพา 15 มื้อ (60g 15 ซอง)",
+        "pic": "",
+        "price": 599.0,
+        "originPrice": 599.0,
+        "propertyShortName": "60 กรัม 15 ซอง",
+        "isCombined": True,
+        "skuType": "Combine",
+    },
+    "MRBUK60G30": {
+        "itemId": "MRBUK60G30",
+        "skuId": "MRBUK60G30",
+        "name": "มิสเตอร์บุก เซ็ตพกพา 30 มื้อ (60g 30 ซอง)",
+        "pic": "",
+        "price": 1190.0,
+        "originPrice": 1190.0,
+        "propertyShortName": "60 กรัม 30 ซอง",
+        "isCombined": True,
+        "skuType": "Combine",
+    },
+    "MRBUK1KG2_60G1": {
+        "itemId": "MRBUK1KG2_60G1",
+        "skuId": "MRBUK1KG2_60G1",
+        "name": "มิสเตอร์บุก เซ็ตคู่ขายดี 41 มื้อ (1kg 2 ถุง + แถมฟรี 60g 1 ซอง)",
+        "pic": "",
+        "price": 950.0,
+        "originPrice": 950.0,
+        "propertyShortName": "1kg 2 ถุง + 60g 1 ซอง",
+        "isCombined": True,
+        "skuType": "Combine",
+    },
+    "MRBUK1KG5": {
+        "itemId": "MRBUK1KG5",
+        "skuId": "MRBUK1KG5",
+        "name": "มิสเตอร์บุก เซ็ตครอบครัวสุดคุ้ม 5 กก. (1kg 5 ถุง)",
+        "pic": "",
+        "price": 2390.0,
+        "originPrice": 2390.0,
+        "propertyShortName": "1 กิโลกรัม 5 ถุง",
+        "isCombined": True,
+        "skuType": "Combine",
+    },
 }
+
+
+def check_jst_cookie_health(alert_line_on_expired: bool = True) -> dict[str, Any]:
+    """Verify whether the current JST ERP session cookie is still active and valid.
+    If expired/unauthorized and `alert_line_on_expired` is True, sends an immediate alert
+    to the LINE Summary Work Group (with a 6-hour cooldown so it does not spam).
+    """
+    h = _headers(json_body=True)
+    h["Origin"] = "https://asia.jsterp.com"
+    h["Referer"] = "https://asia.jsterp.com/Wms/Inventory/SkuInventory"
+    try:
+        resp = httpx.post(
+            "https://asia.jsterp.com/wms/Inventory/GetSkuInventorys",
+            headers=h,
+            json={
+                "RequestModel": {},
+                "DataPage": {"pageSize": 10, "pageIndex": 1, "total": 0, "sizes": [10, 50]},
+            },
+            timeout=12.0,
+            follow_redirects=False,
+        )
+        if resp.status_code in (301, 302, 401, 403):
+            reason = f"HTTP {resp.status_code} (Session Redirect/Unauthorized)"
+            if alert_line_on_expired:
+                from . import daily_sheet_report
+                daily_sheet_report.send_jst_cookie_expired_alert_to_line_groups(reason)
+            return {"status": "expired", "reason": reason}
+        resp.raise_for_status()
+        payload = resp.json() or {}
+        if payload.get("Success") is False or (payload.get("Code") and int(payload.get("Code") or 0) in (401, 403)):
+            reason = str(payload.get("Message") or "JST ERP Session Expired")
+            if alert_line_on_expired:
+                from . import daily_sheet_report
+                daily_sheet_report.send_jst_cookie_expired_alert_to_line_groups(reason)
+            return {"status": "expired", "reason": reason}
+        return {"status": "ok", "sku_count": len(payload.get("Data") or [])}
+    except Exception as exc:
+        err_str = str(exc)
+        if any(k in err_str.lower() for k in ("401", "403", "login", "unauthorized", "expecting value")):
+            if alert_line_on_expired:
+                from . import daily_sheet_report
+                daily_sheet_report.send_jst_cookie_expired_alert_to_line_groups(err_str)
+            return {"status": "expired", "reason": err_str}
+        return {"status": "network_warning", "reason": err_str}
 
 
 def get_jst_cookie() -> str:
@@ -356,6 +488,9 @@ def check_duplicate_order(phone: str, within_days: int = 7) -> dict[str, Any]:
             "status": status_display,
             "pay_amount": pay_amount,
             "payment": payment_name,
+            "receiver_name": str(row_dict.get("ReceiverName") or "").strip(),
+            "receiver_mobile": row_ph or clean_phone,
+            "shop_name": str(row_dict.get("ShopName") or "").strip(),
         }
         historical_orders.append(summary)
 
@@ -377,6 +512,69 @@ def check_duplicate_order(phone: str, within_days: int = 7) -> dict[str, Any]:
         "recent_orders": recent_orders,
         "historical_orders": historical_orders,
     }
+
+
+def search_jst_orders_by_receiver_name(receiver_name: str, limit: int = 100) -> list[dict[str, Any]]:
+    """Search JST ERP (`NewQueryOrders`) for active/historical orders matching `receiver_name`."""
+    clean_name = re.sub(r"^(?:คุณ|นาย|นาง|นางสาว|น\.ส\.|พี่|น้อง)\s*", "", (receiver_name or "").strip()).strip()
+    if len(clean_name) < 2:
+        return []
+
+    payload = {
+        "RequestModel": {
+            "SendFrom": "NewQueryOrders",
+            "ReceiverName": clean_name,
+        },
+        "DataPage": {
+            "pageSize": limit,
+            "pageIndex": 1,
+            "total": 0,
+            "sizes": [50, 100, 200],
+        },
+    }
+    try:
+        resp = httpx.post(
+            "https://asia.jsterp.com/OMS/MiniShopOrder/NewQueryOrders",
+            headers=_headers(json_body=True),
+            json=payload,
+            timeout=15.0,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as exc:
+        logger.warning("JST search by receiver_name '%s' failed: %s", clean_name, exc)
+        return []
+
+    rows_obj = data.get("Rows") or {}
+    cols = rows_obj.get("cols") or []
+    raw_rows = rows_obj.get("rows") or []
+
+    matched: list[dict[str, Any]] = []
+    name_parts = [p for p in clean_name.lower().split() if len(p) >= 2]
+
+    for r in raw_rows:
+        row_dict = dict(zip(cols, r))
+        status_display = str(row_dict.get("StatusDisplay") or row_dict.get("SocialStatusDisplay") or "")
+        if "ยกเลิก" in status_display or "Cancel" in str(row_dict.get("Status") or ""):
+            continue
+        r_name = str(row_dict.get("ReceiverName") or "").strip()
+        r_name_low = r_name.lower()
+        if clean_name.lower() not in r_name_low and not (name_parts and all(p in r_name_low for p in name_parts)):
+            continue
+        row_ph = normalize_thai_phone(str(row_dict.get("ReceiverMobileEn") or row_dict.get("ReceiverPhoneEn") or ""))
+        matched.append(
+            {
+                "order_id": str(row_dict.get("OrderId") or ""),
+                "order_time": str(row_dict.get("OrderTime") or ""),
+                "status": status_display,
+                "pay_amount": row_dict.get("PayAmount"),
+                "payment": str(row_dict.get("Payment") or row_dict.get("SettlementMethodDisplay") or ""),
+                "receiver_name": r_name,
+                "receiver_mobile": row_ph,
+                "shop_name": str(row_dict.get("ShopName") or "").strip(),
+            }
+        )
+    return matched
 
 
 def cancel_orders_in_jst(
@@ -1993,6 +2191,13 @@ def get_warehouse_stock_summary() -> dict[str, Any]:
         data = (resp.json() or {}).get("Data") or []
     except Exception as exc:
         logger.warning("Failed to fetch live warehouse stock from JST ERP: %s", exc)
+        err_s = str(exc).lower()
+        if any(k in err_s for k in ("401", "403", "login", "unauthorized", "expecting value")):
+            try:
+                from . import daily_sheet_report
+                daily_sheet_report.send_jst_cookie_expired_alert_to_line_groups(str(exc))
+            except Exception:
+                pass
         return {"status": "error", "message": str(exc), "skus": {}}
 
     skus_map: dict[str, dict[str, Any]] = {}
