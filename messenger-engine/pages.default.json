@@ -19,7 +19,7 @@
       "brand_id": "mrbuk",
       "slot": 2,
       "name": "มิสเตอร์บุก (@305lhvvt)",
-      "active": true,
+      "active": false,
       "config_file": "config_mrbuk.json",
       "channels": {
         "line_channel_secret": "",
@@ -34,8 +34,8 @@
       "brand_id": "pada",
       "slot": 3,
       "name": "PADA AI (@506xhsrj)",
-      "active": true,
-      "config_file": "config.json",
+      "active": false,
+      "config_file": "config_pada.json",
       "channels": {
         "line_channel_secret": "",
         "line_channel_access_token": "",
@@ -49,8 +49,8 @@
       "brand_id": "aify",
       "slot": 4,
       "name": "AIFY (@599fgktd)",
-      "active": true,
-      "config_file": "config.json",
+      "active": false,
+      "config_file": "config_aify.json",
       "channels": {
         "line_channel_secret": "",
         "line_channel_access_token": "",
@@ -63,12 +63,27 @@
     {
       "brand_id": "workbot",
       "slot": 5,
-      "name": "GENIUS POINT (@934ndvfs)",
+      "name": "Daily Report Bot (@934ndvfs)",
       "active": true,
       "config_file": "config.json",
       "channels": {
         "line_channel_secret": "31c6946f80249c4ce55213c996d97cf9",
         "line_channel_access_token": "eDkS5MNncETiXi7yvVJ4Cj4kGwKvZ7qfN94SV5uexiHVzNpc0QpoYdKwlrWEPHpKlJqPWnEmMCNxl+iVcCrUB5r7vDHLsbrZ1UJSTKZp5vtT7EJvo5NC2ZKAfb1AkO0E/3bQ2r+OoZPJTkah2HSR/AdB04t89/1O/w1cDnyilFU=",
+        "fb_page_id": "",
+        "fb_page_access_token": "",
+        "ig_account_id": "",
+        "ig_access_token": ""
+      }
+    },
+    {
+      "brand_id": "coachbot",
+      "slot": 6,
+      "name": "Muzart พามู (@346zyzej — AI Coach)",
+      "active": true,
+      "config_file": "config.json",
+      "channels": {
+        "line_channel_secret": "cf67d9f2284a6ff9e17cf171608e5840",
+        "line_channel_access_token": "lsGtsLvra6142HJBsYMmS6UkqD+7uf23BIXzOsUwWvj5cFpDd8SZJA5eaM4hZdVD0wYXLX339lZFof5oLlIdYMIQOpz6OxZZc/q4e/I5J+QkbHqymOK4V5RfOs2BVKG0XR7kY1h/XxgkMN3cED2JxwdB04t89/1O/w1cDnyilFU=",
         "fb_page_id": "",
         "fb_page_access_token": "",
         "ig_account_id": "",

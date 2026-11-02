@@ -785,6 +785,15 @@ def audit_outgoing_reply(
         "status": "ok",
     })
 
+    is_test_or_non_bsj = (
+        b_id_low != "buksukjai"
+        or "sim_" in (psid or "").lower()
+        or "test_" in (psid or "").lower()
+        or "ทดสอบ" in str(getattr(user_session, "customer_name", "") or "")
+    )
+    if is_test_or_non_bsj:
+        escalate_to_line_group = False
+
     report = record_audit_event(
         psid=psid,
         layer="pre_send_chat",
