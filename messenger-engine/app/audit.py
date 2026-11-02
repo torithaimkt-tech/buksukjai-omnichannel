@@ -574,6 +574,49 @@ def audit_outgoing_reply(
             ]
             auto_fixes.append("แนบลิงก์สั่งซื้อ Shopee และ TikTok Shop ของข้าวบุกสุขใจตามที่สอนไว้ในกลุ่ม Comment")
 
+    # E4) Official Manufacturing Origin Answer ("ผลิตจากที่ไหนคะ / ผลิตที่ไหนคะ" — สั้น/ยาว กระชับแบบมนุษย์คุยแชท ห้ามโอเวอร์เคลม)
+    is_origin_inquiry = (
+        b_id_low in ("buksukjai", "mrbuk")
+        and any(
+            w in u_low
+            for w in (
+                "ผลิตจากที่ไหน",
+                "ผลิตที่ไหน",
+                "ผลิตจากไหน",
+                "ผลิตจากประเทศ",
+                "ทำจากประเทศอะไร",
+                "นำเข้าจากไหน",
+                "นำเข้าจากประเทศ",
+                "โรงงานอยู่ที่ไหน",
+                "โรงงานไหน",
+                "รับมาจากไหน",
+                "ของไทยไหม",
+                "ผลิตในไทยไหม",
+                "ผลิตในไทยมั้ย",
+            )
+        )
+    )
+    if (
+        is_origin_inquiry
+        and not is_fda_oy_question
+        and not is_cancel_request
+        and not is_tracking_complaint
+        and not is_wholesale_inquiry
+        and not is_marketplace_inquiry
+    ):
+        escalate_to_line_group = False
+        audited_image_key = "none"
+        short_origin = "ข้าวบุกสุขใจเป็นแบรนด์ของไทยเราเองค่ะคุณลูกค้า 🍚🌿"
+        long_origin = (
+            "ข้าวบุกสุขใจเป็นแบรนด์ของไทยเราเองค่ะคุณลูกค้า 🍚🌿 "
+            "โดยทางแบรนด์คัดสรรและสั่งผลิตจากโรงงานแปรรูปบุกชั้นนำที่ได้มาตรฐานส่งออกในประเทศจีนค่ะ"
+        )
+        if any(w in u_low for w in ("ของไทยไหม", "ของคนไทย")):
+            bubbles = [short_origin]
+        else:
+            bubbles = [long_origin]
+        auto_fixes.append("ตอบคำถามแหล่งผลิตด้วยประโยคมาตรฐานแบบกระชับเป็นธรรมชาติ (ไม่โอเวอร์เคลมและไม่ยาวเหมือนจดหมาย)")
+
     # F) Unfamiliar / Out-of-Scope / Uncertain Question Handover Shield (ห้ามตอบมั่ว ให้ตอบรับกลางๆ อย่างสุภาพแล้วแจ้งเข้า LINE สรุปยอด)
     unfamiliar_or_special_triggers = (
         "ใบกำกับภาษี",
@@ -584,12 +627,7 @@ def audit_outgoing_reply(
         "สมัครตัวแทน",
         "รับไปขาย",
         "สั่งยกลัง",
-        "โรงงานไหน",
         "ซื้อมาจากโรงงาน",
-        "รับมาจากไหน",
-        "โรงงานอยู่ที่ไหน",
-        "ผลิตที่ไหน",
-        "นำเข้าจากไหน",
         "ค่า gi",
         "ดัชนีน้ำตาล",
         "โรคไต",
@@ -615,6 +653,7 @@ def audit_outgoing_reply(
         and not is_tracking_complaint
         and not is_wholesale_inquiry
         and not is_marketplace_inquiry
+        and not is_origin_inquiry
     ):
         if matched_special or escalate_to_line_group or ai_admitted_uncertainty:
             escalate_to_line_group = True
@@ -739,19 +778,24 @@ def audit_outgoing_reply(
             try:
                 from . import loyalty  # type: ignore
 
-                pts = loyalty.calculate_mrbuk_points(buy_amt)
+                net_amt, _ = loyalty.extract_net_product_amount_thb(buy_amt)
+                pts, carryover = loyalty.calculate_points_and_carryover(net_amt, 0)
                 invite_bubble = loyalty.format_facebook_post_purchase_loyalty_invite(buy_amt, pts)
             except Exception:
-                pts = 1 if 490 <= buy_amt < 500 else max(0, int(buy_amt) // 500)
+                net_amt = int(buy_amt)
+                pts = max(0, net_amt // 500)
+                carryover = net_amt % 500
                 invite_bubble = (
-                    f"🎁 พิเศษสำหรับคุณลูกค้ามิสเตอร์บุก! ยอดสั่งซื้อ {buy_amt:,} บาท ได้รับสิทธิ์สะสมแต้ม VIP +{pts} แต้มค่ะ\n"
-                    f"สามารถแอด LINE Official: @misterbuk หรือกดลิงก์บัตรสะสมแต้ม https://u.lin.ee/P44JSey "
-                    f"แล้วแจ้งเบอร์โทรศัพท์เพื่อรับแต้มแลกของแถมฟรีได้เลยนะคะ 💚✨"
+                    f"🎁 พิเศษสำหรับคุณลูกค้ามิสเตอร์บุก! สามารถแอด LINE Official: @misterbuk "
+                    f"หรือกดลิงก์บัตรสะสมแต้ม https://u.lin.ee/P44JSey "
+                    f"แล้วแจ้งเบอร์โทรศัพท์เพื่อสะสมแต้มและบันทึกยอดสะสมแลกของแถมฟรีได้เลยนะคะ 💚✨"
                 )
             joined_now = "\n".join(bubbles)
-            if pts >= 1 and "@misterbuk" not in joined_now and "P44JSey" not in joined_now:
+            if (pts >= 1 or net_amt >= 249) and "@misterbuk" not in joined_now and "P44JSey" not in joined_now:
                 bubbles.append(invite_bubble)
-                auto_fixes.append(f"แนบข้อความชวนแอด LINE @misterbuk เพื่อรับสิทธิ์สะสมแต้ม VIP +{pts} แต้ม (ยอดซื้อ {buy_amt:,} บาท)")
+                auto_fixes.append(
+                    f"แนบข้อความชวนแอด LINE @misterbuk สะสมแต้ม VIP (+{pts} แต้ม | เศษสะสม {carryover} บาท จากยอดสินค้าสุทธิ {net_amt:,} บาท)"
+                )
 
         checks.append({
             "name": "ตรวจแฮชแท็กปิดการขาย #BUY แยกกล่องข้อความเดี่ยว (ROI Tracking)",
