@@ -2166,7 +2166,23 @@ def build_pre_keying_jst_checklist(days_lookback: int = 2) -> dict[str, Any]:
                     "jst_active_count": len(matched_jst),
                 })
             else:
-                pending_to_key.append(order_summary)
+                # Check if a transfer order is waiting for a verified slip image in chat
+                slip_note = ""
+                if "โอน" in pay_label and "ปลายทาง" not in pay_label:
+                    try:
+                        with SessionLocal() as _db:
+                            _cand = (
+                                _db.query(UserSession)
+                                .filter(UserSession.customer_name == fb_name)
+                                .first()
+                            )
+                        if _cand:
+                            _ext = extract_order_from_session(_cand.psid)
+                            if not _ext.get("has_slip"):
+                                slip_note = " ⏳ (รอรูปสลิปโอนเงินในแชท)"
+                    except Exception:
+                        pass
+                pending_to_key.append({**order_summary, "slip_note": slip_note})
 
     # Format human-readable summary for LINE Work Group / Admin
     lines = [
@@ -2180,9 +2196,10 @@ def build_pre_keying_jst_checklist(days_lookback: int = 2) -> dict[str, Any]:
             d_short = f"{p['order_date'][8:10]}/{p['order_date'][5:7]}" if len(p.get("order_date", "")) >= 10 else ""
             t_short = p.get("time_bkk", "")[:5]
             dt_tag = f"[{d_short} {t_short}] ".strip() if d_short else ""
+            s_note = p.get("slip_note") or ""
             lines.append(
                 f"  {idx}) {dt_tag}FB: {p['customer_name']} | เบอร์ {p['phone']} | "
-                f"{p['sku_id']} ยอด {p['total_amount']:.0f}฿ ({p['payment_label']})"
+                f"{p['sku_id']} ยอด {p['total_amount']:.0f}฿ ({p['payment_label']}){s_note}"
             )
     else:
         lines.append("  ✅ ไม่มีออเดอร์ค้างคีย์ค่ะ (คีย์ครบหมดแล้ว)")
