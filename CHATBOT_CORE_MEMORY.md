@@ -74,21 +74,44 @@
 
 ---
 
-### ⚠️ ข. สิ่งที่ยังติด / ยังค้างคา / ยังทำไม่สำเร็จ (Pending / Unfinished Items)
+### ⚠️ ข. สิ่งที่ยังติด / ยังค้างคา / ยังทำไม่สำเร็จ (แยกตามกลุ่มงานชัดเจน สำหรับส่งต่อในแต่ละแชท)
 
-1. **การย้ายเซิร์ฟเวอร์ Render มาอยู่บนบัญชี `buksukjai@gmail.com` เต็มตัว (หรืออัปเดต GitHub ฝั่งที่เชื่อมกับ Render ตัวปัจจุบัน):**
-   - **สิ่งที่ยังค้าง:** บัญชี Render ใหม่ของ `buksukjai@gmail.com` (`Bukrice's workspace`) เปิดเสร็จแล้ว แต่ยังไม่ได้กดเชื่อมกับ GitHub (`pordiporditeam-sudo/buksukjai-omnichannel`) เพื่อสร้าง Web Service ตัวใหม่ ส่วนเซิร์ฟเวอร์ตัวที่กำลังออนไลน์อยู่ตอนนี้ (`https://buksukjai-omnichannel.onrender.com`) ยังผูกอยู่กับ GitHub บัญชีเดิม (`torithaimkt-tech/buksukjai-omnichannel` ที่ Commit `ab74985`)
-   - **วิธีทำต่อในแชทหน้า:** กดเชื่อม GitHub `pordiporditeam-sudo/buksukjai-omnichannel` เข้ากับ Render ของ `buksukjai@gmail.com` (หรืออัปโหลดโค้ดล่าสุดเข้า `torithaimkt-tech/buksukjai-omnichannel`) เพื่อให้โค้ดแกนกลางชุดล่าสุดขึ้น Cloud 100%
-2. **การคีย์ออเดอร์จาก Facebook เข้า JST ERP อัตโนมัติ (`AUTO_SYNC_ENABLED` ปัจจุบันปิดไว้เป็น `False` ชั่วคราว):**
-   - **สิ่งที่ยังค้าง:** ใน [`jst_erp.py`](file:///D:/chat%20bot/messenger-engine/app/jst_erp.py#L74) ปัจจุบันตั้ง `AUTO_SYNC_ENABLED = False` ไว้ชั่วคราว เพราะเมื่อวันที่ 31 ต.ค. มีแอดมินคนคีย์ออเดอร์ตอนกลางคืนซ้ำกับออเดอร์ที่บอทคีย์ไปตอนบ่าย (`ครูเล็ก #233258/#232992`, `โยษิตา #233253/#232993`, `สุกัญญา #233251/#232994`)
-   - **วิธีทำต่อในแชทหน้า:** เมื่อตกลงให้บอทคีย์ออเดอร์แทนแอดมินคน 100% (แอดมินไม่ต้องคีย์มือซ้ำ) สามารถสลับ `AUTO_SYNC_ENABLED = True` ได้ทันที โดยระบบได้ล็อกเวลาคีย์ไว้เฉพาะช่วง 06:00–06:59 น. และกรองออเดอร์ซ้ำย้อนหลัง 30 วันไว้พร้อมแล้ว
-3. **การนำไฟล์ Workflow ทั้ง 4 ตัว ไปกด Import เข้าหน้ากระดาน n8n จริง (ภายใต้อีเมล `Tori Marketing`):**
-   - **สิ่งที่ยังค้าง:** สร้างไฟล์ JSON แม่แบบแยก 4 แชทบอทไว้ใน [`D:\chat bot\messenger-engine\n8n_workflows\`](file:///D:/chat%20bot/messenger-engine/n8n_workflows/) เรียบร้อยแล้ว แต่ยังไม่ได้เปิดหน้าเว็บ n8n Self-Hosted ของอีเมล `Tori Marketing` เพื่อกด Import ไฟล์ทั้ง 4 ตัวขึ้นหน้ากระดานจริง
-4. **การผูก LINE OA และตั้งค่าบอทตัวที่ 4 (บอทแอดมินประสานงานฝั่ง `Tori Marketing`) และสล็อตแบรนด์อื่นๆ (`มิสเตอร์บุก`, `PADA AI`, `AIFY`):**
-   - **สิ่งที่ยังค้าง:** โฟลว์ที่ 4 (`4_torimarketing_admin_bot.json`) เตรียมโครงสร้างแยกไว้แล้ว แต่ยังไม่ได้ใส่ Channel Secret / Access Token ของ LINE OA ฝั่ง Tori Marketing รวมถึงสล็อตของ `มิสเตอร์บุก`, `PADA AI`, `AIFY` และ `Instagram DM` ใน `pages.json` ที่ยังรอใส่ Token จริงเมื่อพร้อมใช้งาน
-5. **ข้อจำกัดเรื่องอายุ Cookie ของ JST ERP และฐานข้อมูล SQLite บน Render:**
-   - **Cookie JST ERP:** ต้องคอยต่ออายุ Session Cookie (`DEFAULT_JST_COOKIE`) เมื่อเว็บ `asia-web.jsterp.com` หมดอายุเซสชัน (ทุก 7–14 วัน)
-   - **ฐานข้อมูลบน Render:** ปัจจุบันใช้ SQLite ร่วมกับระบบดึงแชท Facebook ย้อนหลังอัตโนมัติและไฟล์ JSON สำรอง หากต้องการให้ประวัติแชทฝั่ง LINE OA ไม่ถูกรีเซ็ตตอน Deploy ใหม่ในอนาคต แนะนำให้ผูก PostgreSQL ภายนอก (เช่น Supabase / Neon) ผ่าน `DATABASE_URL` ค่ะ
+#### 💬 หมวดที่ 1: งานของ "กลุ่มคอมเมนต์ / พัฒนาการตอบแชทลูกค้า" (บอทน้องบุก `@602xbpha` & บอท AI Coach `@346zyzej`)
+1. **อัปเดตกฎการตอบแชทและสำนวนชุดล่าสุดขึ้นเซิร์ฟเวอร์ Cloud ให้ครบ 100%:**
+   - กฎทวนออเดอร์ (ทั้งเก็บปลายทางและโอนเงิน) **ไม่ต้องให้ลูกค้าพิมพ์คำว่า `"ยืนยัน"` ซ้ำ** และ **ห้ามส่งรูปโปรโมชั่นซ้ำตอนทวนออเดอร์** (เคสคุณโชกุน `Jt Shogun Tj`)
+   - กฎตรวจคำตอบรับคำขอบคุณ **ห้ามตกคำว่า `"ยิน"`** เช่น `"ดีมากๆค่ะ..."` ให้แปลงเป็น `"ด้วยความยินดีเลยค่ะ..."` เสมอ (เคสคุณ `Gus Sasi`)
+   - ระบบสุ่มข้อความบอทขุดแชท 3 จังหวะ (สั้น 1 กล่อง / กลาง 1 กล่อง / ยาว 2 กล่อง) และบล็อกการขุดแชทลูกค้าที่ส่งเบอร์โทร 10 หลักหรือที่อยู่แล้ว (เคสคุณ `Sam Siri`)
+   - ระบบแจ้งเลขพัสดุ 2 จังหวะที่แยกแพทเทิร์นสั้น-ยาวชัดเจน (จังหวะส่งแล้ว 2 กล่อง vs จังหวะถึงมือแล้ว 1 กล่องสั้นกระชับ)
+2. **การสอนบอทเพิ่มเติมจากเคสจริงในกลุ่ม `Comment (4)` (`Cf0c8835b5b0711e80f7350ffc9af66f1`) และการอัปเดตเลข อย. เมื่อได้รับอนุมัติจริง:**
+   - รับรูปแคปหน้าจอและคอมเมนต์ติชมจากคุณแอมมี่/คุณนัดผ่านบอท `@346zyzej` เพื่อปรับปรุงสำนวนการตอบแชทอย่างต่อเนื่อง
+   - เมื่อได้รับเลข อย. จริงของข้าวบุกสุขใจแล้ว จึงนำมาอัปเดตใน `config.json` (ปัจจุบันล็อกกฎห้ามเปิดประเด็นเรื่อง อย. เอง และห้ามแจ้งเลขปลอมเด็ดขาด)
+
+---
+
+#### 📊 หมวดที่ 2: งานของ "กลุ่มสรุปยอด / สต็อกคลัง / ระบบออเดอร์ JST ERP" (บอทกลุ่มสรุปยอด `GENIUS POINT @934ndvfs`)
+1. **การเปิดระบบคีย์ออเดอร์จาก Facebook เข้า JST ERP อัตโนมัติ (`AUTO_SYNC_ENABLED`):**
+   - ปัจจุบันใน [`jst_erp.py`](file:///D:/chat%20bot/messenger-engine/app/jst_erp.py#L74) ปิด `AUTO_SYNC_ENABLED = False` ไว้ชั่วคราว เพื่อไม่ให้คีย์ชนกับแอดมินคนตอนกลางคืน (หลังจากเกิดเคสออเดอร์ซ้ำเมื่อวันที่ 31 ต.ค. 3 รายการ: `ครูเล็ก #233258/#232992`, `โยษิตา #233253/#232993`, `สุกัญญา #233251/#232994`)
+   - **สิ่งที่ต้องทำต่อในกลุ่มสรุปยอด:**
+     - ตรวจสอบและเคลียร์สถานะออเดอร์ซ้ำของวันที่ 31 ต.ค. ในระบบ JST ERP
+     - เมื่อตกลงให้ AI คีย์ออเดอร์แทนแอดมินคน 100% (แอดมินหยุดคีย์มือ) ให้สลับ `AUTO_SYNC_ENABLED = True` เพื่อให้บอทคีย์ออเดอร์รอบ 06:00 น. + ผูกขนส่ง J&T Express (`219956`) + กดอนุมัติ (`Audit`) เข้าคลังอัตโนมัติก่อนส่งสรุปยอด 07:00 น.
+2. **การดูแลอายุ Session Cookie ของระบบ JST ERP (`DEFAULT_JST_COOKIE`):**
+   - ระบบดึงยอดขายรายวัน, ดึงสต็อกคงเหลือ (`60g`, `500g`, `1kg`), ตรวจสลิปอัตโนมัติ และผูกขนส่ง J&T ทำงานผ่าน Cookie ของเว็บ `asia-web.jsterp.com` (มีอายุประมาณ 7–14 วัน)
+   - **สิ่งที่ต้องทำต่อในกลุ่มสรุปยอด:** เพิ่มระบบแจ้งเตือนเข้ากลุ่มสรุปยอดทันทีหาก Cookie ของ JST ERP หมดอายุ เพื่อให้อัปเดต Cookie ใหม่ได้ทันก่อนรอบสรุปยอด 01:00 น. และ 07:00 น.
+3. **การตรวจสอบความตรงกันของยอดขาย 3 ทาง (JST ERP vs Google Sheets vs แฮชแท็ก `#BUY` ใน ROI Tracking):**
+   - อัปเดตโค้ดชุดตัดออเดอร์ซ้ำ (`jst_duplicates_removed` ใน [`daily_sheet_report.py`](file:///D:/chat%20bot/messenger-engine/app/daily_sheet_report.py)) ขึ้นเซิร์ฟเวอร์ Cloud เพื่อให้รายงาน 07:00 น. และ Google Sheets นับเฉพาะใบหลักเพียงใบเดียวเสมอ
+
+---
+
+#### 🛠️ หมวดที่ 3: งานส่วนอื่นๆ (โครงสร้างพื้นฐาน Cloud / n8n / แบรนด์อื่น — แยกออกจากกลุ่มคอมเมนต์และกลุ่มสรุปยอด)
+1. **การเชื่อมบัญชี Render ใหม่ (`buksukjai@gmail.com`) เข้ากับ GitHub เพื่อ Deploy โค้ดแกนกลางชุดล่าสุดขึ้น Cloud 100%:**
+   - บัญชี Render ใหม่ของ `buksukjai@gmail.com` (`Bukrice's workspace`) เปิดเสร็จแล้ว และโค้ดแกนกลางชุดล่าสุดอยู่ที่ GitHub `pordiporditeam-sudo/buksukjai-omnichannel`
+   - **สิ่งที่ต้องทำต่อ:** กดเชื่อม GitHub `pordiporditeam-sudo/buksukjai-omnichannel` เข้ากับ Render ของ `buksukjai@gmail.com` (หรืออัปเดตโค้ดล่าสุดเข้า `torithaimkt-tech/buksukjai-omnichannel` ที่ผูกกับ `https://buksukjai-omnichannel.onrender.com` ปัจจุบัน)
+2. **การผูกฐานข้อมูลถาวร (External PostgreSQL เช่น Supabase / Neon) แทน SQLite บน Render:**
+   - เพื่อป้องกันไม่ให้ข้อมูลประวัติแชทฝั่ง LINE OA ถูกรีเซ็ตเมื่อมีการ Deploy เซิร์ฟเวอร์ใหม่
+3. **การนำไฟล์ Workflow ทั้ง 4 ตัว ไปกด Import เข้าหน้ากระดาน `n8n` จริง (ภายใต้อีเมล `Tori Marketing`):**
+   - เปิดหน้าเว็บ `n8n` Self-Hosted แล้วกด `Import from File` เลือกไฟล์ทั้ง 4 ตัวจาก [`D:\chat bot\messenger-engine\n8n_workflows\`](file:///D:/chat%20bot/messenger-engine/n8n_workflows/)
+4. **การผูก LINE OA และตั้งค่าบอทตัวที่ 4 (บอทแอดมินประสานงานฝั่ง `Tori Marketing`) และสล็อตแบรนด์อื่นๆ (`มิสเตอร์บุก`, `PADA AI`, `AIFY`, `Instagram DM`):**
+   - ใส่ Channel Secret / Access Token ของ LINE OA ฝั่ง `Tori Marketing` ในโฟลว์ที่ 4 และใส่ Token ของเพจแบรนด์อื่นๆ ใน [`pages.json`](file:///D:/chat%20bot/messenger-engine/pages.json) เมื่อพร้อมเปิดใช้งานค่ะ
 
 
 ---
@@ -126,3 +149,28 @@
    - **ข้อที่ 1 (การคิดแต้มต่อบิล vs สะสมยอดทบข้ามบิล):** กรณีลูกค้าสั่งเซ็ตคู่ `950 บาท` จะให้คิดแบบ **"ตัดตามบิล = รับ 1 แต้ม (หรือปัดขึ้นให้ 2 แต้ม)"** หรือให้ **"รับ 1 แต้ม แล้วเก็บเศษ 450 บาทไว้ทบกับบิลถัดไป"** ในฐานข้อมูลคะ?
    - **ข้อที่ 2 (สิทธิ์ของถุงใหญ่ 1 กก. ราคา `490 บาท`):** ยืนยันตามข้อความต้อนรับใน LINE OA ปัจจุบันเลยไหมคะว่า ถ้าลูกค้าซื้อถุงใหญ่ 1 กก. (`490.-` ซึ่งขาดอีก 10 บาทจะครบ 500) **อนุโลมให้ได้รับ 1 แต้มเต็มทันที**?
    - **ข้อที่ 3 (รูปแบบการเก็บแต้ม):** แนะนำให้ทำแบบ **Hybrid (คู่ขนาน)** คือบันทึกแต้มผูกกับเบอร์โทรไว้ในฐานข้อมูล `chatbot.db` ของบอทด้วย **พร้อมกับ** ส่งรูป QR Code ให้ลูกค้ากดสะสมในบัตร LINE Reward Card ด้วย เผื่อลูกค้าผู้สูงอายุสแกน QR ไม่เป็น บอทและแอดมินก็ยังเช็กแต้มจากเบอร์โทรให้ลูกค้าได้ 100% ค่ะ
+
+---
+
+## 5. กฎเหล็กการแยกแบรนด์/บริษัทเด็ดขาด 100% และการตั้งชื่อ + รูปโปรไฟล์บอทส่งรีพอร์ต (`workbot` @934ndvfs)
+
+### 🔒 5.1 กฎเหล็กห้ามปะปนกับบริษัทใหม่เด็ดขาด 100% (Strict Shareholder & Company Isolation Rule)
+- ระบบแชทบอทนี้และกลุ่ม LINE สรุปรายงานเป็นของโปรเจกต์ **มิสเตอร์บุก (`Mr.Buk`)** และ **ข้าวบุกสุขใจ (`Buk Sukjai`)** ซึ่งคุณนัดมีหุ้นส่วนฝั่งเดิมที่ **ไม่รู้เรื่องบริษัท พอดิพอดี เฮาส์ จำกัด (`Pordipordi House`) และแบรนด์พอดีสุข (`Pordisuk`) เลยแม้แต่นิดเดียว และห้ามรู้เด็ดขาด 100%**
+- ดังนั้น **ห้ามนำชื่อ `Pordipordi` / `พอดิพอดี` / `พอดีสุข` / ชื่อมาสคอต (`ทูลี่` / `ขุนสุข`) หรือสิ่งใดที่เชื่อมโยงกับบริษัทใหม่มาใช้ตั้งชื่อบอท รูปโปรไฟล์ หรือข้อความแจ้งเตือนในระบบนี้และในกลุ่ม LINE เด็ดขาดค่ะ** ต้องแยกขาดออกจากกันอย่างสิ้นเชิง
+
+### ✅ 5.2 สิ่งที่เตรียมเสร็จแล้ว (รายชื่อใหม่แทน `GENIUS POINT` และคำสั่งสร้างรูปโปรไฟล์ 1:1 ทั้ง 3 สไตล์)
+- **รายชื่อบอทส่งรีพอร์ตที่ปลอดภัย 100% (สำหรับใช้เปลี่ยนแทนชื่อบริษัทเก่า `GENIUS POINT`):**
+  - *แนวระบบรีพอร์ตกลางๆ (แนะนำ):* **`Daily Report Bot`**, `Smart Report Center`, `Sales & Chat Report`, `Auto Report Hub`, `Admin Report Bot`
+  - *แนวผู้ช่วยสรุปยอด:* **`บอทสรุปรีพอร์ต (Daily Report)`**, `น้องรีพอร์ต · สรุปยอด`, `ผู้ช่วยรายงานประจำวัน`, `เลขาสรุปยอด (Report Bot)`, `Boty Report`
+  - *แนวผูกกับข้าวบุก 2 แบรนด์นี้โดยตรง:* **`Buk Report Bot`**, `Mr.Buk & Sukjai Report`, `Buk Daily Report (สรุปยอดข้าวบุก)`, `Buk Team Report`
+- **คำสั่งสร้างรูปโปรไฟล์ตัวการ์ตูน 1:1 (Centered Avatar Composition ไม่โดนตัดขอบวงกลม) ทั้ง 3 สไตล์:**
+  1. **สไตล์ที่ 1 (น้องหุ่นยนต์ผู้ช่วยอัจฉริยะ 3D Pixar-Style):**
+     `A cute 3D Pixar-style chibi robot assistant designed as a social media profile avatar, 1:1 square aspect ratio, centered head-and-shoulders composition. The friendly mini robot has a glossy white and mint-green body, wearing smart rimless glasses and a tiny neat bowtie. Its digital LED face screen shows a cheerful, confident smiling expression. It is holding a glowing futuristic tablet displaying an upward green bar chart and a checkmark icon. Floating soft holographic pie charts and data sparkles around it. Clean gradient deep navy blue background that makes the character pop inside a circular profile crop. Studio soft lighting, Octane render, 8k resolution, ultra-detailed, vibrant and professional mascot design, no text.`
+  2. **สไตล์ที่ 2 (น้องแมวส้มเลขาสรุปรายงาน 3D Blind-Box Style):**
+     `An adorable 3D Blind-Box / Pop Mart style chibi ginger cat character acting as a smart data report secretary, 1:1 square aspect ratio, centered avatar portrait. The cute cat is wearing round nerd glasses, a miniature navy business vest with a yellow tie, and a sleek wireless headset with a tiny microphone. It is happily holding up a neat clipboard with colorful rising analytics graphs and a golden star badge. Soft warm pastel cream and teal circular halo background, designed specifically to fit cleanly inside a round profile picture frame. Pixar and Blender 3D style, smooth clay-like vinyl texture, bright studio rim lighting, sharp focus, joyful and reliable vibe, 4k resolution, no text.`
+  3. **สไตล์ที่ 3 (น้องนกฮูกมอนิเตอร์ดาต้า 24 ชม. 2D Modern Anime Vector):**
+     `A vibrant 2D modern anime vector illustration of a cute smart cyber-owl mascot for a report notification bot, 1:1 square aspect ratio, centered close-up avatar composition. The little owl has bright expressive eyes behind futuristic translucent visor glasses, wearing a tiny smart blazer collar, and holding a glowing digital dashboard folder with a rising trend line and a green notification bell icon. Bold clean line art, cel-shaded vibrant colors in royal blue, energetic orange, and emerald green against a soft dark-slate background for high contrast at small icon sizes. Crisp esports/tech app mascot aesthetic, flat clean edges suitable for a circular profile icon, high resolution, no text.`
+
+### ⚠️ 5.3 สิ่งที่ยังค้างคา (รอทำต่อในกลุ่มสรุปยอด)
+- **❌ ยังไม่ได้เปลี่ยนชื่อจริงและรูปโปรไฟล์จริงในเว็บ `manager.line.biz` และในไฟล์ `pages.json`:**
+  - ปัจจุบันบอทส่งรีพอร์ต (`@934ndvfs` Slot 5 `workbot`) ยังแสดงชื่อว่า **`GENIUS POINT`** (และบอทโค้ช `@346zyzej` Slot 6 `coachbot` ยังใช้ชื่อ **`Muzart พามู`**) ต้องนำรูปโปรไฟล์ 1:1 ไปอัปโหลดและกดเปลี่ยนชื่อ Account ใน `manager.line.biz` เป็น `Daily Report Bot` หรือ `Buk Report Bot` พร้อมอัปเดตฟิลด์ `"name"` ใน `messenger-engine/pages.json` และ `pages.default.json` ค่ะ
