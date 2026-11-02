@@ -651,20 +651,11 @@
     ]
   ],
   "fb_buy_audit": {
-    "raw_buy_count": 13,
-    "raw_buy_total": 6179.0,
+    "raw_buy_count": 12,
+    "raw_buy_total": 5870.0,
     "dedup_count": 12,
     "dedup_total": 5870.0,
-    "duplicates": [
-      {
-        "fb_name": "Wawa Su",
-        "earlier_tags": [
-          "#BUY309"
-        ],
-        "latest_tag": "#BUY309",
-        "duplicate_amount": 309.0
-      }
-    ],
+    "duplicates": [],
     "orders": [
       {
         "fb_name": "Wawa Su",

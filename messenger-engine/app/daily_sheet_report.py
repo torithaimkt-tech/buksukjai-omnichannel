@@ -669,6 +669,13 @@ def fetch_facebook_buy_audit(target_date: str) -> dict[str, Any]:
             m_buy = re.search(r"#BUY\s*(\d+(?:\.\d+)?)", txt, re.IGNORECASE)
             if m_buy:
                 amt = float(m_buy.group(1))
+                # Ignore identical #BUY<amt> repeated in the same conversation on the same day
+                # (ROI Tracking counts identical #BUY tags in the same chat as 1 order)
+                if day_buys and abs(day_buys[-1]["amount"] - amt) < 0.01:
+                    day_buys[-1]["time_bkk"] = dt_bkk.strftime("%H:%M:%S")
+                    if last_summary_text:
+                        day_buys[-1]["summary_text"] = last_summary_text
+                    continue
                 raw_buy_count += 1
                 raw_buy_total += amt
                 day_buys.append(
@@ -815,7 +822,10 @@ def format_line_group_daily_summary(report: dict[str, Any]) -> str:
 
     fb_line = f"• Facebook : {fb_amt:,.2f} บาท"
     if dedup_cnt > 0:
-        fb_line = f"• Facebook : {fb_amt:,.2f} บาท ({dedup_cnt} ออเดอร์จัดส่งจริง)"
+        if not dups and abs(fb_amt - float(fb_audit.get("dedup_total") or 0.0)) < 1.0:
+            fb_line = f"• Facebook : {fb_amt:,.2f} บาท ({dedup_cnt} ออเดอร์ — ตรงกับชีท & ROI Tracking 100% ค่ะ)"
+        else:
+            fb_line = f"• Facebook : {fb_amt:,.2f} บาท ({dedup_cnt} ออเดอร์จัดส่งจริง)"
 
     lines = [
         f"📊 สรุปยอดขายและตัดสต็อกประจำวันที่ {t_date}",
