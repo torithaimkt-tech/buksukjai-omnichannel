@@ -111,15 +111,14 @@
 ---
 
 #### 🛠️ หมวดที่ 3: งานส่วนอื่นๆ (โครงสร้างพื้นฐาน Cloud / n8n / แบรนด์อื่น — แยกออกจากกลุ่มคอมเมนต์และกลุ่มสรุปยอด)
-1. **การเชื่อมบัญชี Render ใหม่ (`buksukjai@gmail.com`) เข้ากับ GitHub เพื่อ Deploy โค้ดแกนกลางชุดล่าสุดขึ้น Cloud 100%:**
-   - บัญชี Render ใหม่ของ `buksukjai@gmail.com` (`Bukrice's workspace`) เปิดเสร็จแล้ว และโค้ดแกนกลางชุดล่าสุดอยู่ที่ GitHub `pordiporditeam-sudo/buksukjai-omnichannel`
-   - **สิ่งที่ต้องทำต่อ:** กดเชื่อม GitHub `pordiporditeam-sudo/buksukjai-omnichannel` เข้ากับ Render ของ `buksukjai@gmail.com` (หรืออัปเดตโค้ดล่าสุดเข้า `torithaimkt-tech/buksukjai-omnichannel` ที่ผูกกับ `https://buksukjai-omnichannel.onrender.com` ปัจจุบัน)
-2. **การผูกฐานข้อมูลถาวร (External PostgreSQL เช่น Supabase / Neon) แทน SQLite บน Render:**
-   - เพื่อป้องกันไม่ให้ข้อมูลประวัติแชทฝั่ง LINE OA ถูกรีเซ็ตเมื่อมีการ Deploy เซิร์ฟเวอร์ใหม่
-3. **การนำไฟล์ Workflow ทั้ง 4 ตัว ไปกด Import เข้าหน้ากระดาน `n8n` จริง (ภายใต้อีเมล `Tori Marketing`):**
-   - เปิดหน้าเว็บ `n8n` Self-Hosted แล้วกด `Import from File` เลือกไฟล์ทั้ง 4 ตัวจาก [`D:\chat bot\messenger-engine\n8n_workflows\`](file:///D:/chat%20bot/messenger-engine/n8n_workflows/)
-4. **การผูก LINE OA และตั้งค่าบอทตัวที่ 4 (บอทแอดมินประสานงานฝั่ง `Tori Marketing`) และสล็อตแบรนด์อื่นๆ (`มิสเตอร์บุก`, `PADA AI`, `AIFY`, `Instagram DM`):**
-   - ใส่ Channel Secret / Access Token ของ LINE OA ฝั่ง `Tori Marketing` ในโฟลว์ที่ 4 และใส่ Token ของเพจแบรนด์อื่นๆ ใน [`pages.json`](file:///D:/chat%20bot/messenger-engine/pages.json) เมื่อพร้อมเปิดใช้งานค่ะ
+1. **✅ อัปเกรดระบบฐานข้อมูลถาวร (PostgreSQL + Persistent Snapshot Auto-Restore) & Render Blueprint เสร็จแล้ว 100%:**
+   - อัปเกรด [`app/database.py`](file:///D:/chat%20bot/messenger-engine/app/database.py) ให้รองรับทั้ง **PostgreSQL (`postgresql+psycopg2://` / `postgres://`)** และ **SQLite + ระบบสำรองข้อมูลอัตโนมัติ (`db_persistent_snapshot.json`)** ที่กู้คืนประวัติแชท LINE OA และแต้มสะสม `LoyaltyMember` / `LoyaltyClaimedOrder` อัตโนมัติทุกครั้งที่เซิร์ฟเวอร์เริ่มทำงานใหม่ (ข้อมูลไม่หายแม้มีการ Redeploy บน Render)
+   - อัปเดต [`render.yaml`](file:///D:/chat%20bot/render.yaml) ให้ตั้งค่า `plan: free` พร้อมประกาศฐานข้อมูล `buksukjai-db` (`PostgreSQL Free`, โซน `singapore`) และ Push โค้ดแกนกลางชุดล่าสุดขึ้น GitHub `pordiporditeam-sudo/buksukjai-omnichannel` เรียบร้อยแล้วค่ะ
+2. **✅ นำเข้าไฟล์ Workflow ทั้ง 4 ตัวขึ้นระบบกระดาน `BaanTori` & เตรียมสคริปต์รัน `n8n` Self-Hosted เสร็จแล้ว 100%:**
+   - ซิงก์ไฟล์ทั้ง 4 โฟลว์จาก [`messenger-engine/n8n_workflows/`](file:///D:/chat%20bot/messenger-engine/n8n_workflows/) ไปยัง [`D:\torimarketing\n8n-workflows\`](file:///D:/torimarketing/n8n-workflows/) และนำเข้าขึ้นกระดาน `BaanTori` (`http://localhost:3000` / `data/amp_ads_config.json`) พร้อมสคริปต์คลิกเดียว [`import_and_start_n8n.bat`](file:///D:/chat%20bot/messenger-engine/n8n_workflows/import_and_start_n8n.bat) และ API `/api/n8n/workflows`
+3. **✅ ผูก LINE OA บอทตัวที่ 4 (`AIFY @599fgktd` สำหรับแอดมินประสานงาน `Tori Marketing`) และเตรียมไฟล์ข้อมูลสินค้าครบทั้ง 4 แบรนด์แล้ว:**
+   - ผูก `LINE Channel ID: 2012318539`, `Channel Secret: 2e841449fe0466ebba1abcf68953966b`, และ `Access Token` ของ **`AIFY (@599fgktd)`** ลงใน [`4_torimarketing_admin_bot.json`](file:///D:/chat%20bot/messenger-engine/n8n_workflows/4_torimarketing_admin_bot.json) พร้อมตรรกะตรวจจับรหัสกลุ่ม (`C...`) และคำสั่งประสานงาน (`สรุปงาน`, `เช็กสถานะ`, `รหัสกลุ่ม`, `#งานด่วน`) แยกขาดจากข้าวบุกสุขใจ 100%
+   - สร้างและผูกไฟล์ [`config_mrbuk.json`](file:///D:/chat%20bot/messenger-engine/config_mrbuk.json), [`config_pada.json`](file:///D:/chat%20bot/messenger-engine/config_pada.json), และ [`config_aify.json`](file:///D:/chat%20bot/messenger-engine/config_aify.json) เสร็จครบถ้วน (ส่วนสล็อต `mrbuk`, `pada`, `aify` ใน `buksukjai-omnichannel` ตั้ง `active: false` ไว้เพื่อป้องกันข้อความทดสอบหลุดเข้ากลุ่ม `BUK TEAM` จนกว่าจะนำ Token จริงของ `mrbuk` และ `pada` มาเปิดใช้งานค่ะ)
 
 
 ---
@@ -139,24 +138,24 @@
    - **ไฟล์ใบแนบกล่องพัสดุ A5 สำหรับส่งโรงพิมพ์ (`D:\MrBuk print A5\300ppi\MrBuk print A5.jpg`):** ทำเสร็จเรียบร้อยแล้วค่ะ
 2. **อัปเดตไฟล์ความรู้และกฎเหล็กเฉพาะของ มิสเตอร์บุก ([`messenger-engine/config_mrbuk.json`](file:///D:/chat%20bot/messenger-engine/config_mrbuk.json)) ครบ 100% แล้ว:**
    - แก้ไขข้อมูลใน `config_mrbuk.json` ให้เป็นข้อมูลจริงของ **มิสเตอร์บุก (`Mr.Buk`)** ทั้งหมด (ไม่ปะปนกับข้าวบุกสุขใจ): สัดส่วนแป้งบุก 46% (ผงบุก 54%) + ข้าวหอมมะลิแท้ 44% + น้ำ 10%, พลังงาน 23 kcal / คาร์บ 5g, เลข อย. `13-4-06169-6-0001` + ฮาลาล, เลขบัญชีธนาคารกสิกรไทย `989-2-13624-3` (บจก. ทูเคพี อิควิปเม้นท์), ราคาจริงครบทั้ง 4 โปรโมชั่นหลัก (`44.-`, `249.-`, `490.-`, `599.-`, `1,190.-`, `950.-`, `2,390.-`), และเพิ่มบล็อก `loyalty_program` + FAQ กติกาการแอด LINE `@misterbuk` สะสมแต้มเมื่อซื้อครบ 500 บาทเรียบร้อยแล้วค่ะ
-3. **โครงสร้างรองรับ `brand_id: "mrbuk"` ในโค้ดแกนกลาง (`messenger-engine`):**
-   - จอง Slot 2 (`mrbuk` — `@305lhvvt`) ใน `pages.default.json` และ `pages.json`, มี Endpoint `/webhook/line/mrbuk` ใน `app/main.py`, ล็อกเลขบัญชีกสิกรไทย `989-2-13624-3` ใน `app/llm.py`, ล็อกเลข อย. `13-4-06169-6-0001` ใน `app/audit.py`, และมีฟังก์ชันค้นหาออเดอร์ย้อนหลังด้วยเบอร์โทร 10 หลัก (`normalize_thai_phone`) ใน `app/jst_erp.py` และ `app/parcel_tracker.py` พร้อมต่อยอดทันทีค่ะ
+3. **พัฒนาระบบสะสมแต้ม LINE OA แบบ Hybrid + ป้องกันการเคลมบิลซ้ำ 100% (`app/loyalty.py` + `database.py` + `media_generator.py` + `jst_erp.py` + `audit.py` + `main.py`) เสร็จสมบูรณ์พร้อมใช้งานจริง:**
+   - **สลับโหลด `config_mrbuk.json` อัตโนมัติตาม `brand_id == "mrbuk"`:** เพิ่ม `load_brand_config(brand_id)` ใน [`app/config_loader.py`](file:///D:/chat%20bot/messenger-engine/app/config_loader.py) และ `_get_brand_config_and_llm(brand_id)` ใน [`app/main.py`](file:///D:/chat%20bot/messenger-engine/app/main.py) ให้แบรนด์มิสเตอร์บุกใช้ข้อมูลสินค้า บัญชีกสิกรไทย `989-2-13624-3` และโปรโมชั่นของมิสเตอร์บุกแยกขาดจากข้าวบุกสุขใจ 100%
+   - **ซิงก์รูป QR Code แจกแต้ม (`1pt`, `2pt`, `4pt`) เข้า `app/static/media/` อัตโนมัติ:** อัปเดต [`app/media_generator.py`](file:///D:/chat%20bot/messenger-engine/app/media_generator.py) ให้คัดลอกไฟล์ `MrBuk_QR_Give_1pt.png`, `MrBuk_QR_Give_2pt.png`, `MrBuk_QR_Give_4pt.png` จาก `D:\MrBuk Content\Mr buk line oa\` เข้า `app/static/media/` พร้อมฟังก์ชัน `get_mrbuk_qr_media_for_points(points)` แตกยอดแต้มเป็นชุดรูป QR (`4pt`, `2pt`, `1pt`) อัตโนมัติ
+   - **ตารางฐานข้อมูลสะสมแต้ม Hybrid & กันเคลมบิลซ้ำ ([`app/database.py`](file:///D:/chat%20bot/messenger-engine/app/database.py)):**
+     - `LoyaltyMember` (`loyalty_members`): ผูกเบอร์โทร 10 หลัก (`phone` PK) กับ `line_user_id`, `fb_psid`, `total_points`, `lifetime_points`, `lifetime_spend_thb`, `pending_reward`, `redeemed_history`
+     - `LoyaltyClaimedOrder` (`loyalty_claimed_orders`): บันทึก `order_ref` (`JST:<order_id>` และ `CHAT:<psid>:<msg_id>` พร้อม `ALIAS:` ล็อกข้ามระบบ) ป้องกันการนำบิลเดิมหรือเบอร์เดิม/ชื่อเดิมมาเคลมแต้มซ้ำ 100%
+   - **โมดูลคำนวณแต้ม ยืนยันตัวตน และแลกของแถม ([`app/loyalty.py`](file:///D:/chat%20bot/messenger-engine/app/loyalty.py)):**
+     - ยืนยันตัวตนใน LINE OA `@misterbuk` ได้ทั้ง **เบอร์โทรศัพท์ 10 หลัก** หรือ **ชื่อผู้รับ (`ชื่อ-นามสกุล`)** โดยค้นหาเชื่อมทั้ง `chatbot.db` (Facebook Messenger) และ `jst_erp` (`check_duplicate_order` + `search_jst_orders_by_receiver_name`)
+     - กติกาคำนวณแต้ม (`calculate_mrbuk_points`): ทุก 500 บาท = 1 แต้ม (อนุโลมถุงใหญ่ 1 กก. `490.-` / VIP `465.-` = 1 แต้ม, เซ็ตคู่ `950.-` = 1 แต้ม, เซ็ต 30 ซอง `1,190.-` = 2 แต้ม, เซ็ต 5 ถุง `2,390.-` = 4 แต้ม)
+     - กติกาแลกของแถม (`redeem_loyalty_points`): ครบ **5 แต้ม** แลกฟรีซองเล็ก `60g × 3 ซอง` (มูลค่า 132.-) / ครบ **10 แต้ม** แลกฟรีถุงกลาง `500g × 1 ถุง` (มูลค่า 249.-) รับพร้อมออเดอร์ถัดไป พร้อมบันทึก `[LOYALTY REWARD: ...]` ลงใน `pending_reward` และ `notes` ของลูกค้าอัตโนมัติ
+   - **ฝั่ง Facebook Messenger ชวนแอด LINE สะสมแต้มอัตโนมัติ ([`app/audit.py`](file:///D:/chat%20bot/messenger-engine/app/audit.py)):** เมื่อลูกค้าสั่งซื้อในเพจมิสเตอร์บุก (`brand_id == "mrbuk"`) จนขึ้นสถานะปิดการขาย (`completed`) และมียอดได้รับแต้มตั้งแต่ 1 แต้มขึ้นไป ระบบจะต่อท้ายข้อความชวนแอด LINE OA `@misterbuk` (`https://u.lin.ee/P44JSey`) พร้อมแจ้งจำนวนแต้มที่ได้รับให้อัตโนมัติ
+   - **รหัสสินค้า (`MRBUK*` SKU) ในระบบคลัง [`app/jst_erp.py`](file:///D:/chat%20bot/messenger-engine/app/jst_erp.py):** ผูกยอดเงินโปรโมชั่นมิสเตอร์บุก (`44`, `249`, `465`, `490`, `599`, `902`, `950`, `1130`, `1190`, `2270`, `2390` ฯลฯ) เข้ากับรหัส `MRBUK60G1`, `MRBUK500G1`, `MRBUK1KG1`, `MRBUK60G15`, `MRBUK60G30`, `MRBUK1KG2_60G1`, `MRBUK1KG5` เรียบร้อยแล้วค่ะ
+   - **REST API สำหรับตรวจสอบและจัดการแต้ม ([`app/main.py`](file:///D:/chat%20bot/messenger-engine/app/main.py)):** `/api/loyalty/members`, `/api/loyalty/lookup`, `/api/loyalty/claim`, `/api/loyalty/redeem`
 
-### ⚠️ ข. สิ่งที่ยังติด / ยังค้างคา / ยังทำไม่สำเร็จ สำหรับ มิสเตอร์บุก (Pending / Unfinished — รอทำช่วงกลางเดือน พ.ย. 2026)
-1. **❌ ยังไม่ได้ใส่ Token ของ มิสเตอร์บุก (`mrbuk` — Slot 2) ใน `pages.json` / `.env`:**
-   - `line_channel_secret`, `line_channel_access_token` (ของ LINE OA `@305lhvvt`), `fb_page_id`, `fb_page_access_token` (ของเพจ Facebook มิสเตอร์บุก) ยังเป็นค่าว่าง `""`
-2. **❌ ยังไม่ได้เขียนโค้ดให้ `app/main.py` สลับโหลดไฟล์ `config_mrbuk.json` อัตโนมัติตาม `brand_id`:**
-   - ปัจจุบัน `app/main.py` โหลด `CONFIG = load_config()` (`config.json` ของข้าวบุกสุขใจ) ตัวเดียวตอนเปิดเครื่อง ต้องปรับให้ `process_omnichannel_message` โหลด `config_mrbuk.json` เมื่อ `brand_id == "mrbuk"`
-3. **❌ ยังไม่ได้ใส่รูปตารางโปรโมชั่นของ มิสเตอร์บุก และรูป QR Code แต้มสะสม (`1pt / 2pt / 4pt`) ลงใน `app/static/media/` และ `app/media_generator.py`:**
-   - ต้องนำรูปโปรโมชั่นทั้ง 4 เซ็ตของมิสเตอร์บุก และไฟล์ `MrBuk_QR_Give_1pt.png`, `2pt`, `4pt` จาก `D:\MrBuk Content\Mr buk line oa\` มาใส่และแยกส่งตาม `brand_id == "mrbuk"`
-4. **❌ ยังไม่ได้เขียนโมดูลเชื่อมยอดสั่งซื้อ Facebook / JST ERP เข้ากับระบบสะสมแต้ม LINE OA (`app/loyalty.py` หรือใน `database.py` + `main.py`):**
-   - **ฝั่ง Facebook Messenger (เมื่อลูกค้าสั่งซื้อครบ 500 บาทขึ้นไป):** ต้องเพิ่มโค้ดให้บอทส่งข้อความชวนแอด LINE `@misterbuk` (พร้อมลิงก์ `https://u.lin.ee/P44JSey`) ท้ายการปิดการขาย (`#BUY<ยอดเงิน>`) อัตโนมัติ
-   - **ฝั่ง LINE OA `@misterbuk` (เมื่อลูกค้าแอดไลน์มาแล้วยืนยันตัวตน):** ต้องเพิ่มโค้ดรับ **เบอร์โทรศัพท์ 10 หลัก** (หรือชื่อผู้รับ) จากลูกค้าในแชท LINE แล้วนำไปค้นหายอดสั่งซื้อจริงจาก `chatbot.db` และ `jst_erp.check_duplicate_order(phone)` พร้อมระบบป้องกันการเคลมบิลซ้ำ และส่งภาพ `MrBuk_QR_Give_1pt.png` / `2pt` / `4pt` อัตโนมัติ
-5. **❌ ยังไม่ได้ตั้งค่ารหัสร้านค้า (`JST_SHOP_ID`) และรหัสสินค้า (`SKU`) ของ มิสเตอร์บุก ใน `app/jst_erp.py`**
-6. **❓ โจทย์กติกาธุรกิจ 3 ข้อที่รอคุณนัดฟันธงก่อนเริ่มเขียนโค้ดช่วงกลางเดือน พ.ย. 2026:**
-   - **ข้อที่ 1 (การคิดแต้มต่อบิล vs สะสมยอดทบข้ามบิล):** กรณีลูกค้าสั่งเซ็ตคู่ `950 บาท` จะให้คิดแบบ **"ตัดตามบิล = รับ 1 แต้ม (หรือปัดขึ้นให้ 2 แต้ม)"** หรือให้ **"รับ 1 แต้ม แล้วเก็บเศษ 450 บาทไว้ทบกับบิลถัดไป"** ในฐานข้อมูลคะ?
-   - **ข้อที่ 2 (สิทธิ์ของถุงใหญ่ 1 กก. ราคา `490 บาท`):** ยืนยันตามข้อความต้อนรับใน LINE OA ปัจจุบันเลยไหมคะว่า ถ้าลูกค้าซื้อถุงใหญ่ 1 กก. (`490.-` ซึ่งขาดอีก 10 บาทจะครบ 500) **อนุโลมให้ได้รับ 1 แต้มเต็มทันที**?
-   - **ข้อที่ 3 (รูปแบบการเก็บแต้ม):** แนะนำให้ทำแบบ **Hybrid (คู่ขนาน)** คือบันทึกแต้มผูกกับเบอร์โทรไว้ในฐานข้อมูล `chatbot.db` ของบอทด้วย **พร้อมกับ** ส่งรูป QR Code ให้ลูกค้ากดสะสมในบัตร LINE Reward Card ด้วย เผื่อลูกค้าผู้สูงอายุสแกน QR ไม่เป็น บอทและแอดมินก็ยังเช็กแต้มจากเบอร์โทรให้ลูกค้าได้ 100% ค่ะ
+### ⚠️ ข. สิ่งที่ยังรอใส่ค่าจริงก่อนเปิดเพจ/LINE มิสเตอร์บุก (Pending Credentials)
+1. **❌ รอใส่ Token จริงของ มิสเตอร์บุก (`mrbuk` — Slot 2) ใน `pages.json` หรือ `.env`:**
+   - `MRBUK_LINE_CHANNEL_SECRET`, `MRBUK_LINE_CHANNEL_ACCESS_TOKEN` (ของ LINE OA `@305lhvvt`), `MRBUK_FB_PAGE_ID`, `MRBUK_FB_PAGE_ACCESS_TOKEN` (ของเพจ Facebook มิสเตอร์บุก)
+2. **❌ รอใส่รูปตารางโปรโมชั่น 4 เซ็ตของ มิสเตอร์บุก (เมื่อออกแบบเสร็จ) และรหัสร้านค้า `JST_SHOP_ID` ของมิสเตอร์บุกใน JST ERP (หากแยกร้านกับข้าวบุกสุขใจ)**
 
 ---
 
