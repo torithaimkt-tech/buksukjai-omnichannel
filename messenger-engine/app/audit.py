@@ -538,6 +538,17 @@ def audit_outgoing_reply(
 
     # 6. Order Confirmation Gate & Direct Thank-You after Order Summary (ตามคอมเมนต์คุณนัด/คุณแอมมี่: ทวนรายการสั่งซื้อแล้วไม่ต้องให้ลูกค้าพิมพ์ยืนยัน ขอบคุณที่สั่งซื้อได้เลย)
     has_user_phone = bool(re.search(r"(?:\+66\s*0?|\b0)[689]\d[\s\-]?\d{3}[\s\-]?\d{4}", all_user_text))
+    raw_full_msgs = database.get_full_messages(psid, limit=30)
+    has_user_slip = (
+        any(
+            m.get("role") == "user"
+            and str(m.get("content", "")).startswith("[IMAGE:")
+            and "39178562_1505197616293642" not in str(m.get("content", ""))
+            for m in raw_full_msgs
+        )
+        or "[ลูกค้าแนบสลิปเข้ามาในแชทค่ะ]" in all_user_text
+        or "ส่งการชำระเงินจำนวน" in all_user_text
+    )
     has_complete_cod_info = bool(
         specified_any_size_or_price
         and has_user_phone
@@ -546,10 +557,18 @@ def audit_outgoing_reply(
         and not is_fda_oy_question
         and not is_tracking_complaint
     )
+    has_complete_transfer_info = bool(
+        specified_any_size_or_price
+        and has_user_phone
+        and has_user_slip
+        and not is_cancel_request
+        and not is_fda_oy_question
+        and not is_tracking_complaint
+    )
     reply_joined_check = "\n".join(bubbles)
     is_order_summary_turn = any(
         k in reply_joined_check
-        for k in ("ทวนรายละเอียดคำสั่งซื้อ", "ทวนรายการสั่งซื้อ", "ยอดชำระปลายทาง", "ผู้รับ:", "• ที่อยู่:")
+        for k in ("ทวนรายละเอียดคำสั่งซื้อ", "ทวนรายการสั่งซื้อ", "ยอดชำระปลายทาง", "ผู้รับ:", "• ที่อยู่:", "ได้รับสลิป", "ตรวจสอบยอดโอน")
     )
 
     # Strip any redundant "รบกวนพิมพ์คำว่า 'ยืนยัน'..." bubble when summarizing an order
@@ -568,24 +587,14 @@ def audit_outgoing_reply(
     # Never attach promo images on an order summary turn
     if is_order_summary_turn:
         audited_image_key = "none"
-        if has_complete_cod_info and audited_state != "completed":
+        if (has_complete_cod_info or has_complete_transfer_info) and audited_state != "completed":
             audited_state = "completed"
-            auto_fixes.append("ลูกค้าแจ้งขนาด + ชื่อที่อยู่เบอร์โทร + เก็บปลายทางครบแล้ว — ปิดออเดอร์ (completed) ทันทีโดยไม่ต้องรอพิมพ์ยืนยันซ้ำ")
+            auto_fixes.append("ลูกค้าแจ้งขนาด + ชื่อที่อยู่เบอร์โทร + ยืนยันวิธีชำระเงิน/สลิปครบแล้ว — ปิดออเดอร์ (completed) ทันที")
 
-    if not is_paid_or_starred and audited_state == "completed":
-        has_user_slip = any(
-            m.get("role") == "user"
-            and str(m.get("content", "")).startswith("[IMAGE:")
-            and "39178562_1505197616293642" not in str(m.get("content", ""))
-            for m in history
-        )
-        explicitly_confirmed = any(
-            w in u_low
-            for w in ("ยืนยัน", "คอนเฟิร์ม", "confirm", "ถูกต้อง", "ตามนี้", "ตกลงค่ะ", "โอเคค่ะ", "โอนแล้ว", "ส่งสลิป", "แนบสลิป")
-        )
-        if not has_user_slip and not explicitly_confirmed and not has_complete_cod_info:
+    if audited_state == "completed":
+        if not has_complete_cod_info and not has_complete_transfer_info:
             audited_state = "pending_payment"
-            auto_fixes.append("ชะลอสถานะไว้ที่ 'รอโอน/ทวนที่อยู่ (pending_payment)' เนื่องจากยังขาดสลิปโอนเงินหรือข้อมูลที่อยู่/วิธีชำระเงินยังไม่ครบ")
+            auto_fixes.append("ชะลอสถานะไว้ที่ 'รอโอน/ทวนที่อยู่ (pending_payment)' เนื่องจากยังขาดสลิปโอนเงินจริง หรือยังไม่ได้ยืนยัน COD หรือยังไม่มีชื่อ-ที่อยู่-เบอร์โทรครบถ้วน")
             checks.append({
                 "name": "ตรวจข้อมูลที่อยู่/วิธีชำระเงิน/สลิปก่อนปิดการขาย (Confirmation Gate)",
                 "status": "fixed",

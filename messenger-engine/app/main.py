@@ -932,10 +932,19 @@ async def process_omnichannel_message(
                 audit_report["line_group_alert"] = esc_res.get("status")
             except Exception as esc_err:
                 logger.warning("Failed to send LINE group escalation alert for %s: %s", session_key, esc_err)
-        # Queue confirmed orders for the Daily 06:00 AM JST ERP Batch (no immediate real-time push during the day)
-        if new_state == "completed" and user.state != "completed":
+        # Immediately key the order into JST ERP right after the Messenger conversation is 100% confirmed (with strict 5-point audit & duplicate check)
+        if new_state == "completed":
             database.update_session_meta(session_key, state="completed", is_starred=True)
-            logger.info("Order %s marked completed + starred ⭐ — queued for Daily 06:00 AM JST ERP Batch", session_key)
+            try:
+                import asyncio as _aio
+                from . import jst_erp
+
+                if jst_erp.is_auto_sync_enabled():
+                    jst_res = await _aio.to_thread(jst_erp.sync_session_to_jst, session_key)
+                    audit_report["jst_instant_sync"] = jst_res.get("status")
+                    logger.info("Instant post-chat JST sync for %s: %s", session_key, jst_res.get("status"))
+            except Exception as jst_err:
+                logger.warning("Instant post-chat JST sync warning for %s: %s", session_key, jst_err)
         logger.info(
             "Replied to %s [%s/%s] (%d images + %d bubbles, img=%s, state: %s -> %s)",
             session_key,
