@@ -1,0 +1,58 @@
+{
+  "name": "3_BukSukjai_AI_Coach_Comment_Bot_346zyzej",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "buksukjai-coachbot",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "webhook-coachbot",
+      "name": "Webhook (LINE @346zyzej กลุ่ม Comment คุณแอมมี่)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://buksukjai-omnichannel.onrender.com/webhook/line/coachbot",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.body }}",
+        "options": {}
+      },
+      "id": "forward-coachbot-engine",
+      "name": "Analyze Screenshot & Update AI Rules Only (Zero Customer Send)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [560, 300]
+    }
+  ],
+  "connections": {
+    "Webhook (LINE @346zyzej กลุ่ม Comment คุณแอมมี่)": {
+      "main": [
+        [
+          {
+            "node": "Analyze Screenshot & Update AI Rules Only (Zero Customer Send)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

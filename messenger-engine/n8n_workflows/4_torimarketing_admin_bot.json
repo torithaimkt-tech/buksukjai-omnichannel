@@ -1,0 +1,44 @@
+{
+  "name": "4_ToriMarketing_Admin_Coordinator_Bot",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "torimarketing-admin",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "webhook-tori-admin",
+      "name": "Webhook (Tori Marketing แอดมินประสานงาน)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Isolated Tori Marketing Coordinator Workflow\nreturn items;"
+      },
+      "id": "tori-coordinator-handler",
+      "name": "Tori Marketing Coordinator Logic (แยกขาดจากข้าวบุกสุขใจ)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [560, 300]
+    }
+  ],
+  "connections": {
+    "Webhook (Tori Marketing แอดมินประสานงาน)": {
+      "main": [
+        [
+          {
+            "node": "Tori Marketing Coordinator Logic (แยกขาดจากข้าวบุกสุขใจ)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

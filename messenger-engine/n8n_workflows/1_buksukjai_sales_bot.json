@@ -1,0 +1,58 @@
+{
+  "name": "1_BukSukjai_Customer_Sales_Bot",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "buksukjai-sales",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "webhook-sales",
+      "name": "Webhook (FB & LINE @602xbpha)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://buksukjai-omnichannel.onrender.com/webhook/line/buksukjai",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.body }}",
+        "options": {}
+      },
+      "id": "forward-sales-engine",
+      "name": "Forward to BukSukjai Sales AI Engine",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [540, 300]
+    }
+  ],
+  "connections": {
+    "Webhook (FB & LINE @602xbpha)": {
+      "main": [
+        [
+          {
+            "node": "Forward to BukSukjai Sales AI Engine",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "name": "2_BukSukjai_Summary_And_Escalation_Bot_934ndvfs",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "buksukjai-workbot",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "webhook-workbot",
+      "name": "Webhook (LINE @934ndvfs กลุ่มสรุปยอด)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://buksukjai-omnichannel.onrender.com/webhook/line/workbot",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.body }}",
+        "options": {}
+      },
+      "id": "forward-workbot-engine",
+      "name": "Process 07:00 Summary & [#Q1] Quote-Reply Only",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [540, 300]
+    }
+  ],
+  "connections": {
+    "Webhook (LINE @934ndvfs กลุ่มสรุปยอด)": {
+      "main": [
+        [
+          {
+            "node": "Process 07:00 Summary & [#Q1] Quote-Reply Only",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

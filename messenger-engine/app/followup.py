@@ -994,7 +994,7 @@ def _register_jst_routes() -> None:
     fastapi_app = main_mod.app
     existing_paths = {getattr(r, "path", "") for r in fastapi_app.router.routes}
 
-    if "/api/jst/sync-all" not in existing_paths:
+    if "/api/jst/config" not in existing_paths:
         @fastapi_app.get("/api/sessions/{psid:path}/jst-preview")
         async def api_jst_preview(psid: str):
             ext = await asyncio.to_thread(jst_erp.extract_order_from_session, psid)
@@ -1013,24 +1013,6 @@ def _register_jst_routes() -> None:
                 "duplicate_check": dup,
                 "parsed_address": addr,
             }
-
-        @fastapi_app.post("/api/sessions/{psid:path}/push-jst")
-        async def api_push_session_to_jst(psid: str, body: PushJstRequest | None = None):
-            overrides: dict[str, Any] = {}
-            force = False
-            if body:
-                force = bool(body.force_create)
-                for k in ("sku_id", "qty", "unit_price", "freight", "is_cod", "raw_address", "explicit_name", "phone", "slip_image_url"):
-                    val = getattr(body, k, None)
-                    if val is not None:
-                        overrides[k] = val
-            return await asyncio.to_thread(jst_erp.sync_session_to_jst, psid, overrides or None, force)
-
-        @fastapi_app.post("/api/jst/sync-all")
-        async def api_jst_sync_all(days_lookback: int = 2):
-            await messenger.sync_recent_facebook_conversations("buksukjai", limit=40)
-            res = await asyncio.to_thread(jst_erp.sync_all_confirmed_orders_to_jst, days_lookback)
-            return {"status": "ok", **res}
 
         @fastapi_app.get("/api/jst/config")
         async def api_get_jst_config():
