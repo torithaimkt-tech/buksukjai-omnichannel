@@ -916,6 +916,14 @@ async def followup_loop(config: dict, public_base_url_getter=None) -> None:
 
             # Heavy background scans run every 10 cycles (~10 minutes)
             if cycle_idx % 10 == 0:
+                # 0.55 100% Autonomous Cloud Order Keying (ตรวจสอบซ้ำก่อนคีย์ + คีย์ออเดอร์ที่ยืนยันครบแล้วลง JST อัตโนมัติทุก 10 นาที แม้ปิดคอมพิวเตอร์)
+                if jst_erp.is_auto_sync_enabled():
+                    try:
+                        await messenger.sync_recent_facebook_conversations("buksukjai", limit=50)
+                        await asyncio.to_thread(jst_erp.sync_all_confirmed_orders_to_jst, 2, False)
+                    except Exception as exc:
+                        logger.warning("Periodic 10-min JST auto-keying warning: %s", exc)
+
                 # 0.58 Real-Time Duplicate Order Guard & Chat-to-JST Reconciliation (ป้องกันคีย์ออเดอร์ซ้ำ 2 บิลทุก 10 นาที)
                 try:
                     from . import audit as _audit_mod

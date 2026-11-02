@@ -693,7 +693,7 @@ def fetch_facebook_buy_audit(target_date: str) -> dict[str, Any]:
             if "เพจ :" in txt and "สินค้า :" in txt:
                 last_summary_text = txt
 
-            m_buy = re.search(r"#BUY\s*(\d+(?:\.\d+)?)", txt, re.IGNORECASE)
+            m_buy = re.search(r"#\s*BUY\s*(\d+(?:\.\d+)?)", txt, re.IGNORECASE)
             if m_buy:
                 amt = float(m_buy.group(1))
                 # Ignore identical #BUY<amt> repeated in the same conversation on the same day

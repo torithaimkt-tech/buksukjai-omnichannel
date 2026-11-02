@@ -302,8 +302,8 @@ def normalize_thai_phone(phone: str) -> str:
     return m.group(1) if m else digits
 
 
-def check_duplicate_order(phone: str, within_days: int = 30) -> dict[str, Any]:
-    """Check JST ERP (`NewQueryOrders`) for any order matching `phone`."""
+def check_duplicate_order(phone: str, within_days: int = 3) -> dict[str, Any]:
+    """Check JST ERP (`NewQueryOrders`) for any active unshipped order or recently created order matching `phone`."""
     clean_phone = normalize_thai_phone(phone)
     if not clean_phone:
         return {"phone": "", "exists_recently": False, "recent_orders": [], "historical_orders": []}
@@ -340,6 +340,9 @@ def check_duplicate_order(phone: str, within_days: int = 30) -> dict[str, Any]:
 
     for r in raw_rows:
         row_dict = dict(zip(cols, r))
+        row_ph = normalize_thai_phone(str(row_dict.get("ReceiverMobileEn") or row_dict.get("ReceiverPhoneEn") or ""))
+        if row_ph and len(row_ph) == 10 and row_ph != clean_phone:
+            continue
         order_id = str(row_dict.get("OrderId") or "")
         order_time_str = str(row_dict.get("OrderTime") or "")
         status_display = str(row_dict.get("StatusDisplay") or row_dict.get("SocialStatusDisplay") or "")
@@ -358,12 +361,17 @@ def check_duplicate_order(phone: str, within_days: int = 30) -> dict[str, Any]:
         }
         historical_orders.append(summary)
 
-        try:
-            dt = datetime.strptime(order_time_str[:19], "%Y-%m-%d %H:%M:%S").replace(tzinfo=bkk_tz)
-            if dt >= cutoff:
-                recent_orders.append(summary)
-        except Exception:
-            pass
+        # Any unshipped active order is ALWAYS considered an active duplicate;
+        # shipped orders within `within_days` (default 3 days) are also treated as recent duplicates.
+        if "จัดส่งแล้ว" not in status_display:
+            recent_orders.append(summary)
+        else:
+            try:
+                dt = datetime.strptime(order_time_str[:19], "%Y-%m-%d %H:%M:%S").replace(tzinfo=bkk_tz)
+                if dt >= cutoff:
+                    recent_orders.append(summary)
+            except Exception:
+                pass
 
     return {
         "phone": clean_phone,
@@ -753,13 +761,35 @@ def recognize_and_clean_address(
     """Use JST ERP's `AddresseeRecognition` API and clean up Thai name vs street address."""
     cleaned_input = (raw_address or "").strip()
     # Normalize common Thai typos and strip conversational prefixes before recognition
-    cleaned_input = cleaned_input.replace("แขลง", "แขวง")
+    cleaned_input = (
+        cleaned_input.replace("แขลง", "แขวง")
+        .replace("สุราษธานี", "สุราษฎร์ธานี")
+        .replace("ศรีษะเกษ", "ศรีสะเกษ")
+    )
     cleaned_input = re.sub(
-        r"(?:^|\n|\|)\s*(?:จัดส่งที่นี่นะครับ|จัดส่งที่นี่นะคะ|จัดส่งที่นี่|ที่อยู่จัดส่ง|ส่งที่|ชื่อ-ที่อยู่|ชื่อผู้รับ|ผู้รับ|ชื่อ|ที่อยู่|เบอร์โทรศัพท์|เบอร์โทร|เบอร์|โทร\.?|มือถือ)\s*[:：]?\s*",
+        r"(?:^|\n|\|)\s*(?:จัดส่งที่นี่นะครับ|จัดส่งที่นี่นะคะ|จัดส่งที่นี่|ที่อยู่จัดส่ง|ส่งที่|ชื่อ-ที่อยู่|ชื่อผู้รับ|ผู้รับ|ชื่อ|ที่อยู่|เบอร์โทรศัพท์|เบอร์โทร|เบอร์|โทร\.?|มือถือ|t\.|tel\.?)\s*[:：]?\s*",
         " ",
         cleaned_input,
+        flags=re.I,
     )
-    cleaned_input = re.sub(r"\b(?:โทร\.?|เบอร์โทร|เบอร์|มือถือ)\s*[:：]?\s*(?=0|\+66)", " ", cleaned_input)
+    cleaned_input = re.sub(r"\b(?:โทร\.?|เบอร์โทร|เบอร์|มือถือ|t\.|tel\.?)\s*[:：]?\s*(?=0|\+66)", " ", cleaned_input, flags=re.I)
+
+    # Insert spaces around unspaced Thai administrative markers (e.g. "39หมู่6ตำบลสมอทองอำเภอท่าชนะจังหวัดสุราษฎร์ธานี84170")
+    cleaned_input = re.sub(r"(?<=[ก-๙\d])(?=(?:ตำบล|อำเภอ|จังหวัด|แขวง|เขต|หมู่ที่|หมู่\s*\d))", " ", cleaned_input)
+    cleaned_input = re.sub(r"(?<=[ก-๙])(?=\d{5}\b)", " ", cleaned_input)
+    cleaned_input = re.sub(r"(?<=[ก-๙])(?=\d+/\d+|\b\d+\s*หมู่)", " ", cleaned_input)
+
+    # Extract leading recipient name if phone number appears at the very start before the name (e.g. "0807669580\nนายเชาวลิต มะหะมะ\n...")
+    leading_name_hint = ""
+    m_lead_ph = re.match(
+        r"^\s*((?:\+66\s*0?|0)[689]\d[\s\-]?\d{3}[\s\-]?\d{4})\s+([ก-๙a-zA-Z][ก-๙a-zA-Z\s\.]{2,35}?)(?=\n|\s+(?:โครงการ|หมู่บ้าน|อาคาร|คอนโด|บริษัท|ร้าน|บ้านเลขที่|ตู้\s*ปณ|\d+))",
+        cleaned_input,
+    )
+    if m_lead_ph:
+        leading_name_hint = m_lead_ph.group(2).strip()
+        # Move leading phone after the address so AddresseeRecognition parses the name cleanly
+        cleaned_input = f"{leading_name_hint} {cleaned_input[m_lead_ph.end():].strip()} {m_lead_ph.group(1)}"
+
     # If customer wrote แขวง/เขต + 10xxx postal code without mentioning กรุงเทพ, append กรุงเทพมหานคร so JST recognizes it
     if ("เขต" in cleaned_input or "แขวง" in cleaned_input) and re.search(r"\b10\d{3}\b", cleaned_input):
         if "กรุงเทพ" not in cleaned_input and "กทม" not in cleaned_input:
@@ -794,13 +824,25 @@ def recognize_and_clean_address(
     rec_name = (rec.get("receiverFirstName") or "").strip()
     rec_detail = (rec.get("receiverAddress") or "").strip()
 
-    # Fallback subdistrict extraction if AddresseeRecognition missed ตำบล/ต./แขวง
+    # Fallback subdistrict/city/province extraction if AddresseeRecognition missed them
     if not district:
         m_sub = re.search(r"(?:ตำบล|ต\.|แขวง)\s*([ก-๙]{2,25})", cleaned_input)
         if m_sub:
             district = m_sub.group(1).strip()
         elif "คูบางหลวง" in cleaned_input:
             district = "คูบางหลวง"
+    if not city:
+        m_city = re.search(r"(?:อำเภอ|อ\.|เขต)\s*([ก-๙]{2,25})", cleaned_input)
+        if m_city:
+            city = m_city.group(1).strip()
+    if not province:
+        m_prov = re.search(r"(?:จังหวัด|จ\.)\s*([ก-๙]{2,25})", cleaned_input)
+        if m_prov:
+            province = m_prov.group(1).strip()
+    if not zip_code:
+        m_zip = re.search(r"\b(\d{5})\b", cleaned_input)
+        if m_zip:
+            zip_code = m_zip.group(1)
 
     rec_detail = re.sub(
         r"\b(จัดส่งที่นี่นะครับ|จัดส่งที่นี่นะคะ|ที่อยู่จัดส่ง|แขวง|เขต|ตำบล|อำเภอ|จังหวัด|ต\.|อ\.|จ\.|รหัส|เบอร์|โทร|ชื่อ)\s*(?=\s|$)",
@@ -824,9 +866,15 @@ def recognize_and_clean_address(
         first_name = rec_name
 
     first_name = re.sub(r"^(?:ชื่อผู้รับ|ผู้รับ|ชื่อ|จัดส่งที่นี่นะครับ|จัดส่งที่นี่นะคะ)\s*[:：]?\s*", "", first_name).strip()
+    if not first_name and leading_name_hint:
+        first_name = leading_name_hint
     if not first_name and trailing_name_hint:
         first_name = trailing_name_hint
         rec_detail = re.sub(re.escape(trailing_name_hint) + r"\s*$", "", rec_detail).strip()
+    if not first_name:
+        m_title = re.search(r"((?:นาย|นางสาว|นาง|น\.ส\.|คุณ|ครู|หมอ)\s*[ก-๙]+\s+[ก-๙]+)", rec_detail)
+        if m_title:
+            first_name = m_title.group(1).strip()
 
     return {
         "receiverFirstName": first_name,
@@ -987,7 +1035,7 @@ def create_order_in_jst(
     explicit_phone: str = "",
     explicit_address_fields: dict[str, str] | None = None,
     seller_remark: str = "",
-    within_days_Check: int = 30,
+    within_days_Check: int = 3,
     force_create: bool = False,
 ) -> dict[str, Any]:
     """Check JST ERP for duplicates and create the manual order in JST ERP."""
@@ -1616,7 +1664,7 @@ def extract_order_from_session(psid: str) -> dict[str, Any]:
     unit_price: float | None = None
     freight = 0.0
 
-    buy_tags = re.findall(r"#BUY(\d+)", full_text)
+    buy_tags = re.findall(r"#\s*BUY\s*(\d+)", full_text, re.I)
     total_hint = int(buy_tags[-1]) if buy_tags else 0
     if not total_hint and latest_summary:
         pm = re.search(r"ราคา\s*:\s*(?:[\d\+\s]+=)?\s*(\d+)", latest_summary)
@@ -1638,8 +1686,8 @@ def extract_order_from_session(psid: str) -> dict[str, Any]:
             elif "2kg" in sz or "2แถม2" in sz:
                 sku_id, qty, unit_price = "BSJ1KG2_60G2", 1, 899.0
                 freight = float(max(0, total_hint - 899)) if total_hint >= 899 else 0.0
-            elif re.search(r"60g(\d+)(?:ถุง|ซอง|ชอง)", sz):
-                n_bags = int(re.search(r"60g(\d+)(?:ถุง|ซอง|ชอง)", sz).group(1))
+            elif re.search(r"60g(?:\*|x|×)?(\d+)(?:ถุง|ซอง|ชอง|ชุด)?", sz):
+                n_bags = int(re.search(r"60g(?:\*|x|×)?(\d+)(?:ถุง|ซอง|ชอง|ชุด)?", sz).group(1))
                 if n_bags == 20:
                     sku_id, qty, unit_price = "BSJ60G20", 1, 720.0
                     freight = float(max(0, total_hint - 720)) if total_hint >= 720 else 0.0
@@ -1661,12 +1709,12 @@ def extract_order_from_session(psid: str) -> dict[str, Any]:
                     sku_id, qty, unit_price = "BSJ60G1", n_bags, 39.0
                     freight = float(max(0, total_hint - 39 * n_bags)) if total_hint >= 39 * n_bags else 0.0
             elif "1kg" in sz:
-                m1k = re.search(r"1kg(\d+)(?:ถุง|ซอง)", sz)
+                m1k = re.search(r"1kg(?:\*|x|×)?(\d+)(?:ถุง|ซอง|ชุด)?", sz)
                 n1k = int(m1k.group(1)) if m1k else 1
                 sku_id, qty, unit_price = "BSJ1KG1", n1k, 459.0
                 freight = float(max(0, total_hint - 459 * n1k)) if total_hint >= 459 * n1k else 0.0
             elif "500g" in sz:
-                m500 = re.search(r"500g(\d+)(?:ถุง|ซอง)", sz)
+                m500 = re.search(r"500g(?:\*|x|×)?(\d+)(?:ถุง|ซอง|ชุด)?", sz)
                 n500 = int(m500.group(1)) if m500 else 1
                 sku_id, qty, unit_price = "BSJ500G1", n500, 239.0
                 freight = float(max(0, total_hint - 239 * n500)) if total_hint >= 239 * n500 else 0.0

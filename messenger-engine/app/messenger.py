@@ -641,9 +641,9 @@ def analyze_facebook_conversation_dict(conv: dict, page_id: str = "8061291092408
         if any(mk in low_txt for mk in HUMAN_ADMIN_MARKERS):
             if idx >= current_start_idx:
                 current_order_texts.append(msg_txt)
-            if msg_dt:
+            if msg_dt and idx == len(chron_msgs) - 1:
                 hours_ago = (datetime.now(timezone.utc) - msg_dt).total_seconds() / 3600.0
-                if hours_ago <= 0.25:
+                if hours_ago <= 0.017:  # Only pause for 60s if admin was the very last speaker
                     human_admin_active = True
 
     # 2. Check if a new order or payment question occurred AFTER the last completed order summary

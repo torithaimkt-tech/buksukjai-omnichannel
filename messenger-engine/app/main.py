@@ -309,8 +309,7 @@ async def receive_meta_webhook(request: Request, background_tasks: BackgroundTas
                     if echo_txt:
                         database.log_message(session_key, "admin", echo_txt)
                     if not is_auto_system_echo:
-                        database.set_bot_enabled(session_key, False)
-                        logger.info("Human admin replied in Meta Inbox for %s — auto-paused AI bot", session_key)
+                        logger.info("Human admin message logged in Meta Inbox for %s (AI stays ready for next customer reply)", session_key)
                 continue
 
             if attachments:
@@ -647,6 +646,25 @@ async def _handle_line_group_event(
             if msg_out:
                 database.log_message(psid, "bot", msg_out, sender_label="บอทตรวจสอบออเดอร์ JST")
                 await messenger.send_omnichannel_text("line", group_id, msg_out, brand_id, reply_token)
+            return
+
+        auto_key_keywords = ("คีย์ออเดอร์", "คีย์ jst", "สั่งคีย์ออเดอร์")
+        if any(k in text.lower() for k in auto_key_keywords):
+            from . import jst_erp
+
+            await messenger.sync_recent_facebook_conversations("buksukjai", limit=60)
+            sync_res = await asyncio.to_thread(jst_erp.sync_all_confirmed_orders_to_jst, 2, False)
+            chk = await asyncio.to_thread(jst_erp.build_pre_keying_jst_checklist, 2)
+            created_cnt = len(sync_res.get("created") or [])
+            dup_cnt = len(sync_res.get("duplicate_skipped") or [])
+            msg_out = (
+                f"🤖 ระบบอัตโนมัติตรวจสอบและคีย์ออเดอร์ลง JST ERP เรียบร้อยแล้วค่ะ!\n"
+                f"• คีย์ออเดอร์ใหม่สำเร็จ : {created_cnt} รายการ\n"
+                f"• ป้องกันออเดอร์ซ้ำ (ข้ามอัตโนมัติ) : {dup_cnt} รายการ\n\n"
+                f"{chk.get('summary_text') or ''}"
+            )
+            database.log_message(psid, "bot", msg_out, sender_label="บอทคีย์ออเดอร์ JST")
+            await messenger.send_omnichannel_text("line", group_id, msg_out, brand_id, reply_token)
             return
 
         trigger_keywords = ("สรุปยอด", "เช็กยอด", "เช็คยอด", "รายงานยอด", "ยอดขายเมื่อวาน", "ลงทะเบียนกลุ่ม", "ทดสอบบอท", "เทสบอท")
