@@ -672,6 +672,7 @@ def fetch_facebook_buy_audit(target_date: str) -> dict[str, Any]:
 
         day_buys: list[dict[str, Any]] = []
         last_summary_text = ""
+        last_phone_seen = ""
         for m in msgs:
             created_str = str(m.get("created_time") or "")
             if not created_str:
@@ -680,10 +681,15 @@ def fetch_facebook_buy_audit(target_date: str) -> dict[str, Any]:
                 dt_bkk = datetime.strptime(created_str, "%Y-%m-%dT%H:%M:%S%z").astimezone(BKK_TZ)
             except Exception:
                 continue
+            txt_any = str(m.get("message") or "").strip()
+            ph_m_any = re.findall(r"(?:\+66\s*0?|\b0)[689]\d[\s\-]?\d{3}[\s\-]?\d{4}", txt_any)
+            if ph_m_any:
+                last_phone_seen = jst_erp.normalize_thai_phone(ph_m_any[-1])
+
             if dt_bkk.strftime("%Y-%m-%d") != target_date:
                 continue
 
-            txt = str(m.get("message") or "").strip()
+            txt = txt_any
             if "เพจ :" in txt and "สินค้า :" in txt:
                 last_summary_text = txt
 
@@ -696,6 +702,8 @@ def fetch_facebook_buy_audit(target_date: str) -> dict[str, Any]:
                     day_buys[-1]["time_bkk"] = dt_bkk.strftime("%H:%M:%S")
                     if last_summary_text:
                         day_buys[-1]["summary_text"] = last_summary_text
+                    if last_phone_seen:
+                        day_buys[-1]["phone"] = last_phone_seen
                     continue
                 raw_buy_count += 1
                 raw_buy_total += amt
@@ -705,6 +713,7 @@ def fetch_facebook_buy_audit(target_date: str) -> dict[str, Any]:
                         "amount": amt,
                         "time_bkk": dt_bkk.strftime("%H:%M:%S"),
                         "summary_text": last_summary_text,
+                        "phone": last_phone_seen,
                     }
                 )
 

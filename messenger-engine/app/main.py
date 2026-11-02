@@ -629,6 +629,26 @@ async def _handle_line_group_event(
         quoted_msg_id = str(msg_obj.get("quotedMessageId") or "").strip() or None
         database.log_message(psid, "user", text, sender_label=f"สมาชิกกลุ่ม ({sender_uid[-6:]})")
 
+        pre_key_keywords = (
+            "เช็กออเดอร์",
+            "เช็คออเดอร์",
+            "เช็ก jst",
+            "เช็ค jst",
+            "ตรวจ jst",
+            "ตรวจออเดอร์ก่อนคีย์",
+            "คีย์หรือยัง",
+        )
+        if any(k in text.lower() for k in pre_key_keywords):
+            from . import jst_erp
+
+            await messenger.sync_recent_facebook_conversations("buksukjai", limit=40)
+            chk = await asyncio.to_thread(jst_erp.build_pre_keying_jst_checklist, 2)
+            msg_out = str(chk.get("summary_text") or "")
+            if msg_out:
+                database.log_message(psid, "bot", msg_out, sender_label="บอทตรวจสอบออเดอร์ JST")
+                await messenger.send_omnichannel_text("line", group_id, msg_out, brand_id, reply_token)
+            return
+
         trigger_keywords = ("สรุปยอด", "เช็กยอด", "เช็คยอด", "รายงานยอด", "ยอดขายเมื่อวาน", "ลงทะเบียนกลุ่ม", "ทดสอบบอท", "เทสบอท")
         if any(k in text for k in trigger_keywords):
             bkk_tz = timezone(timedelta(hours=7))
@@ -1388,6 +1408,16 @@ async def api_sync_all_jst(days_lookback: int = 2):
     """Audit and sync all recent completed orders to JST ERP."""
     from . import jst_erp
     return jst_erp.sync_all_confirmed_orders_to_jst(days_lookback=days_lookback)
+
+
+@app.get("/api/jst/pre-keying-check")
+async def api_jst_pre_keying_check(days_lookback: int = 2):
+    """Check which recent confirmed chat orders have already been keyed into JST ERP vs which ones still need keying."""
+    import asyncio
+    from . import jst_erp
+
+    await messenger.sync_recent_facebook_conversations("buksukjai", limit=40)
+    return await asyncio.to_thread(jst_erp.build_pre_keying_jst_checklist, days_lookback)
 
 
 @app.post("/api/reload")

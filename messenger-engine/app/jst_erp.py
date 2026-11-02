@@ -2005,3 +2005,164 @@ def get_warehouse_stock_summary() -> dict[str, Any]:
         "warnings": warnings,
         "skus": skus_map,
     }
+
+
+def build_pre_keying_jst_checklist(days_lookback: int = 2) -> dict[str, Any]:
+    """Compare recent confirmed chat orders (#BUY / 'เพจ : ข้าวบุก สุขใจ') against live JST ERP orders
+    so admins can check BEFORE keying which orders are already in JST ERP vs which ones still need keying.
+    """
+    bkk_tz = timezone(timedelta(hours=7))
+    now_bkk = datetime.now(bkk_tz)
+    cutoff_utc = datetime.now(timezone.utc) - timedelta(days=max(1, days_lookback))
+    cutoff_jst_str = (now_bkk - timedelta(days=max(3, days_lookback + 2))).strftime("%Y-%m-%d 00:00:00")
+
+    # 1. Fetch recent active ManualOrders from JST ERP
+    h = _headers(json_body=True)
+    h["Origin"] = "https://asia.jsterp.com"
+    h["Referer"] = "https://asia.jsterp.com/OMS/MiniShopOrder/Index"
+    resp = httpx.post(
+        "https://asia.jsterp.com/OMS/MiniShopOrder/NewQueryOrders",
+        headers=h,
+        json={
+            "RequestModel": {"SendFrom": "NewQueryOrders"},
+            "DataPage": {"pageSize": 200, "pageIndex": 1, "total": 0, "sizes": [50, 100, 200]},
+        },
+        timeout=25.0,
+    )
+    resp.raise_for_status()
+    rows_obj = (resp.json() or {}).get("Rows") or {}
+    cols = rows_obj.get("cols") or []
+    raw_rows = rows_obj.get("rows") or []
+    all_rows = [dict(zip(cols, r)) for r in raw_rows]
+
+    jst_by_phone: dict[str, list[dict[str, Any]]] = {}
+    for d in all_rows:
+        st_disp = str(d.get("StatusDisplay") or "")
+        if "ยกเลิก" in st_disp or "Cancel" in str(d.get("Status") or ""):
+            continue
+        if str(d.get("SaveType") or "") != "ManualOrder" and str(d.get("CreatorName") or "") != "buksukjai":
+            continue
+        ot = str(d.get("OrderTime") or "")
+        if ot < cutoff_jst_str:
+            continue
+        ph = normalize_thai_phone(str(d.get("ReceiverMobileEn") or d.get("ReceiverMobile") or ""))
+        item = {
+            "order_id": str(d.get("OrderId") or ""),
+            "order_time": ot,
+            "status": st_disp,
+            "receiver_name": str(d.get("ReceiverName") or "").strip(),
+            "phone": ph,
+            "pay_amount": float(d.get("PayAmount") or 0.0),
+            "is_cod": bool(d.get("IsCod")),
+            "tracking_no": str(d.get("LogisticsTrackingNumber") or "").strip(),
+            "remark": str(d.get("SellerRemark") or "").strip(),
+        }
+        if ph and len(ph) == 10:
+            jst_by_phone.setdefault(ph, []).append(item)
+
+    # 2. Query live Facebook Graph API for #BUY / 'เพจ : ข้าวบุก สุขใจ' orders over the last `days_lookback` days
+    from . import daily_sheet_report
+
+    already_keyed: list[dict[str, Any]] = []
+    pending_to_key: list[dict[str, Any]] = []
+    seen_fb_keys: set[tuple[str, str]] = set()
+
+    for d_offset in range(max(1, days_lookback)):
+        t_date = (now_bkk - timedelta(days=d_offset)).strftime("%Y-%m-%d")
+        fb_audit = daily_sheet_report.fetch_facebook_buy_audit(t_date)
+        for ord_item in fb_audit.get("orders") or []:
+            fb_name = str(ord_item.get("fb_name") or "").strip()
+            amt = float(ord_item.get("amount") or 0.0)
+            sum_txt = str(ord_item.get("summary_text") or "")
+            time_bkk = str(ord_item.get("time_bkk") or "")
+
+            ph_matches = re.findall(r"(?:\+66\s*0?|\b0)[689]\d[\s\-]?\d{3}[\s\-]?\d{4}", sum_txt)
+            ph = normalize_thai_phone(ph_matches[-1]) if ph_matches else str(ord_item.get("phone") or "").strip()
+
+            dedup_k = (ph or fb_name.lower(), t_date)
+            if dedup_k in seen_fb_keys:
+                continue
+            seen_fb_keys.add(dedup_k)
+
+            sz_m = re.search(r"ขนาด\s*:\s*([^\n]+)", sum_txt)
+            size_label = sz_m.group(1).strip() if sz_m else f"ยอด {amt:.0f}฿"
+            pay_m = re.search(r"ชำระเงิน\s*:\s*([^\n]+)", sum_txt)
+            pay_label = pay_m.group(1).strip() if pay_m else ("ปลายทาง" if amt in (309, 499, 595, 760, 939, 1339) else "โอน/ปลายทาง")
+
+            matched_jst = jst_by_phone.get(ph, []) if ph else []
+            if not matched_jst and fb_name:
+                # Fallback match by FB name in SellerRemark or ReceiverName
+                for _, j_list in jst_by_phone.items():
+                    for j_ord in j_list:
+                        if fb_name.lower() in j_ord["remark"].lower() or fb_name.lower() == j_ord["receiver_name"].lower():
+                            matched_jst = [j_ord]
+                            break
+                    if matched_jst:
+                        break
+
+            order_summary = {
+                "order_date": t_date,
+                "time_bkk": time_bkk,
+                "customer_name": fb_name,
+                "phone": ph or "ไม่ระบุเบอร์ในสรุป",
+                "sku_id": size_label,
+                "total_amount": amt,
+                "payment_label": pay_label,
+            }
+            if matched_jst:
+                latest_jst = matched_jst[0]
+                already_keyed.append({
+                    **order_summary,
+                    "jst_order_id": latest_jst["order_id"],
+                    "jst_order_time": latest_jst["order_time"],
+                    "jst_status": latest_jst["status"],
+                    "jst_tracking_no": latest_jst["tracking_no"],
+                    "jst_active_count": len(matched_jst),
+                })
+            else:
+                pending_to_key.append(order_summary)
+
+    # Format human-readable summary for LINE Work Group / Admin
+    lines = [
+        f"📋 รายงานตรวจสอบออเดอร์ก่อนคีย์ลงระบบ JST ERP",
+        f"🕒 ข้อมูล ณ {now_bkk.strftime('%d/%m/%Y %H:%M')} น. (ย้อนหลัง {days_lookback} วัน)",
+        "━━━━━━━━━━━━━━━",
+        f"📝 1. ออเดอร์ในแชทที่ 【ยังไม่ได้คีย์ลง JST】 ({len(pending_to_key)} รายการ):",
+    ]
+    if pending_to_key:
+        for idx, p in enumerate(pending_to_key, 1):
+            d_short = f"{p['order_date'][8:10]}/{p['order_date'][5:7]}" if len(p.get("order_date", "")) >= 10 else ""
+            t_short = p.get("time_bkk", "")[:5]
+            dt_tag = f"[{d_short} {t_short}] ".strip() if d_short else ""
+            lines.append(
+                f"  {idx}) {dt_tag}FB: {p['customer_name']} | เบอร์ {p['phone']} | "
+                f"{p['sku_id']} ยอด {p['total_amount']:.0f}฿ ({p['payment_label']})"
+            )
+    else:
+        lines.append("  ✅ ไม่มีออเดอร์ค้างคีย์ค่ะ (คีย์ครบหมดแล้ว)")
+
+    lines.append("━━━━━━━━━━━━━━━")
+    lines.append(f"✅ 2. ออเดอร์ที่ 【คีย์ลง JST ไปแล้ว — ห้ามคีย์ซ้ำ!】 ({len(already_keyed)} รายการ):")
+    if already_keyed:
+        for idx, a in enumerate(already_keyed, 1):
+            d_short = f"{a['order_date'][8:10]}/{a['order_date'][5:7]}" if len(a.get("order_date", "")) >= 10 else ""
+            dt_tag = f"[{d_short}] " if d_short else ""
+            trk_txt = f" | เลขพัสดุ {a['jst_tracking_no']}" if a.get("jst_tracking_no") else ""
+            lines.append(
+                f"  {idx}) {dt_tag}FB: {a['customer_name']} ({a['phone']}) ➡️ ใบสั่งซื้อ #{a['jst_order_id']} "
+                f"ยอด {a['total_amount']:.0f}฿ [{a['jst_status']}{trk_txt}]"
+            )
+    else:
+        lines.append("  • ยังไม่มีรายการที่คีย์ในรอบนี้ค่ะ")
+
+    return {
+        "status": "ok",
+        "checked_at_bkk": now_bkk.strftime("%Y-%m-%d %H:%M:%S"),
+        "days_lookback": days_lookback,
+        "pending_to_key_count": len(pending_to_key),
+        "pending_to_key": pending_to_key,
+        "already_keyed_count": len(already_keyed),
+        "already_keyed": already_keyed,
+        "summary_text": "\n".join(lines),
+    }
+
