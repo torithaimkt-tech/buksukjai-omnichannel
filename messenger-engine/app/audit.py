@@ -905,7 +905,7 @@ def audit_jst_orders_against_chat(days_lookback: int = 1, auto_clean: bool = Fal
             if chat_sku and o["sku_id"] and chat_sku != o["sku_id"]:
                 order_issues.append(f"รหัสสินค้าใน JST ({o['sku_id']}) ไม่ตรงกับในแชท ({chat_sku})")
 
-        if auto_clean and unconfirmed_in_chat and not o["tracking_no"] and "จัดส่งแล้ว" not in o["status"]:
+        if auto_clean and unconfirmed_in_chat and "จัดส่งแล้ว" not in o["status"]:
             try:
                 jst_erp.cancel_orders_in_jst([o["order_id"]], "Audit ชั้นที่ 2 ยกเลิกอัตโนมัติ: ลูกค้ายังยืนยันไม่ครบในแชทค่ะ")
                 auto_cancelled_ids.append(o["order_id"])
@@ -920,11 +920,11 @@ def audit_jst_orders_against_chat(days_lookback: int = 1, auto_clean: bool = Fal
     if auto_clean and duplicates:
         for grp in duplicates:
             orders_list = grp["orders"]
-            # If one order is manual/admin (empty remark or has tracking) and another is an unshipped FB bot duplicate, cancel the bot duplicate
-            has_primary = any((not x["seller_remark"].startswith("FB:")) or bool(x["tracking_no"]) for x in orders_list)
+            # If one order is manual/admin (empty remark or already shipped) and another is an unshipped FB bot duplicate, cancel the bot duplicate
+            has_primary = any((not x["seller_remark"].startswith("FB:")) or ("จัดส่งแล้ว" in x["status"]) for x in orders_list)
             if has_primary:
                 for x in orders_list:
-                    if x["seller_remark"].startswith("FB:") and not x["tracking_no"] and "จัดส่งแล้ว" not in x["status"]:
+                    if x["seller_remark"].startswith("FB:") and "จัดส่งแล้ว" not in x["status"]:
                         if x["order_id"] not in auto_cancelled_ids:
                             try:
                                 jst_erp.cancel_orders_in_jst([x["order_id"]], "Audit ชั้นที่ 2 ยกเลิกอัตโนมัติ: ออเดอร์ซ้ำกับใบหลักของแอดมินค่ะ")

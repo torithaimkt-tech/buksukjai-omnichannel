@@ -158,7 +158,14 @@ def log_message(psid: str, role: str, content: str, sender_label: str = "") -> N
         db.add(MessageLog(psid=psid, role=role, content=content, sender_label=sender_label))
         user = db.get(UserSession, psid)
         if user is not None:
-            user.last_interaction_time = utcnow()
+            # Do not bump last_interaction_time for automated background follow-up/after-sales/re-engagement messages,
+            # so old completed orders never look newly active to daily batch jobs.
+            is_automated_bg = any(
+                tag in (sender_label or "")
+                for tag in ("AI บริการหลังการขาย", "AI บอทขุดแชท", "AI แจ้งสถานะพัสดุ", "AI ติดตาม")
+            )
+            if not is_automated_bg:
+                user.last_interaction_time = utcnow()
             if role == "user":
                 user.followup_sent_at = None  # new activity resets the follow-up clock
                 user.unread_count = (user.unread_count or 0) + 1

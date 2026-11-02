@@ -52,43 +52,43 @@
   },
   "last_warehouse_stock": {
     "status": "ok",
-    "available_60g": 1066,
-    "physical_60g": 1088,
-    "lock_60g": 22,
-    "days_60g": 11,
-    "available_500g": 135,
-    "physical_500g": 135,
-    "lock_500g": 0,
-    "days_500g": 32,
-    "available_1kg": 135,
-    "physical_1kg": 139,
-    "lock_1kg": 4,
-    "days_1kg": 17,
+    "available_60g": 955,
+    "physical_60g": 1007,
+    "lock_60g": 52,
+    "days_60g": 10,
+    "available_500g": 127,
+    "physical_500g": 133,
+    "lock_500g": 6,
+    "days_500g": 30,
+    "available_1kg": 123,
+    "physical_1kg": 131,
+    "lock_1kg": 8,
+    "days_1kg": 15,
     "warnings": [],
     "skus": {
       "BSJ60G1": {
         "sku_id": "BSJ60G1",
-        "physical_qty": 1088,
-        "order_lock": 22,
-        "available_qty": 1066,
-        "can_sell_days": 11,
-        "modified": "2026-10-31 13:30:56"
+        "physical_qty": 1007,
+        "order_lock": 52,
+        "available_qty": 955,
+        "can_sell_days": 10,
+        "modified": "2026-11-02 10:06:07"
       },
       "BSJ500G1": {
         "sku_id": "BSJ500G1",
-        "physical_qty": 135,
-        "order_lock": 0,
-        "available_qty": 135,
-        "can_sell_days": 32,
-        "modified": "2026-10-31 11:09:24"
+        "physical_qty": 133,
+        "order_lock": 6,
+        "available_qty": 127,
+        "can_sell_days": 30,
+        "modified": "2026-11-02 10:05:12"
       },
       "BSJ1KG1": {
         "sku_id": "BSJ1KG1",
-        "physical_qty": 139,
-        "order_lock": 4,
-        "available_qty": 135,
-        "can_sell_days": 17,
-        "modified": "2026-10-31 13:30:56"
+        "physical_qty": 131,
+        "order_lock": 8,
+        "available_qty": 123,
+        "can_sell_days": 15,
+        "modified": "2026-11-02 10:05:12"
       }
     }
   }

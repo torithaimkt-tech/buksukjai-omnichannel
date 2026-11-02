@@ -96,14 +96,79 @@ def build_daily_sales_sheet_rows(target_date: str) -> dict[str, Any]:
     cols = rows_obj.get("cols") or []
     raw_rows = [dict(zip(cols, r)) for r in (rows_obj.get("rows") or [])]
 
-    day_orders = [
+    non_cancelled_rows = [
         x
         for x in raw_rows
-        if str(x.get("OrderTime") or "").startswith(target_date)
-        and "ยกเลิก" not in str(x.get("StatusDisplay") or "")
+        if "ยกเลิก" not in str(x.get("StatusDisplay") or "")
         and "Cancel" not in str(x.get("Status") or "")
     ]
-    day_orders.sort(key=lambda x: str(x.get("OrderTime") or ""))
+
+    # Track phones that already had an active ManualOrder on an earlier date (< target_date)
+    # so bot-rekeyed old orders ("FB: ...") are never counted again on later days.
+    earlier_manual_phones: set[str] = set()
+    for x in non_cancelled_rows:
+        ot = str(x.get("OrderTime") or "")[:10]
+        if ot and ot < target_date and str(x.get("SaveType") or "") == "ManualOrder":
+            ph = jst_erp.normalize_thai_phone(str(x.get("ReceiverMobileEn") or x.get("ReceiverPhoneEn") or ""))
+            if ph:
+                earlier_manual_phones.add(ph)
+
+    raw_day_orders = [
+        x
+        for x in non_cancelled_rows
+        if str(x.get("OrderTime") or "").startswith(target_date)
+    ]
+    raw_day_orders.sort(key=lambda x: str(x.get("OrderTime") or ""))
+
+    # Deduplicate ManualOrder rows on the same day by normalized phone number
+    # (preferring the human admin's manual entry where SellerRemark is empty over bot "FB:" entries),
+    # and filter out bot-rekeyed orders from earlier dates.
+    manual_by_phone: dict[str, list[dict[str, Any]]] = {}
+    for x in raw_day_orders:
+        if str(x.get("SaveType") or "") == "ManualOrder":
+            ph = jst_erp.normalize_thai_phone(str(x.get("ReceiverMobileEn") or x.get("ReceiverPhoneEn") or ""))
+            if ph:
+                manual_by_phone.setdefault(ph, []).append(x)
+
+    chosen_manual_order_ids: set[str] = set()
+    jst_duplicates_removed: list[dict[str, Any]] = []
+    for ph, m_orders in manual_by_phone.items():
+        # Filter out bot re-keys of orders from earlier dates
+        valid_candidates = [
+            o for o in m_orders
+            if not (ph in earlier_manual_phones and str(o.get("SellerRemark") or "").startswith("FB:"))
+        ]
+        for dropped in m_orders:
+            if dropped not in valid_candidates:
+                jst_duplicates_removed.append({
+                    "order_id": str(dropped.get("OrderId") or ""),
+                    "phone": ph,
+                    "amount": float(dropped.get("PayAmount") or 0.0),
+                    "reason": "cross_day_bot_rekey",
+                })
+        if not valid_candidates:
+            continue
+        # If multiple ManualOrders exist for the same phone on target_date, prefer human admin row (no "FB:" remark)
+        admin_rows = [o for o in valid_candidates if not str(o.get("SellerRemark") or "").startswith("FB:")]
+        primary = admin_rows[-1] if admin_rows else valid_candidates[-1]
+        chosen_manual_order_ids.add(str(primary.get("OrderId") or ""))
+        for o in valid_candidates:
+            if str(o.get("OrderId") or "") != str(primary.get("OrderId") or ""):
+                jst_duplicates_removed.append({
+                    "order_id": str(o.get("OrderId") or ""),
+                    "kept_order_id": str(primary.get("OrderId") or ""),
+                    "phone": ph,
+                    "amount": float(o.get("PayAmount") or 0.0),
+                    "reason": "same_day_duplicate_manual_order",
+                })
+
+    day_orders = [
+        x
+        for x in raw_day_orders
+        if str(x.get("SaveType") or "") != "ManualOrder"
+        or not jst_erp.normalize_thai_phone(str(x.get("ReceiverMobileEn") or x.get("ReceiverPhoneEn") or ""))
+        or str(x.get("OrderId") or "") in chosen_manual_order_ids
+    ]
 
     header = [
         "ลำดับ",
@@ -246,6 +311,7 @@ def build_daily_sales_sheet_rows(target_date: str) -> dict[str, Any]:
         "tot_cod": round(tot_cod, 2),
         "grand_total": grand_total,
         "orders": order_items_out,
+        "jst_duplicates_removed": jst_duplicates_removed,
         "sheet_rows": table_rows,
     }
 
@@ -345,8 +411,8 @@ def load_line_group_config() -> dict[str, Any]:
                 "name": "แอม+นัด",
             },
         },
-        "last_7am_report_date": "2026-10-31",
-        "last_7am_sent_at": "2026-11-01T07:00:32+07:00",
+        "last_7am_report_date": "2026-11-01",
+        "last_7am_sent_at": "2026-11-02T07:00:51+07:00",
         "learned_rules": list(DEFAULT_LEARNED_RULES),
         "learned_faq": list(DEFAULT_LEARNED_FAQ),
         "custom_replacements": dict(DEFAULT_CUSTOM_REPLACEMENTS),
@@ -540,18 +606,31 @@ def fetch_facebook_buy_audit(target_date: str) -> dict[str, Any]:
         return {"raw_buy_count": 0, "raw_buy_total": 0.0, "dedup_count": 0, "dedup_total": 0.0, "duplicates": [], "orders": []}
 
     try:
-        resp = httpx.get(
-            "https://graph.facebook.com/v21.0/me/conversations",
-            params={
-                "fields": "participants,updated_time,messages.limit(35){message,created_time,from}",
-                "limit": 80,
-                "access_token": token,
-            },
-            timeout=20.0,
-        )
-        if resp.status_code != 200:
+        convs: list[dict[str, Any]] = []
+        next_url: str | None = "https://graph.facebook.com/v21.0/me/conversations"
+        next_params: dict[str, Any] | None = {
+            "fields": "participants,updated_time,messages.limit(40){message,created_time,from}",
+            "limit": 100,
+            "access_token": token,
+        }
+        for _page_idx in range(3):
+            if not next_url:
+                break
+            resp = httpx.get(next_url, params=next_params, timeout=20.0)
+            if resp.status_code != 200:
+                break
+            payload = resp.json()
+            batch = payload.get("data") or []
+            convs.extend(batch)
+            # Stop paginating once the oldest conversation in the batch is older than target_date
+            if batch:
+                last_upd = str(batch[-1].get("updated_time") or "")[:10]
+                if last_upd and last_upd < target_date:
+                    break
+            next_url = (payload.get("paging") or {}).get("next")
+            next_params = None
+        if not convs:
             return {"raw_buy_count": 0, "raw_buy_total": 0.0, "dedup_count": 0, "dedup_total": 0.0, "duplicates": [], "orders": []}
-        convs = resp.json().get("data") or []
     except Exception as exc:
         logger.warning("Facebook #BUY audit query warning: %s", exc)
         return {"raw_buy_count": 0, "raw_buy_total": 0.0, "dedup_count": 0, "dedup_total": 0.0, "duplicates": [], "orders": []}
@@ -1009,6 +1088,10 @@ def load_or_build_daily_report(target_date: str) -> dict[str, Any]:
     try:
         jst_report = build_daily_sales_sheet_rows(target_date)
         if jst_report and jst_report.get("order_count", 0) > 0:
+            try:
+                jst_report["fb_buy_audit"] = fetch_facebook_buy_audit(target_date)
+            except Exception:
+                pass
             save_daily_report_snapshot(jst_report, sync_google_sheet=True)
     except Exception as exc:
         logger.info("JST live query skipped/fallback to Google Sheet for %s: %s", target_date, exc)
@@ -1024,9 +1107,13 @@ def load_or_build_daily_report(target_date: str) -> dict[str, Any]:
             cached_report = None
 
     chosen: dict[str, Any] | None = None
-    candidates = [c for c in (sheet_report, jst_report, cached_report) if c and int(c.get("order_count") or 0) > 0]
-    if candidates:
-        chosen = max(candidates, key=lambda x: int(x.get("order_count") or 0))
+    # Always treat live JST ERP report (which filters cancelled & duplicate orders) as authoritative when available.
+    if jst_report and int(jst_report.get("order_count") or 0) > 0:
+        chosen = jst_report
+    elif sheet_report and int(sheet_report.get("order_count") or 0) > 0:
+        chosen = sheet_report
+    elif cached_report and int(cached_report.get("order_count") or 0) > 0:
+        chosen = cached_report
     else:
         fb_fallback = build_daily_sales_from_facebook_graph(target_date)
         if fb_fallback and int(fb_fallback.get("order_count") or 0) > 0:

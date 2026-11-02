@@ -72,7 +72,9 @@ DEFAULT_JST_COOKIE = (
 )
 
 _RUNTIME_COOKIE: str = DEFAULT_JST_COOKIE
-AUTO_SYNC_ENABLED: bool = True
+# Disabled by default because the human admin manually keys Facebook orders into JST ERP each night;
+# enabling auto-sync caused duplicate orders ("FB: ...") to be created on top of manual entries.
+AUTO_SYNC_ENABLED: bool = False
 
 # Verified JST ERP SKU Catalog for Shop 20759963 (ข้าวบุกสุขใจ)
 KNOWN_SKUS: dict[str, dict[str, Any]] = {
@@ -259,14 +261,15 @@ def save_daily_sync_state(updates: dict[str, Any]) -> dict[str, Any]:
 
 
 def should_run_daily_6am_sync() -> bool:
-    """Return True when Thailand time (UTC+7) has reached >= 06:00 AM
-    and today's daily batch has not yet run.
+    """Return True only during the 06:00 AM Bangkok hour (06:00–06:59)
+    when AUTO_SYNC_ENABLED is True and today's daily batch has not yet run.
+    Never fire in the afternoon/evening on server restarts.
     """
     if not AUTO_SYNC_ENABLED:
         return False
     bkk_tz = timezone(timedelta(hours=7))
     now_bkk = datetime.now(bkk_tz)
-    if now_bkk.hour < DAILY_BATCH_HOUR_BKK:
+    if now_bkk.hour != DAILY_BATCH_HOUR_BKK:
         return False
     today_str = now_bkk.strftime("%Y-%m-%d")
     st = get_daily_sync_state()
@@ -299,7 +302,7 @@ def normalize_thai_phone(phone: str) -> str:
     return m.group(1) if m else digits
 
 
-def check_duplicate_order(phone: str, within_days: int = 3) -> dict[str, Any]:
+def check_duplicate_order(phone: str, within_days: int = 30) -> dict[str, Any]:
     """Check JST ERP (`NewQueryOrders`) for any order matching `phone`."""
     clean_phone = normalize_thai_phone(phone)
     if not clean_phone:
@@ -934,7 +937,7 @@ def create_order_in_jst(
     explicit_phone: str = "",
     explicit_address_fields: dict[str, str] | None = None,
     seller_remark: str = "",
-    within_days_Check: int = 3,
+    within_days_Check: int = 30,
     force_create: bool = False,
 ) -> dict[str, Any]:
     """Check JST ERP for duplicates and create the manual order in JST ERP."""
@@ -1515,6 +1518,9 @@ def extract_order_from_session(psid: str) -> dict[str, Any]:
 
     # 5. Audit Dialogue Completion ("ตรวจว่าลูกค้าตอบประโยคคำถามของเราจนครบแล้วจริง ๆ")
     dialogue_complete, dialogue_reason = check_dialogue_completion(msgs, has_verified_slip=bool(slip_image_url))
+    if latest_summary and "เคลม" in latest_summary:
+        dialogue_complete = False
+        dialogue_reason = "เป็นรายการเคลมสินค้า (⭕เคลม⭕) ไม่ใช่ออเดอร์ขายปกติค่ะ"
 
     # 6. Determine COD vs Transfer with strict confirmation check
     # CRITICAL RULE: If a verified payment slip (`slip_image_url`) exists in the current inquiry,
