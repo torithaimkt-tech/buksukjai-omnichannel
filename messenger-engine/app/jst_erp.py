@@ -72,9 +72,7 @@ DEFAULT_JST_COOKIE = (
 )
 
 _RUNTIME_COOKIE: str = DEFAULT_JST_COOKIE
-# Disabled by default because the human admin manually keys Facebook orders into JST ERP each night;
-# enabling auto-sync caused duplicate orders ("FB: ...") to be created on top of manual entries.
-AUTO_SYNC_ENABLED: bool = False
+AUTO_SYNC_ENABLED: bool = True
 
 # Verified JST ERP SKU Catalog for Shop 20759963 (ข้าวบุกสุขใจ)
 KNOWN_SKUS: dict[str, dict[str, Any]] = {
@@ -302,7 +300,7 @@ def normalize_thai_phone(phone: str) -> str:
     return m.group(1) if m else digits
 
 
-def check_duplicate_order(phone: str, within_days: int = 3) -> dict[str, Any]:
+def check_duplicate_order(phone: str, within_days: int = 7) -> dict[str, Any]:
     """Check JST ERP (`NewQueryOrders`) for any active unshipped order or recently created order matching `phone`."""
     clean_phone = normalize_thai_phone(phone)
     if not clean_phone:
@@ -1035,7 +1033,7 @@ def create_order_in_jst(
     explicit_phone: str = "",
     explicit_address_fields: dict[str, str] | None = None,
     seller_remark: str = "",
-    within_days_Check: int = 3,
+    within_days_Check: int = 7,
     force_create: bool = False,
 ) -> dict[str, Any]:
     """Check JST ERP for duplicates and create the manual order in JST ERP."""
