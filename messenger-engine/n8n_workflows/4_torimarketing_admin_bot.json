@@ -9,28 +9,96 @@
         "options": {}
       },
       "id": "webhook-tori-admin",
-      "name": "Webhook (Tori Marketing แอดมินประสานงาน)",
+      "name": "Webhook (Tori Marketing แอดมินประสานงาน @599fgktd)",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [240, 300]
+      "position": [220, 300]
     },
     {
       "parameters": {
-        "jsCode": "// Isolated Tori Marketing Coordinator Workflow\nreturn items;"
+        "jsCode": "// Tori Marketing Admin Coordinator Bot (AIFY @599fgktd — Channel ID: 2012318539)\n// แยกขาดจากข้าวบุกสุขใจ 100% สำหรับประสานงานทีมเอเจนซี่และกลุ่มลูกค้า Tori Marketing\nconst body = $input.first().json.body || $input.first().json || {};\nconst events = body.events || [];\nconst ev = events[0] || {};\nconst source = ev.source || {};\nconst groupId = source.groupId || body.line_group_id || '';\nconst userId = source.userId || '';\nconst replyToken = ev.replyToken || '';\nconst text = (ev.message && ev.message.text) ? ev.message.text.trim() : (body.message || '');\n\nconst LINE_CHANNEL_ID = '2012318539';\nconst LINE_CHANNEL_SECRET = '2e841449fe0466ebba1abcf68953966b';\nconst LINE_ACCESS_TOKEN = 'Ay+Y4vexjlwSL2rRsoXfQg2CUzVp+/+wlH6QW1bXnpkNYsGESxmFiASTSaGix0xZPFgzIIEY/viNkxoM9Q+ErOW4ek7uwlX1WXQ6+kzXDKGRylI7CfiPS9dZQMBfe+CYMGosechkO1qhs0GpQna8aAdB04t89/1O/w1cDnyilFU=';\n\nlet coordinatorAction = 'sync_only';\nlet replyText = '';\n\nif (ev.type === 'join' && groupId) {\n  coordinatorAction = 'group_greeting';\n  replyText = `สวัสดีค่ะ 🙏✨ บอทแอดมินประสานงาน Tori Marketing (AIFY @599fgktd) รายงานตัวเข้ากลุ่มเรียบร้อยแล้วนะคะ\\n📌 รหัสกลุ่มประสานงาน: ${groupId}\\nพร้อมดูแลแจ้งเตือนสถานะงาน รีพอร์ตโฆษณา และประสานงานทีมให้ตลอด 24 ชม. ค่ะ 😊`;\n} else if (/^(เช็กรหัสกลุ่ม|รหัสกลุ่ม|#groupid)/i.test(text)) {\n  coordinatorAction = 'group_id_check';\n  replyText = `📌 รหัสกลุ่ม LINE สำหรับเชื่อมระบบ Tori Marketing คือ:\\n${groupId || 'แชทส่วนตัว (' + userId + ')'} ค่ะ`;\n} else if (/^(สรุปงาน|เช็กสถานะ|#status)/i.test(text)) {\n  coordinatorAction = 'status_summary';\n  replyText = `📊 [สรุปสถานะระบบประสานงาน Tori Marketing]\\n• บอทประสานงาน: AIFY (@599fgktd) ออนไลน์ 100% ค่ะ\\n• ระบบหลังบ้าน BaanTori & n8n: พร้อมรับคำสั่งค่ะ\\nหากต้องการฝากงานด่วน พิมพ์ #งานด่วน ตามด้วยรายละเอียดได้เลยนะคะ 😊🙏`;\n} else if (/^#งานด่วน/i.test(text)) {\n  coordinatorAction = 'urgent_task';\n  replyText = `🚨 รับทราบภารกิจด่วนฝั่ง Tori Marketing เรียบร้อยแล้วค่ะ ระบบได้บันทึกงานและแจ้งเตือนทีมแอดมินประสานงานให้ทันทีนะคะ 🙏✨`;\n}\n\nreturn [{\n  json: {\n    raw_body: body,\n    coordinator_action: coordinatorAction,\n    should_reply: Boolean(replyToken && replyText),\n    group_id: groupId,\n    user_id: userId,\n    reply_token: replyToken,\n    incoming_text: text,\n    reply_text: replyText,\n    line_channel_id: LINE_CHANNEL_ID,\n    line_channel_secret: LINE_CHANNEL_SECRET,\n    line_access_token: LINE_ACCESS_TOKEN\n  }\n}];"
       },
       "id": "tori-coordinator-handler",
       "name": "Tori Marketing Coordinator Logic (แยกขาดจากข้าวบุกสุขใจ)",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [560, 300]
+      "position": [520, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.line.me/v2/bot/message/reply",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.line_access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"replyToken\": \"{{ $json.reply_token }}\",\n  \"messages\": [\n    {\n      \"type\": \"text\",\n      \"text\": {{ JSON.stringify($json.reply_text) }}\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "line-reply-tori-admin",
+      "name": "LINE Reply via AIFY (@599fgktd — Tori Marketing)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [840, 220]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BAANTORI_WEB_URL || 'http://localhost:3000' }}/webhook/line",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.raw_body }}",
+        "options": {}
+      },
+      "id": "sync-baantori-portal",
+      "name": "Sync Group ID & Task Log to BaanTori Portal",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [840, 400]
     }
   ],
   "connections": {
-    "Webhook (Tori Marketing แอดมินประสานงาน)": {
+    "Webhook (Tori Marketing แอดมินประสานงาน @599fgktd)": {
       "main": [
         [
           {
             "node": "Tori Marketing Coordinator Logic (แยกขาดจากข้าวบุกสุขใจ)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tori Marketing Coordinator Logic (แยกขาดจากข้าวบุกสุขใจ)": {
+      "main": [
+        [
+          {
+            "node": "LINE Reply via AIFY (@599fgktd — Tori Marketing)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Sync Group ID & Task Log to BaanTori Portal",
             "type": "main",
             "index": 0
           }

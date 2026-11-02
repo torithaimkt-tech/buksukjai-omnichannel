@@ -18,9 +18,10 @@ from pydantic import BaseModel
 
 load_dotenv()
 
-from . import audit, database, followup, media_generator, messenger  # noqa: E402
+from . import audit, database, followup, loyalty, media_generator, messenger  # noqa: E402
 from .config_loader import (  # noqa: E402
     get_page_by_brand_id,
+    load_brand_config,
     load_config,
     load_pages_registry,
     resolve_brand_by_meta_id,
@@ -37,9 +38,30 @@ CLOUDFLARED_PATH = Path(__file__).resolve().parent.parent / "cloudflared.exe"
 
 CONFIG: dict = {}
 LLM: LLMEngine | None = None
+_BRAND_CONFIGS: dict[str, dict] = {}
+_BRAND_LLMS: dict[str, LLMEngine] = {}
 PUBLIC_BASE_URL: str = os.getenv("PUBLIC_BASE_URL", "")
 _TUNNEL_PROC = None
 _RECENT_MSG_CACHE: dict[str, float] = {}
+
+
+def _get_brand_config_and_llm(brand_id: str = "buksukjai") -> tuple[dict, LLMEngine]:
+    """Return cached brand-specific config and LLMEngine (loads `config_mrbuk.json` for `mrbuk`)."""
+    global CONFIG, LLM
+    b_id = (brand_id or "buksukjai").strip().lower()
+    if b_id == "buksukjai":
+        if not CONFIG:
+            CONFIG = load_config()
+        if LLM is None:
+            LLM = LLMEngine(build_system_prompt(CONFIG), CONFIG)
+        return CONFIG, LLM
+
+    if b_id not in _BRAND_CONFIGS:
+        _BRAND_CONFIGS[b_id] = load_brand_config(b_id)
+    cfg = _BRAND_CONFIGS[b_id]
+    if b_id not in _BRAND_LLMS:
+        _BRAND_LLMS[b_id] = LLMEngine(build_system_prompt(cfg), cfg)
+    return cfg, _BRAND_LLMS[b_id]
 
 
 def _sync_line_webhooks(base_url: str) -> None:
@@ -417,9 +439,20 @@ async def receive_line_webhook(
             continue
 
         if event_type == "follow":
-            from .llm import FULL_PROMO_SUMMARY_BUBBLE
-            greeting = f"{CONFIG['brand_persona']['greeting_message']}|||{FULL_PROMO_SUMMARY_BUBBLE}"
-            all_promo_items = media_generator.get_all_promo_items()
+            from .llm import FULL_PROMO_SUMMARY_BUBBLE, MRBUK_FULL_PROMO_SUMMARY_BUBBLE
+
+            brand_cfg, _ = _get_brand_config_and_llm(brand_id)
+            if brand_id == "mrbuk":
+                greeting = (
+                    f"{brand_cfg['brand_persona']['greeting_message']}|||"
+                    f"{MRBUK_FULL_PROMO_SUMMARY_BUBBLE}|||"
+                    "🎁 พิเศษสำหรับสมาชิก LINE @misterbuk! หากคุณลูกค้าสั่งซื้อครบ 500 บาท (หรือถุงใหญ่ 1 กก. 490.-) "
+                    "สามารถพิมพ์แจ้ง เบอร์โทรศัพท์ 10 หลัก (หรือชื่อผู้รับ) ในแชทนี้เพื่อรับ QR Code สะสมแต้ม VIP ได้เลยนะคะ 💚"
+                )
+                all_promo_items = []
+            else:
+                greeting = f"{brand_cfg['brand_persona']['greeting_message']}|||{FULL_PROMO_SUMMARY_BUBBLE}"
+                all_promo_items = media_generator.get_all_promo_items()
             background_tasks.add_task(
                 messenger.send_omnichannel_text,
                 "line",
@@ -847,6 +880,46 @@ async def process_omnichannel_message(
         clean_history = [
             m for m in history if not str(m.get("content", "")).startswith("[IMAGE:")
         ]
+
+        # Mr.Buk VIP LINE OA Loyalty & Point Accumulation Handler (@misterbuk / @305lhvvt)
+        if brand_id == "mrbuk" and platform in ("line", "web"):
+            import asyncio as _aio_loy
+
+            prior_history = clean_history[:-1] if len(clean_history) >= 1 else []
+            loyalty_res = await _aio_loy.to_thread(
+                loyalty.handle_line_loyalty_message,
+                text,
+                external_user_id,
+                prior_history,
+                brand_id,
+            )
+            if loyalty_res is not None:
+                loy_bubbles = loyalty_res.get("bubbles") or []
+                loy_media = loyalty_res.get("media_items") or []
+                for item in loy_media:
+                    database.log_message(session_key, "assistant", f"[IMAGE:{item['relative_url']}]")
+                for b in loy_bubbles:
+                    database.log_message(session_key, "assistant", b)
+                await messenger.send_omnichannel_text(
+                    platform=platform,
+                    external_user_id=external_user_id,
+                    text="|||".join(loy_bubbles),
+                    brand_id=brand_id,
+                    reply_token=reply_token,
+                    media_items=loy_media,
+                    public_base_url=PUBLIC_BASE_URL,
+                )
+                return {
+                    "session_key": session_key,
+                    "bot_replied": True,
+                    "reply": "\n\n".join(loy_bubbles),
+                    "bubbles": loy_bubbles,
+                    "image_url": loy_media[0]["relative_url"] if loy_media else None,
+                    "images": [it["relative_url"] for it in loy_media],
+                    "state": user.state,
+                    "loyalty": loyalty_res.get("details") or {"status": loyalty_res.get("status")},
+                }
+
         if is_paid_customer and not wants_to_reorder:
             clean_history.append(
                 {
@@ -860,27 +933,23 @@ async def process_omnichannel_message(
                 }
             )
 
-        global CONFIG, LLM
-        if not CONFIG:
-            CONFIG = load_config()
-        if LLM is None:
-            LLM = LLMEngine(build_system_prompt(CONFIG), CONFIG)
-
-        reply, new_state, image_key = await LLM.generate(clean_history, user.state)
+        brand_config, brand_llm = _get_brand_config_and_llm(brand_id)
+        reply, new_state, image_key = await brand_llm.generate(clean_history, user.state)
 
         # Smart fallback: whenever customer asks for promo/price/sizes/interest, send ALL 4 promo images ('promo_all') at once!
         explicitly_asked_pic = (not is_attachment_placeholder) and (not transfer_req) and (not is_paid_customer or wants_to_reorder) and any(
             w in low_txt for w in ("รูป", "ภาพ", "โปร", "ราคา", "สนใจ", "กี่บาท", "เท่าไหร่", "ขนาด", "ไซส์", "ขายยังไง")
         )
-        if is_attachment_placeholder or transfer_req or (is_paid_customer and not wants_to_reorder):
-            image_key = "none"
-            if is_paid_customer and not wants_to_reorder:
-                new_state = "completed"
+        if is_attachment_placeholder or transfer_req or (is_paid_customer and not wants_to_reorder) or brand_id == "mrbuk":
+            if is_attachment_placeholder or transfer_req or (is_paid_customer and not wants_to_reorder):
+                image_key = "none"
+                if is_paid_customer and not wants_to_reorder:
+                    new_state = "completed"
         elif image_key == "promo_3sizes" or ((not image_key or image_key == "none") and explicitly_asked_pic):
             image_key = "promo_all"
 
         # Layer-1 Automated Pre-Send Audit (ตรวจสอบความถูกต้อง 7 ข้อก่อนส่งให้ลูกค้าจริง)
-        llm_esc = getattr(LLM, "last_escalation", None) if LLM else None
+        llm_esc = getattr(brand_llm, "last_escalation", None) if brand_llm else None
         bubbles, new_state, selected_media_items, audit_report = audit.audit_outgoing_reply(
             psid=session_key,
             brand_id=brand_id,
@@ -889,7 +958,7 @@ async def process_omnichannel_message(
             raw_reply=reply,
             proposed_state=new_state,
             proposed_image_key=image_key,
-            config=CONFIG,
+            config=brand_config,
             llm_escalation=llm_esc,
         )
 
@@ -1449,22 +1518,24 @@ async def api_jst_pre_keying_check(days_lookback: int = 2):
 
 @app.post("/api/reload")
 async def api_hot_reload():
-    """Hot-reload config.json, prompt_engine, media_generator, database, followup, audit, and llm in memory without restarting the tunnel."""
+    """Hot-reload config.json, prompt_engine, media_generator, database, followup, audit, loyalty, and llm in memory without restarting the tunnel."""
     import importlib
     from . import audit as _audit_mod
     from . import daily_sheet_report as _dsr_mod
     from . import database as _db_mod
     from . import followup as _fu_mod
     from . import llm as _llm_mod
+    from . import loyalty as _loy_mod
     from . import media_generator as _mg_mod
     from . import messenger as _msg_mod
     from . import prompt_engine as _pe_mod
 
-    global CONFIG, LLM, split_into_bubbles
+    global CONFIG, LLM, split_into_bubbles, _BRAND_CONFIGS, _BRAND_LLMS
     importlib.reload(_pe_mod)
     importlib.reload(_llm_mod)
     importlib.reload(_db_mod)
     importlib.reload(_mg_mod)
+    importlib.reload(_loy_mod)
     importlib.reload(_msg_mod)
     importlib.reload(_fu_mod)
     importlib.reload(_audit_mod)
@@ -1472,10 +1543,89 @@ async def api_hot_reload():
     _db_mod.init_db()
     _mg_mod.load_media_catalog()
     split_into_bubbles = _llm_mod.split_into_bubbles
+    _BRAND_CONFIGS.clear()
+    _BRAND_LLMS.clear()
     CONFIG = load_config()
     sys_prompt = _pe_mod.build_system_prompt(CONFIG)
     LLM = _llm_mod.LLMEngine(sys_prompt, CONFIG)
     return {"status": "reloaded", "ai_mode": LLM.get_status_label(), "public_base_url": PUBLIC_BASE_URL}
+
+
+class LoyaltyClaimRequest(BaseModel):
+    phone: str = ""
+    customer_name: str = ""
+    line_user_id: str = ""
+    brand_id: str = "mrbuk"
+
+
+class LoyaltyRedeemRequest(BaseModel):
+    phone: str = ""
+    line_user_id: str = ""
+    requested_tier: int | None = None
+    brand_id: str = "mrbuk"
+
+
+@app.get("/api/loyalty/members")
+async def api_loyalty_list_members(brand_id: str = "mrbuk"):
+    """List all registered Mr.Buk VIP loyalty members and their claimed orders."""
+    import asyncio
+
+    members = await asyncio.to_thread(loyalty.list_all_loyalty_members, brand_id)
+    return {"status": "ok", "count": len(members), "members": members}
+
+
+@app.get("/api/loyalty/lookup")
+async def api_loyalty_lookup(
+    phone: str = "",
+    customer_name: str = "",
+    line_user_id: str = "",
+    brand_id: str = "mrbuk",
+):
+    """Look up verifiable orders from Facebook (chatbot.db) and JST ERP (check_duplicate_order) plus member balance."""
+    import asyncio
+
+    orders_info = await asyncio.to_thread(loyalty.find_verifiable_orders, phone, customer_name, brand_id)
+    member_info = await asyncio.to_thread(
+        loyalty.get_member_summary,
+        orders_info.get("phone") or phone,
+        line_user_id,
+        brand_id,
+    )
+    return {
+        "status": "ok",
+        "resolved_phone": orders_info.get("phone"),
+        "resolved_customer_name": orders_info.get("customer_name"),
+        "verifiable_orders": orders_info.get("orders"),
+        "member": member_info,
+    }
+
+
+@app.post("/api/loyalty/claim")
+async def api_loyalty_claim(body: LoyaltyClaimRequest):
+    """Verify orders by 10-digit phone or recipient name, prevent duplicate bill claims, award points, and return QR Code images."""
+    import asyncio
+
+    return await asyncio.to_thread(
+        loyalty.claim_points_for_customer,
+        body.phone,
+        body.customer_name,
+        body.line_user_id,
+        body.brand_id,
+    )
+
+
+@app.post("/api/loyalty/redeem")
+async def api_loyalty_redeem(body: LoyaltyRedeemRequest):
+    """Redeem 5 points (free 60g x 3) or 10 points (free 500g x 1) to be shipped with the customer's next order."""
+    import asyncio
+
+    return await asyncio.to_thread(
+        loyalty.redeem_loyalty_points,
+        body.phone,
+        body.line_user_id,
+        body.requested_tier,
+        body.brand_id,
+    )
 
 
 @app.post("/api/sync-facebook")
@@ -1560,6 +1710,33 @@ async def api_send_line_group_summary(
     )
 
 
+@app.get("/api/db/status")
+async def db_status():
+    return database.get_database_status()
+
+
+@app.get("/api/n8n/workflows")
+async def list_n8n_workflows():
+    wf_dir = Path(__file__).resolve().parent.parent / "n8n_workflows"
+    workflows = []
+    if wf_dir.exists():
+        for fp in sorted(wf_dir.glob("*.json")):
+            try:
+                with open(fp, encoding="utf-8") as f:
+                    data = json.load(f)
+                workflows.append(
+                    {
+                        "file": fp.name,
+                        "name": data.get("name", fp.stem),
+                        "nodes_count": len(data.get("nodes", [])),
+                        "workflow": data,
+                    }
+                )
+            except Exception as exc:
+                logger.warning("Failed to read n8n workflow %s: %s", fp.name, exc)
+    return {"status": "ok", "count": len(workflows), "workflows": workflows}
+
+
 @app.get("/health")
 async def health():
     return {
@@ -1567,4 +1744,5 @@ async def health():
         "brand": CONFIG.get("brand_persona", {}).get("brand_name"),
         "mock_mode": LLM.mock_mode if LLM else None,
         "pages_supported": len(load_pages_registry()),
+        "database": database.get_database_status(),
     }

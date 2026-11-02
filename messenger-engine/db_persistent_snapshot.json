@@ -1,0 +1,1025 @@
+{
+  "updated_at": "2026-11-02T05:26:19.553398+00:00",
+  "sessions": [
+    {
+      "psid": "buksukjai:line:U_pimjai_line",
+      "brand_id": "buksukjai",
+      "platform": "line",
+      "external_user_id": "U_pimjai_line",
+      "customer_name": "คุณพิมพ์ใจ (LINE OA)",
+      "state": "pending_payment",
+      "is_starred": false,
+      "bot_enabled": true,
+      "unread_count": 0,
+      "notes": "",
+      "broadcast_tags": "",
+      "purchased_sku": "BSJ1KG1",
+      "purchased_qty": 1,
+      "purchased_at": null,
+      "after_sales_stage": 0,
+      "last_interaction_time": "2026-10-28T12:06:06.438485",
+      "followup_sent_at": null,
+      "created_at": "2026-10-28T12:06:06.427761"
+    },
+    {
+      "psid": "buksukjai:line:U_gemini_live_test",
+      "brand_id": "buksukjai",
+      "platform": "line",
+      "external_user_id": "U_gemini_live_test",
+      "customer_name": "คุณนัท (ทดสอบ Gemini จริง)",
+      "state": "browsing",
+      "is_starred": false,
+      "bot_enabled": true,
+      "unread_count": 1,
+      "notes": "",
+      "broadcast_tags": "",
+      "purchased_sku": "BSJ1KG1",
+      "purchased_qty": 1,
+      "purchased_at": null,
+      "after_sales_stage": 0,
+      "last_interaction_time": "2026-10-28T12:39:44.520804",
+      "followup_sent_at": null,
+      "created_at": "2026-10-28T12:39:41.171400"
+    },
+    {
+      "psid": "buksukjai:line:U_test_gemini_real",
+      "brand_id": "buksukjai",
+      "platform": "line",
+      "external_user_id": "U_test_gemini_real",
+      "customer_name": "คุณนัท (ทดสอบ Gemini 2.5)",
+      "state": "browsing",
+      "is_starred": false,
+      "bot_enabled": true,
+      "unread_count": 1,
+      "notes": "",
+      "broadcast_tags": "",
+      "purchased_sku": "BSJ1KG1",
+      "purchased_qty": 1,
+      "purchased_at": null,
+      "after_sales_stage": 0,
+      "last_interaction_time": "2026-10-28T13:11:19.683395",
+      "followup_sent_at": null,
+      "created_at": "2026-10-28T13:11:16.392716"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "brand_id": "buksukjai",
+      "platform": "line",
+      "external_user_id": "Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "customer_name": "คุณลูกค้า LINE",
+      "state": "browsing",
+      "is_starred": false,
+      "bot_enabled": true,
+      "unread_count": 0,
+      "notes": "",
+      "broadcast_tags": "",
+      "purchased_sku": "BSJ1KG1",
+      "purchased_qty": 1,
+      "purchased_at": null,
+      "after_sales_stage": 0,
+      "last_interaction_time": "2026-10-29T01:23:20.606324",
+      "followup_sent_at": null,
+      "created_at": "2026-10-28T13:12:33.705155"
+    },
+    {
+      "psid": "buksukjai:line:U_test_bubbles_1",
+      "brand_id": "buksukjai",
+      "platform": "line",
+      "external_user_id": "U_test_bubbles_1",
+      "customer_name": "ทดสอบแบ่งกล่อง",
+      "state": "browsing",
+      "is_starred": false,
+      "bot_enabled": true,
+      "unread_count": 1,
+      "notes": "",
+      "broadcast_tags": "",
+      "purchased_sku": "BSJ1KG1",
+      "purchased_qty": 1,
+      "purchased_at": null,
+      "after_sales_stage": 0,
+      "last_interaction_time": "2026-10-28T13:39:23.905103",
+      "followup_sent_at": null,
+      "created_at": "2026-10-28T13:39:19.619795"
+    },
+    {
+      "psid": "buksukjai:line:Ub9201ab1d256d2e8c3b90b479362ffc3",
+      "brand_id": "buksukjai",
+      "platform": "line",
+      "external_user_id": "Ub9201ab1d256d2e8c3b90b479362ffc3",
+      "customer_name": "ลูกค้า LINE (ffc3)",
+      "state": "browsing",
+      "is_starred": false,
+      "bot_enabled": true,
+      "unread_count": 0,
+      "notes": "",
+      "broadcast_tags": "",
+      "purchased_sku": "BSJ1KG1",
+      "purchased_qty": 1,
+      "purchased_at": null,
+      "after_sales_stage": 0,
+      "last_interaction_time": "2026-10-28T13:41:47.172962",
+      "followup_sent_at": null,
+      "created_at": "2026-10-28T13:40:58.654899"
+    },
+    {
+      "psid": "buksukjai:line:U_test_img_01",
+      "brand_id": "buksukjai",
+      "platform": "line",
+      "external_user_id": "U_test_img_01",
+      "customer_name": "คุณนุ่น (ทดสอบส่งรูป)",
+      "state": "browsing",
+      "is_starred": false,
+      "bot_enabled": true,
+      "unread_count": 0,
+      "notes": "",
+      "broadcast_tags": "",
+      "purchased_sku": "BSJ1KG1",
+      "purchased_qty": 1,
+      "purchased_at": null,
+      "after_sales_stage": 0,
+      "last_interaction_time": "2026-10-28T14:24:11.338760",
+      "followup_sent_at": null,
+      "created_at": "2026-10-28T14:24:08.572647"
+    },
+    {
+      "psid": "buksukjai:line:U_audit_test_99",
+      "brand_id": "buksukjai",
+      "platform": "line",
+      "external_user_id": "U_audit_test_99",
+      "customer_name": "คุณนุ่น",
+      "state": "browsing",
+      "is_starred": false,
+      "bot_enabled": true,
+      "unread_count": 1,
+      "notes": "",
+      "broadcast_tags": "",
+      "purchased_sku": "BSJ1KG1",
+      "purchased_qty": 1,
+      "purchased_at": null,
+      "after_sales_stage": 0,
+      "last_interaction_time": "2026-10-29T15:36:28.285714",
+      "followup_sent_at": null,
+      "created_at": "2026-10-29T15:36:24.745919"
+    },
+    {
+      "psid": "buksukjai:line:U_audit_test_100",
+      "brand_id": "buksukjai",
+      "platform": "line",
+      "external_user_id": "U_audit_test_100",
+      "customer_name": "คุณนุ่น",
+      "state": "browsing",
+      "is_starred": false,
+      "bot_enabled": true,
+      "unread_count": 1,
+      "notes": "",
+      "broadcast_tags": "",
+      "purchased_sku": "BSJ1KG1",
+      "purchased_qty": 1,
+      "purchased_at": null,
+      "after_sales_stage": 0,
+      "last_interaction_time": "2026-10-29T15:37:18.115670",
+      "followup_sent_at": null,
+      "created_at": "2026-10-29T15:37:14.544665"
+    },
+    {
+      "psid": "mrbuk:line:TEST_LINE_LOYALTY_999",
+      "brand_id": "mrbuk",
+      "platform": "line",
+      "external_user_id": "TEST_LINE_LOYALTY_999",
+      "customer_name": "คุณศิริพร ทดสอบแต้ม",
+      "state": "browsing",
+      "is_starred": false,
+      "bot_enabled": true,
+      "unread_count": 4,
+      "notes": "[LOYALTY VIP: เบอร์ 0899998877 | แต้มคงเหลือ 4 แต้ม]\n[LOYALTY REWARD: ใช้ 5 แต้ม แลก ข้าวบุกหอมมะลิซองเล็ก 60 กรัม จำนวน 3 ซอง (มูลค่า 132.-) — จัดส่งพร้อมออเดอร์ถัดไป]",
+      "broadcast_tags": "VIP แต้มสะสม (4 แต้ม), VIP แต้มสะสม (6 แต้ม), 🎁 แลกของแถม (ฟรี! ซองเล็ก 60g 3 ซอง)",
+      "purchased_sku": "BSJ1KG1",
+      "purchased_qty": 1,
+      "purchased_at": null,
+      "after_sales_stage": 0,
+      "last_interaction_time": "2026-11-02T05:25:00.853757",
+      "followup_sent_at": null,
+      "created_at": "2026-11-02T05:24:59.044291"
+    }
+  ],
+  "messages": [
+    {
+      "psid": "buksukjai:line:U_pimjai_line",
+      "role": "user",
+      "sender_label": "",
+      "content": "สวัสดีค่ะ สนใจสั่งเซ็ตครอบครัว 899 บาทค่ะ",
+      "created_at": "2026-10-28T12:06:06.432353"
+    },
+    {
+      "psid": "buksukjai:line:U_pimjai_line",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "ยินดีเลยค่ะคุณลูกค้า 🍚🌿 น้องบุกขอสรุปยอดออเดอร์นะคะ:\n\n• รายการ: เซ็ตครอบครัว 2 แถม 2 (1 กก. × 2 ถุง + แถมฟรี 60g 2 ซอง) ราคาโปร 899 บาท\n\n• ยอดชำระแบบโอนเงิน: 899 บาท (โอนเงินส่งฟรี!)\n\n• ยอดชำระแบบเก็บเงินปลายทาง (COD): 939 บาท (เก็บเงินปลายทาง +40 บาท)\n\nคุณลูกค้าสะดวกรับเป็น โอนเงิน หรือ เก็บเงินปลายทาง ดีคะ? สามารถแจ้ง ชื่อ-ที่อยู่ และเบอร์โทรศัพท์ สำหรับจัดส่งไว้ได้เลยนะคะ 🙏💚",
+      "created_at": "2026-10-28T12:06:06.438485"
+    },
+    {
+      "psid": "buksukjai:line:U_gemini_live_test",
+      "role": "user",
+      "sender_label": "",
+      "content": "สวัสดีค่ะ ข้าวบุกสุขใจ 1 กิโลราคาเท่าไหร่คะ ถ้าโอนเงินส่งฟรีไหม?",
+      "created_at": "2026-10-28T12:39:41.181478"
+    },
+    {
+      "psid": "buksukjai:line:U_gemini_live_test",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "สวัสดีค่ะ ข้าวบุกสุขใจ 1 กิโลราคา 150 บาทค่ะ หากโอนเงินค่าจัดส่งฟรีค่ะ",
+      "created_at": "2026-10-28T12:39:44.519745"
+    },
+    {
+      "psid": "buksukjai:line:U_test_gemini_real",
+      "role": "user",
+      "sender_label": "",
+      "content": "1kg price and shipping?",
+      "created_at": "2026-10-28T13:11:16.400206"
+    },
+    {
+      "psid": "buksukjai:line:U_test_gemini_real",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "สำหรับข้าวบุกสุขใจขนาด 1 กิโลกรัม (ไซส์คุ้มสุด) ราคาโปรโมชั่นตอนนี้อยู่ที่ 459 บาทค่ะ\n\nส่วนค่าจัดส่ง:\n\n• หากชำระแบบโอนเงิน: ส่งฟรีค่ะ! (ประหยัดค่าส่งไปเลย)\n\n• หากชำระแบบเก็บเงินปลายทาง (COD): ค่าส่งเพียง 40 บาทค่ะ\n\nขนาด 1 กิโลกรัมคุ้มค่ามากๆ เลยค่ะคุณลูกค้า ลองพิจารณาดูนะคะ/ค่ะ",
+      "created_at": "2026-10-28T13:11:19.682362"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "user",
+      "sender_label": "",
+      "content": "หิวอ่า",
+      "created_at": "2026-10-28T13:12:33.712872"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "โอ๋ๆ ไม่หิวแล้วนะคะ ☺️ ข้าวบุกสุขใจพร้อมช่วยคุณลูกค้าให้อิ่มอร่อยได้ง่ายๆ โดยไม่ต้องงดข้าวเลยค่ะ เพียงแค่ 'ตัก-เติม-รอ' ก็พร้อมทานข้าวหอมมะลิผสมบุกนุ่มๆ ได้ใน 10-15 นาที แถมยังพลังงานต่ำสบายใจเพียง 23 แคลอรีต่อหน่วยบริโภคด้วยนะคะ",
+      "created_at": "2026-10-28T13:12:36.744440"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "user",
+      "sender_label": "",
+      "content": "มีอะไรขายบ้าง",
+      "created_at": "2026-10-28T13:12:50.292362"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "ข้าวบุกสุขใจมีจำหน่ายหลายขนาดเลยค่ะคุณลูกค้า เพื่อให้เลือกได้ตามความต้องการเลยค่ะ\n\n• ข้าวบุกสุขใจ (ข้าวบุกผสมข้าวหอมมะลิแท้ กึ่งสำเร็จรูป)\n\n• 60 กรัม (ไซส์ทดลอง): 39 บาท (จากปกติ 59 บาท)\n\n• 500 กรัม (ไซส์ทานประจำ): 239 บาท (จากปกติ 289 บาท)\n\n• 1 กิโลกรัม (ไซส์คุ้มสุด): 459 บาท (จากปกติ 499 บาท) 📮 โอนเงินส่งฟรี!\n\n• เซ็ตพกพา 20 ซอง (60 กรัม × 20 ซอง): 720 บาท (จากปกติ 780 บาท)\n\n• เซ็ตครอบครัว 2 แถม 2 (1 กก. × 2 ถุง + ฟรี 60 กรัม 2 ซอง): 899 บาท (จากปกติ 998 บาท) 📮 ส่งฟรี!\n\n• เซ็ตใหญ่ 3 แถม 3 (1 กก. × 3 ถุง + ฟรี 60 กรัม 3 ซอง): 1,299 บาท (จากปกติ 1,497 บาท) 📮 ส่งฟรี!\n\nข้าวบุกสุขใจทำจากหัวบุกผสมข้าวหอมมะลิแท้ เมล็ดเรียวยาวเหมือนข้าวสวย ทานง่าย ได้สัมผัสใกล้เคียงข้าวจริง แถมพลังงานต่ำเพียง 23 แคลอรีต่อหน่วยบริโภคด้วยนะคะ 😊",
+      "created_at": "2026-10-28T13:12:53.528821"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "user",
+      "sender_label": "",
+      "content": "อยากได้โปรพิเศษกว่านี้มีไหม",
+      "created_at": "2026-10-28T13:13:03.611527"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "ตอนนี้โปรโมชั่นพิเศษที่น้องบุกมีให้คุณลูกค้าคือราคาโปรโมชั่นที่แจ้งไปในแต่ละขนาดแล้วนะคะผม\n\nแต่หากคุณลูกค้าเคยได้รับสินค้าของเราไปแล้วและมีใบแนบในกล่องพัสดุ สามารถสแกน QR Code เพื่อรับส่วนลดพิเศษเพิ่มอีก 5% ได้เลยค่ะ จะมีโปรโมชั่นสำหรับ:\n\n• ถุงใหญ่ 1 กก. เหลือเพียง 436 บาท (โอนเงินส่งฟรี!)\n\n• เซ็ตครอบครัว 1 กก. × 2 ถุง แถมฟรี 60 กรัม × 2 ซอง เหลือเพียง 854 บาท (ส่งฟรี!)\n\n• เซ็ตพกพา 60 กรัม × 20 ซอง เหลือเพียง 684 บาท\n\nเป็นโปรโมชั่นดีๆ สำหรับลูกค้าประจำเลยนะคะผม 😊",
+      "created_at": "2026-10-28T13:13:07.341238"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "user",
+      "sender_label": "",
+      "content": "ยังไม่เคยซื้อเลยจะเป็นลูกค้าประจำได้ไง",
+      "created_at": "2026-10-28T13:13:19.673156"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "น้องบุกเข้าใจเลยค่ะคุณลูกค้า 😊 ขอโทษด้วยนะคะที่ทำให้อาจจะเข้าใจผิด ตอนนี้น้องบุกยังมีโปรโมชั่นลดราคาพิเศษสำหรับข้าวบุกสุขใจทุกขนาดอยู่แล้วค่ะ ซึ่งคุณลูกค้าสามารถสั่งซื้อในราคานี้ได้เลยทันทีโดยไม่ต้องรอเป็นลูกค้าประจำเลยค่ะ\n\nหากคุณลูกค้าสนใจลองทาน น้องบุกขอแนะนำขนาดที่คุ้มค่าสำหรับเริ่มต้นเลยนะคะ\n\n• 1 กิโลกรัม (ไซส์คุ้มสุด): 459 บาท (จากปกติ 499 บาท) 📮 โอนเงินส่งฟรี!\n\n• เซ็ตครอบครัว 2 แถม 2 (1 กก. × 2 ถุง + ฟรี 60 กรัม 2 ซอง): 899 บาท (จากปกติ 998 บาท) 📮 ส่งฟรี!\n\nรับรองว่าคุ้มค่า และดูแลสุขภาพได้สบายใจตั้งแต่ครั้งแรกที่ลองเลยนะคะ 😊",
+      "created_at": "2026-10-28T13:13:25.592359"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "user",
+      "sender_label": "",
+      "content": "เอา 1 กิโลกรัม",
+      "created_at": "2026-10-28T13:14:05.135022"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "ได้เลยค่ะคุณลูกค้า สำหรับข้าวบุกสุขใจ ขนาด 1 กิโลกรัม ราคาโปรโมชั่น 459 บาทนะคะผม\n\nรบกวนคุณลูกค้าแจ้งชื่อ ที่อยู่ และเบอร์โทรศัพท์สำหรับจัดส่งได้เลยค่ะ\nและเลือกช่องทางการชำระเงินได้เลยนะคะ:\n\n• โอนเงิน (จัดส่งฟรี!)\n\n• เก็บเงินปลายทาง (COD) เพิ่มค่าจัดส่ง 40 บาท\n\nเดี๋ยวน้องบุกจะสรุปยอดและแจ้งรายละเอียดการชำระเงินให้นะคะ 😊",
+      "created_at": "2026-10-28T13:14:07.953021"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "user",
+      "sender_label": "",
+      "content": "เก็บเงินปลายทางค่ะ",
+      "created_at": "2026-10-28T13:14:16.437196"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "ได้เลยค่ะคุณลูกค้า สำหรับการสั่งซื้อข้าวบุกสุขใจ ขนาด 1 กิโลกรัม จำนวน 1 ถุง ราคา 459 บาท และเลือกชำระแบบเก็บเงินปลายทาง (COD) จะมีค่าจัดส่ง 40 บาทนะคะ\n\nสรุปยอดรวมทั้งสิ้น 459 + 40 = 499 บาท ค่ะ\n\nรบกวนคุณลูกค้าแจ้ง ชื่อ-นามสกุล, ที่อยู่จัดส่ง และเบอร์โทรศัพท์สำหรับติดต่อ ได้เลยนะคะ เดี๋ยวแอดมินจะดำเนินการจัดส่งให้ค่ะ 😊",
+      "created_at": "2026-10-28T13:14:20.117340"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "user",
+      "sender_label": "",
+      "content": "115/284 ตำบลห้วยกะปิอำเภอเมืองจังหวัดชลบุรี 20130\n0829825426 ณัฐชยา",
+      "created_at": "2026-10-28T13:14:41.573248"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "ได้รับข้อมูลเรียบร้อยแล้วค่ะคุณณัฐชยา 😊 ขอสรุปคำสั่งซื้ออีกครั้งนะคะ: ข้าวบุกสุขใจ ขนาด 1 กิโลกรัม จำนวน 1 ถุง ราคา 459 บาท ค่าจัดส่งปลายทาง 40 บาท ยอดรวมทั้งสิ้น 499 บาท จัดส่งที่ 115/284 ตำบลห้วยกะปิ อำเภอเมือง จังหวัดชลบุรี 20130 เบอร์โทรศัพท์ 0829825426 นะคะ\n\nเดี๋ยวน้องบุกดำเนินการจัดส่งให้ภายใน 3-5 วันทำการนะคะ ขอบคุณที่อุดหนุนข้าวบุกสุขใจนะคะผม 🙏",
+      "created_at": "2026-10-28T13:14:44.529414"
+    },
+    {
+      "psid": "buksukjai:line:U_test_bubbles_1",
+      "role": "user",
+      "sender_label": "",
+      "content": "มีอะไรขายบ้าง",
+      "created_at": "2026-10-28T13:39:19.625753"
+    },
+    {
+      "psid": "buksukjai:line:U_test_bubbles_1",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "ข้าวบุกสุขใจ มีให้เลือกหลายขนาดเลยค่า 🍚✨",
+      "created_at": "2026-10-28T13:39:23.892375"
+    },
+    {
+      "psid": "buksukjai:line:U_test_bubbles_1",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "📌 โปรโมชั่นพิเศษตอนนี้ค่ะ\n\n• ซองเล็ก 60 กรัม = 39 บาท (ไซส์ทดลอง)\n\n• ถุงกลาง 500 กรัม = 239 บาท\n\n• ถุงใหญ่ 1 กก. = 459 บาท (โอนส่งฟรี! 🔥)\n\n• เซ็ตพกพา 20 ซอง = 720 บาท\n\n• เซ็ตครอบครัว 2 แถม 2 (1 กก. 2 ถุง + แถมเล็ก 2 ซอง) = 899 บาท ส่งฟรี!\n\n• เซ็ตใหญ่ 3 แถม 3 (1 กก. 3 ถุง + แถมเล็ก 3 ซอง) = 1,299 บาท ส่งฟรี!",
+      "created_at": "2026-10-28T13:39:23.899094"
+    },
+    {
+      "psid": "buksukjai:line:U_test_bubbles_1",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "ถ้าคุณลูกค้าทานประจำ ถุงใหญ่ 1 กก. หรือเซ็ตครอบครัวจะคุ้มมากๆ เลยนะคะ 😊💚 สนใจลองไซส์ไหนดีคะ เดี๋ยวน้องบุกดูโปรให้เลย",
+      "created_at": "2026-10-28T13:39:23.904106"
+    },
+    {
+      "psid": "buksukjai:line:Ub9201ab1d256d2e8c3b90b479362ffc3",
+      "role": "user",
+      "sender_label": "",
+      "content": " เทส",
+      "created_at": "2026-10-28T13:40:58.660811"
+    },
+    {
+      "psid": "buksukjai:line:Ub9201ab1d256d2e8c3b90b479362ffc3",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "สวัสดีคะคุณลูกค้า 🍚✨ น้องบุก ข้าวบุกสุขใจ ยินดีให้บริการค่า 😊",
+      "created_at": "2026-10-28T13:41:01.264164"
+    },
+    {
+      "psid": "buksukjai:line:Ub9201ab1d256d2e8c3b90b479362ffc3",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "สนใจสอบถามข้อมูลหรือรับโปรโมชั่นพิเศษ ทักน้องบุกได้เลยนะคะ 💚",
+      "created_at": "2026-10-28T13:41:01.270822"
+    },
+    {
+      "psid": "buksukjai:line:Ub9201ab1d256d2e8c3b90b479362ffc3",
+      "role": "user",
+      "sender_label": "",
+      "content": "ไม่ส่งโปรโมชั่นให้ดูแล้วจะเลือกยังไง",
+      "created_at": "2026-10-28T13:41:23.494376"
+    },
+    {
+      "psid": "buksukjai:line:Ub9201ab1d256d2e8c3b90b479362ffc3",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "ขอโทษด้วยนะคะคุณลูกค้า 😅 น้องบุกส่งโปรโมชั่นให้ดูได้เลยค่า 🍚✨",
+      "created_at": "2026-10-28T13:41:27.294270"
+    },
+    {
+      "psid": "buksukjai:line:Ub9201ab1d256d2e8c3b90b479362ffc3",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "📌 โปรโมชั่นพิเศษตอนนี้ค่ะ\n\n• ซองเล็ก 60 กรัม = 39 บาท (ไซส์ทดลอง)\n\n• ถุงกลาง 500 กรัม = 239 บาท\n\n• ถุงใหญ่ 1 กก. = 459 บาท (โอนส่งฟรี! 🔥)\n\n• เซ็ตพกพา 20 ซอง = 720 บาท\n\n• เซ็ตครอบครัว 2 แถม 2 (1 กก. 2 ถุง + แถมเล็ก 2 ซอง) = 899 บาท ส่งฟรี!\n\n• เซ็ตใหญ่ 3 แถม 3 (1 กก. 3 ถุง + แถมเล็ก 3 ซอง) = 1,299 บาท ส่งฟรี!",
+      "created_at": "2026-10-28T13:41:27.301111"
+    },
+    {
+      "psid": "buksukjai:line:Ub9201ab1d256d2e8c3b90b479362ffc3",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "ถ้าคุณลูกค้าทานประจำ แนะนำถุงใหญ่ 1 กก. หรือเซ็ตครอบครัว 2 แถม 2 คุ้มมากๆ เลยนะคะ 😊 สนใจไซส์ไหนเป็นพิเศษไหมคะ 💚",
+      "created_at": "2026-10-28T13:41:27.305774"
+    },
+    {
+      "psid": "buksukjai:line:Ub9201ab1d256d2e8c3b90b479362ffc3",
+      "role": "user",
+      "sender_label": "",
+      "content": "มีรูปปะ",
+      "created_at": "2026-10-28T13:41:44.340405"
+    },
+    {
+      "psid": "buksukjai:line:Ub9201ab1d256d2e8c3b90b479362ffc3",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "ขออภัยจริงๆ นะคะคุณลูกค้า 🥺 น้องบุกเป็นแอดมินตอบแชท เลยไม่สามารถส่งรูปภาพสินค้าให้ดูตรงนี้ได้เลยค่า",
+      "created_at": "2026-10-28T13:41:47.170206"
+    },
+    {
+      "psid": "buksukjai:line:U_test_img_01",
+      "role": "user",
+      "sender_label": "",
+      "content": "สนใจค่ะ ขอโปรโมชั่นหน่อย",
+      "created_at": "2026-10-28T14:24:08.579739"
+    },
+    {
+      "psid": "buksukjai:line:U_test_img_01",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "สวัสดีค่า 🍚✨ ข้าวบุกสุขใจ อิ่มอร่อยแคลต่ำเพียง 23 kcal ทำง่ายแค่เติมน้ำร้อน 10 นาทีพร้อมทานเลยค่ะ",
+      "created_at": "2026-10-28T14:24:11.320809"
+    },
+    {
+      "psid": "buksukjai:line:U_test_img_01",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "[IMAGE:/static/media/promo_3sizes.jpg]",
+      "created_at": "2026-10-28T14:24:11.326797"
+    },
+    {
+      "psid": "buksukjai:line:U_test_img_01",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "📌 โปรโมชั่นพิเศษตอนนี้ค่ะ\n\n• ซองเล็ก 60 กรัม = 39 บาท (ไซส์ทดลอง)\n\n• ถุงกลาง 500 กรัม = 239 บาท\n\n• ถุงใหญ่ 1 กก. = 459 บาท (โอนส่งฟรี! 🔥)\n\n• เซ็ตพกพา 20 ซอง = 720 บาท\n\n• เซ็ตครอบครัว 2 แถม 2 (1 กก. 2 ถุง + แถมเล็ก 2 ซอง) = 899 บาท ส่งฟรี!\n\n• เซ็ตใหญ่ 3 แถม 3 (1 กก. 3 ถุง + แถมเล็ก 3 ซอง) = 1,299 บาท ส่งฟรี!",
+      "created_at": "2026-10-28T14:24:11.332776"
+    },
+    {
+      "psid": "buksukjai:line:U_test_img_01",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "คุณลูกค้าสนใจลองไซส์ไหนดีคะ เดี๋ยวน้องบุกดูโปรให้เลย 😊💚",
+      "created_at": "2026-10-28T14:24:11.338048"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "user",
+      "sender_label": "",
+      "content": "ขอโปรหน่อย",
+      "created_at": "2026-10-28T14:40:20.918448"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "สวัสดีค่า 🍚✨ ข้าวบุกสุขใจ อิ่มอร่อยแคลต่ำเพียง 23 kcal ทำง่ายแค่เติมน้ำร้อน 10 นาทีพร้อมทานเลยค่ะ",
+      "created_at": "2026-10-28T14:40:23.653939"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "[IMAGE:/static/media/promo_3sizes.jpg]",
+      "created_at": "2026-10-28T14:40:23.661216"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "📌 โปรโมชั่นพิเศษตอนนี้ค่ะ\n\n• ซองเล็ก 60 กรัม = 39 บาท (ไซส์ทดลอง)\n\n• ถุงกลาง 500 กรัม = 239 บาท\n\n• ถุงใหญ่ 1 กก. = 459 บาท (โอนส่งฟรี! 🔥)\n\n• เซ็ตพกพา 20 ซอง = 720 บาท\n\n• เซ็ตครอบครัว 2 แถม 2 (1 กก. 2 ถุง + แถมเล็ก 2 ซอง) = 899 บาท ส่งฟรี!\n\n• เซ็ตใหญ่ 3 แถม 3 (1 กก. 3 ถุง + แถมเล็ก 3 ซอง) = 1,299 บาท ส่งฟรี!",
+      "created_at": "2026-10-28T14:40:23.666325"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "คุณลูกค้าสนใจลองไซส์ไหนดีคะ เดี๋ยวน้องบุกดูโปรให้เลย 😊💚",
+      "created_at": "2026-10-28T14:40:23.671308"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "user",
+      "sender_label": "",
+      "content": "หิวจัง",
+      "created_at": "2026-10-28T15:10:13.784978"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "โอ๋ๆ หิวแบบนี้ต้องจัดข้าวบุกสุขใจร้อนๆ เลยค่า 🍚😊",
+      "created_at": "2026-10-28T15:10:15.902180"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "แค่ตักเติมน้ำร้อนรอ 10 นาที ก็ได้ทานข้าวนุ่มๆ แคลต่ำ 23 kcal อิ่มสบายท้องเลยค่ะ",
+      "created_at": "2026-10-28T15:10:15.908326"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "สนใจลองไซส์ไหนทักน้องบุกได้เลยนะคะ 💚",
+      "created_at": "2026-10-28T15:10:15.914467"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "user",
+      "sender_label": "",
+      "content": "มีโปรอะไรบ้าง",
+      "created_at": "2026-10-28T15:10:47.476163"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "สวัสดีค่า 🍚✨ ข้าวบุกสุขใจ อิ่มอร่อยแคลต่ำเพียง 23 kcal ทำง่ายแค่เติมน้ำร้อน 10 นาทีพร้อมทานเลยค่ะ",
+      "created_at": "2026-10-28T15:10:50.444782"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "📌 โปรโมชั่นพิเศษตอนนี้ค่ะ\n\n• ซองเล็ก 60 กรัม = 39 บาท (ไซส์ทดลอง)\n\n• ถุงกลาง 500 กรัม = 239 บาท\n\n• ถุงใหญ่ 1 กก. = 459 บาท (โอนส่งฟรี! 🔥)\n\n• เซ็ตพกพา 15 ซอง = 555 บาท (ส่งฟรี!)\n\n• เซ็ตพกพา 20 ซอง = 720 บาท (ส่งฟรี!)\n\n• โปรตุน 2 แถม 2 (1 กก. 2 ถุง + แถม 60g 2 ซอง) = 899 บาท ส่งฟรี!\n\n• โปรตุน 3 แถม 3 (1 กก. 3 ถุง + แถม 60g 3 ซอง) = 1,299 บาท ส่งฟรี!",
+      "created_at": "2026-10-28T15:10:50.451733"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "คุณลูกค้าสนใจลองไซส์ไหนดีคะ เดี๋ยวน้องบุกดูโปรให้เลยค่า 😊💚",
+      "created_at": "2026-10-28T15:10:50.457277"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "user",
+      "sender_label": "",
+      "content": "ส่งรูปมาให้ดูหน่อยได้ไหม",
+      "created_at": "2026-10-28T15:11:04.826063"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "ได้เลยค่า น้องบุกส่งรูปโปรโมชั่นทั้งหมดให้คุณลูกค้าดูเลยนะคะ 😊",
+      "created_at": "2026-10-28T15:11:06.896991"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "user",
+      "sender_label": "",
+      "content": "ส่งมาสิ",
+      "created_at": "2026-10-28T15:11:19.107407"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "ได้เลยค่า น้องบุกส่งรูปโปรโมชั่นทั้งหมดให้คุณลูกค้าดูเลยนะคะ 😊",
+      "created_at": "2026-10-28T15:11:21.054097"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "user",
+      "sender_label": "",
+      "content": "อันนี้เป็นข้าวอะไร",
+      "created_at": "2026-10-28T15:11:43.864246"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "ข้าวบุกสุขใจของเราเป็นข้าวบุกผสมข้าวหอมมะลิแท้ 60:40 เลยค่ะคุณลูกค้า 🍚💚",
+      "created_at": "2026-10-28T15:11:46.140686"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "เป็นข้าวเมล็ดเรียวยาวสีขาว นุ่มหนึบ ทานง่ายเหมือนข้าวสวยเลยค่ะ ไม่ต้องงดข้าวก็ดูแลรูปร่างได้สบายเลยค่า 😊",
+      "created_at": "2026-10-28T15:11:46.147422"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "user",
+      "sender_label": "",
+      "content": "มีอยไหม",
+      "created_at": "2026-10-28T15:11:51.548734"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "ตอนนี้ทางร้านยังอยู่ระหว่างดำเนินการขอเลข อย. ค่ะคุณลูกค้า เนื่องจากขั้นตอนขอ อย. ในประเทศไทยใช้ระยะเวลาค่อนข้างนาน พอได้เลขเรียบร้อยแล้วแอดมินจะรีบมาอัปเดตให้ทราบทันทีเลยนะคะ",
+      "created_at": "2026-10-28T15:11:53.693517"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "user",
+      "sender_label": "",
+      "content": "มีฮาลาลไหม",
+      "created_at": "2026-10-28T15:12:04.806144"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "ตอนนี้ข้าวบุกสุขใจยังไม่มีเครื่องหมายฮาลาลนะคะคุณลูกค้า 🥺",
+      "created_at": "2026-10-28T15:12:07.118084"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "แต่ทางเราใช้วัตถุดิบคุณภาพดี สะอาด ปลอดภัยทุกขั้นตอนการผลิตเลยค่า 😊",
+      "created_at": "2026-10-28T15:12:07.123889"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "user",
+      "sender_label": "",
+      "content": "ไหนตอนโฆษณาบอกว่ามี",
+      "created_at": "2026-10-28T15:12:17.547953"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "น้องบุกต้องขออภัยในความไม่สะดวกด้วยนะคะคุณลูกค้า 🥺",
+      "created_at": "2026-10-28T15:12:19.707978"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "ตอนนี้สินค้าของเรายังไม่มีเครื่องหมายฮาลาลค่ะ แต่ทางเราใช้วัตถุดิบคุณภาพดี สะอาด ปลอดภัยทุกขั้นตอนการผลิตเลยค่า 😊",
+      "created_at": "2026-10-28T15:12:19.715034"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "user",
+      "sender_label": "",
+      "content": "สนใจ",
+      "created_at": "2026-10-28T23:50:05.508045"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "สวัสดีค่า 🍚✨ ข้าวบุกสุขใจ อิ่มอร่อยแคลต่ำเพียง 23 kcal ทำง่ายแค่เติมน้ำร้อน 10 นาทีพร้อมทานเลยค่ะ",
+      "created_at": "2026-10-28T23:50:08.370358"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "📌 โปรโมชั่นพิเศษตอนนี้ค่ะ\n\n• ซองเล็ก 60 กรัม = 39 บาท (ไซส์ทดลอง)\n\n• ถุงกลาง 500 กรัม = 239 บาท\n\n• ถุงใหญ่ 1 กก. = 459 บาท (โอนส่งฟรี! 🔥)\n\n• เซ็ตพกพา 15 ซอง = 555 บาท (ส่งฟรี!)\n\n• เซ็ตพกพา 20 ซอง = 720 บาท (ส่งฟรี!)\n\n• โปรตุน 2 แถม 2 (1 กก. 2 ถุง + แถม 60g 2 ซอง) = 899 บาท ส่งฟรี!\n\n• โปรตุน 3 แถม 3 (1 กก. 3 ถุง + แถม 60g 3 ซอง) = 1,299 บาท ส่งฟรี!",
+      "created_at": "2026-10-28T23:50:08.377191"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "คุณลูกค้าสนใจลองไซส์ไหนดีคะ เดี๋ยวน้องบุกดูโปรให้เลยค่า 😊💚",
+      "created_at": "2026-10-28T23:50:08.383129"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "user",
+      "sender_label": "",
+      "content": "ขอดูรูปโปรโมชั่นหน่อย",
+      "created_at": "2026-10-28T23:50:18.328089"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "ได้เลยค่า น้องบุกส่งรูปโปรโมชั่นทั้งหมดให้คุณลูกค้าดูเลยนะคะ 😊",
+      "created_at": "2026-10-28T23:50:19.901975"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "user",
+      "sender_label": "",
+      "content": "ขอดูรูปโปรโมชั่นหน่อยค่ะ",
+      "created_at": "2026-10-28T23:57:29.496917"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "[IMAGE:/static/media/promo_3sizes.jpg]",
+      "created_at": "2026-10-28T23:57:31.452377"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "[IMAGE:/static/media/promo_60g_set.jpg]",
+      "created_at": "2026-10-28T23:57:31.458867"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "[IMAGE:/static/media/promo_899.jpg]",
+      "created_at": "2026-10-28T23:57:31.464851"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "[IMAGE:/static/media/promo_1299.jpg]",
+      "created_at": "2026-10-28T23:57:31.469841"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "น้องบุกส่งรูปโปรโมชั่นสุดคุ้มทั้งหมดให้ดูด้านบนเลยนะคะ 🍚✨",
+      "created_at": "2026-10-28T23:57:31.475821"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "ตอนนี้ถุงใหญ่ 1 กก. 459.- (โอนส่งฟรี) กับโปรตุน 2 แถม 2 (899.- ส่งฟรี) ขายดีมากเลยค่ะ คุณลูกค้าสนใจรับชุดไหนดีคะ 😊💚",
+      "created_at": "2026-10-28T23:57:31.480852"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "user",
+      "sender_label": "",
+      "content": "อยากได้ถุงเล็ก",
+      "created_at": "2026-10-29T01:23:18.754740"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "สำหรับแบบซองพกพา 60 กรัม ตอนนี้มีโปรเซ็ต 15 ซอง 555.- และ 20 ซอง 720.- ส่งฟรีทั้งคู่เลยค่า 🍚✨",
+      "created_at": "2026-10-29T01:23:20.598486"
+    },
+    {
+      "psid": "buksukjai:line:Ucb785aac9a497cefa1fcc9c0002d06bd",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "คุณลูกค้าสนใจรับกี่ซองดีคะ 😊",
+      "created_at": "2026-10-29T01:23:20.605785"
+    },
+    {
+      "psid": "buksukjai:line:U_audit_test_99",
+      "role": "user",
+      "sender_label": "",
+      "content": "สนใจค่ะ ขอทราบราคาและโปรโมชั่นทั้งหมดหน่อยค่ะ",
+      "created_at": "2026-10-29T15:36:24.753716"
+    },
+    {
+      "psid": "buksukjai:line:U_audit_test_99",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "[IMAGE:/static/media/promo_3sizes.jpg]",
+      "created_at": "2026-10-29T15:36:28.251637"
+    },
+    {
+      "psid": "buksukjai:line:U_audit_test_99",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "[IMAGE:/static/media/promo_60g_set.jpg]",
+      "created_at": "2026-10-29T15:36:28.257711"
+    },
+    {
+      "psid": "buksukjai:line:U_audit_test_99",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "[IMAGE:/static/media/promo_899.jpg]",
+      "created_at": "2026-10-29T15:36:28.262746"
+    },
+    {
+      "psid": "buksukjai:line:U_audit_test_99",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "[IMAGE:/static/media/promo_1299.jpg]",
+      "created_at": "2026-10-29T15:36:28.268734"
+    },
+    {
+      "psid": "buksukjai:line:U_audit_test_99",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "สวัสดีค่า 🍚✨ ข้าวบุกสุขใจ (บุก 60% ผสมข้าวหอมมะลิแท้ 40% เพียง 23 kcal เติมน้ำร้อน 10 นาทีพร้อมทาน) น้องบุกส่งรูปและโปรโมชั่นทั้งหมดให้เลือกครบทุกชุดเลยนะคะ",
+      "created_at": "2026-10-29T15:36:28.273742"
+    },
+    {
+      "psid": "buksukjai:line:U_audit_test_99",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "📌 รวมโปรโมชั่นพิเศษ ข้าวบุกสุขใจ (ครบทุกขนาด) ค่ะ\n\n• ซองเล็ก 60 กรัม (ไซส์ทดลอง 1 มื้อ) = โปร 39 บาท\n\n• ถุงกลาง 500 กรัม (ทานประจำ 8–10 มื้อ) = โปร 239 บาท\n\n• ถุงใหญ่ 1 กก. (ขายดีอันดับ 1 ทานได้ 16–20 มื้อ) = โปร 459 บาท (โอนส่งฟรี! 🔥)\n\n• เซ็ตพกพา 15 ซอง (60g × 15 ซอง) = โปร 555 บาท (ส่งฟรี!)\n\n• เซ็ตพกพา 20 ซอง (60g × 20 ซอง) = โปร 720 บาท (ส่งฟรี!)\n\n• โปรตุน 2 แถม 2 (1 กก. 2 ถุง + แถมฟรี 60g 2 ซอง) = โปร 899 บาท (ส่งฟรี!)\n\n• โปรตุน 3 แถม 3 (1 กก. 3 ถุง + แถมฟรี 60g 3 ซอง) = โปร 1,299 บาท (ส่งฟรี!)",
+      "created_at": "2026-10-29T15:36:28.279731"
+    },
+    {
+      "psid": "buksukjai:line:U_audit_test_99",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "🚚 สั่งครบ 1 กก. หรือเซ็ตโปร โอนเงินส่งฟรีเลยค่ะ (เก็บปลายทาง +40 บาท / ต่ำกว่า 1 กก. โอน +30 ปลายทาง +70 บาท) คุณลูกค้าสนใจรับโปรไหนดีคะ 😊💚",
+      "created_at": "2026-10-29T15:36:28.284718"
+    },
+    {
+      "psid": "buksukjai:line:U_audit_test_100",
+      "role": "user",
+      "sender_label": "",
+      "content": "สนใจค่ะ ขอราคาหน่อยค่ะ",
+      "created_at": "2026-10-29T15:37:14.550655"
+    },
+    {
+      "psid": "buksukjai:line:U_audit_test_100",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "[IMAGE:/static/media/promo_3sizes.jpg]",
+      "created_at": "2026-10-29T15:37:18.087701"
+    },
+    {
+      "psid": "buksukjai:line:U_audit_test_100",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "[IMAGE:/static/media/promo_60g_set.jpg]",
+      "created_at": "2026-10-29T15:37:18.093690"
+    },
+    {
+      "psid": "buksukjai:line:U_audit_test_100",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "[IMAGE:/static/media/promo_899.jpg]",
+      "created_at": "2026-10-29T15:37:18.098676"
+    },
+    {
+      "psid": "buksukjai:line:U_audit_test_100",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "[IMAGE:/static/media/promo_1299.jpg]",
+      "created_at": "2026-10-29T15:37:18.104699"
+    },
+    {
+      "psid": "buksukjai:line:U_audit_test_100",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "สวัสดีค่า 🍚✨ ข้าวบุกสุขใจ (บุก 60% ผสมข้าวหอมมะลิแท้ 40% เพียง 23 kcal เติมน้ำร้อน 10 นาทีพร้อมทาน) น้องบุกส่งรูปและโปรโมชั่นทั้งหมดให้เลือกครบทุกชุดเลยนะคะ",
+      "created_at": "2026-10-29T15:37:18.109685"
+    },
+    {
+      "psid": "buksukjai:line:U_audit_test_100",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "📌 รวมโปรโมชั่นพิเศษ ข้าวบุกสุขใจ (ครบทุกขนาด) ค่ะ\n\n• ซองเล็ก 60 กรัม (ไซส์ทดลอง 1 มื้อ) = โปร 39 บาท\n\n• ถุงกลาง 500 กรัม (ทานประจำ 8–10 มื้อ) = โปร 239 บาท\n\n• ถุงใหญ่ 1 กก. (ขายดีอันดับ 1 ทานได้ 16–20 มื้อ) = โปร 459 บาท (โอนส่งฟรี! 🔥)\n\n• เซ็ตพกพา 15 ซอง (60g × 15 ซอง) = โปร 555 บาท (ส่งฟรี!)\n\n• เซ็ตพกพา 20 ซอง (60g × 20 ซอง) = โปร 720 บาท (ส่งฟรี!)\n\n• โปรตุน 2 แถม 2 (1 กก. 2 ถุง + แถมฟรี 60g 2 ซอง) = โปร 899 บาท (ส่งฟรี!)\n\n• โปรตุน 3 แถม 3 (1 กก. 3 ถุง + แถมฟรี 60g 3 ซอง) = โปร 1,299 บาท (ส่งฟรี!)\n\n🚚 สั่งครบ 1 กก. หรือเซ็ตโปร โอนเงินส่งฟรีเลยค่ะ (เก็บปลายทาง +40 บาท / ต่ำกว่า 1 กก. โอน +30 ปลายทาง +70 บาท) คุณลูกค้าสนใจรับโปรไหนดีคะ 😊💚",
+      "created_at": "2026-10-29T15:37:18.114672"
+    },
+    {
+      "psid": "mrbuk:line:TEST_LINE_LOYALTY_999",
+      "role": "user",
+      "sender_label": "",
+      "content": "สะสมแต้ม 0899998877 ค่ะ",
+      "created_at": "2026-11-02T05:24:59.049300"
+    },
+    {
+      "psid": "mrbuk:line:TEST_LINE_LOYALTY_999",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "[IMAGE:/static/media/MrBuk_QR_Give_4pt.png]",
+      "created_at": "2026-11-02T05:24:59.665344"
+    },
+    {
+      "psid": "mrbuk:line:TEST_LINE_LOYALTY_999",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "เย้! 🎉 ยืนยันตัวตนสำเร็จค่ะคุณ คุณศิริพร ทดสอบแต้ม (เบอร์ 0899998877) 🍚💚\n\n📋 รายการออเดอร์ที่ได้รับแต้มในครั้งนี้:\n\n• บิล ออเดอร์หน้าเพจ ยอด 2,390 บาท = รับ +4 แต้ม\n\n⭐ ได้รับแต้มเพิ่ม: +4 แต้ม\n🏆 แต้มสะสมรวมปัจจุบัน: 4 แต้ม ค่ะ",
+      "created_at": "2026-11-02T05:24:59.675352"
+    },
+    {
+      "psid": "mrbuk:line:TEST_LINE_LOYALTY_999",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "📲 น้องบุกส่งรูป QR Code สำหรับกดรับ +4 แต้ม เข้าบัตรสะสมแต้ม มิสเตอร์บุก VIP ให้ด้านบนนี้แล้วนะคะ\n\n• กดสแกนรูป QR Code ด้านบน (หรือกดลิงก์บัตรสะสมแต้ม https://u.lin.ee/P44JSey) เพื่อสะสมเข้าบัตรใน LINE ได้เลยค่ะ (แต้มถูกบันทึกผูกกับเบอร์โทร 0899998877 ในระบบให้น้องบุกดูแลคู่ขนานเรียบร้อยแล้วค่ะ 😊)\n\n💡 สะสมเพิ่มอีกเพียง 1 แต้ม (ครบ 5 แต้ม) รับฟรี! ข้าวบุกหอมมะลิซองเล็ก 60 กรัม จำนวน 3 ซอง (มูลค่า 132.-) หรือสะสมครบ 10 แต้ม รับฟรี! ถุงกลาง 500 กรัม จำนวน 1 ถุง (มูลค่า 249.-) ไปพร้อมกับออเดอร์ถัดไปได้เลยค่ะ",
+      "created_at": "2026-11-02T05:24:59.686323"
+    },
+    {
+      "psid": "mrbuk:line:TEST_LINE_LOYALTY_999",
+      "role": "user",
+      "sender_label": "",
+      "content": "รับแต้ม คุณศิริพร ทดสอบแต้ม",
+      "created_at": "2026-11-02T05:24:59.698810"
+    },
+    {
+      "psid": "mrbuk:line:TEST_LINE_LOYALTY_999",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "น้องบุกตรวจสอบข้อมูลของคุณ คุณศิริพร ทดสอบแต้ม (เบอร์ 0899998877) ให้เรียบร้อยแล้วค่ะ 🍚💚\n\nรายการคำสั่งซื้อล่าสุดได้ถูกบันทึกสะสมแต้มเข้าบัตรไปเรียบร้อยแล้วนะคะ:\n\n• บิล ออเดอร์หน้าเพจ ยอด 2,390 บาท (รับไปแล้ว +4 แต้ม)\n\n🏆 แต้มสะสมคงเหลือปัจจุบันของคุณลูกค้าคือ: 4 แต้ม ค่ะ",
+      "created_at": "2026-11-02T05:25:00.209636"
+    },
+    {
+      "psid": "mrbuk:line:TEST_LINE_LOYALTY_999",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "💡 สะสมเพิ่มอีกเพียง 1 แต้ม (ครบ 5 แต้ม) รับฟรี! ข้าวบุกหอมมะลิซองเล็ก 60 กรัม จำนวน 3 ซอง (มูลค่า 132.-) หรือสะสมครบ 10 แต้ม รับฟรี! ถุงกลาง 500 กรัม จำนวน 1 ถุง (มูลค่า 249.-) ไปพร้อมกับออเดอร์ถัดไปได้เลยค่ะ\n\nสามารถเช็กบัตรสะสมแต้มได้ที่ https://u.lin.ee/P44JSey หรือหากต้องการสั่งซื้อรอบถัดไปเพื่อรับของแถม ทักบอกน้องบุกในแชทนี้ได้เลยนะคะ 😊🙏",
+      "created_at": "2026-11-02T05:25:00.222067"
+    },
+    {
+      "psid": "mrbuk:line:TEST_LINE_LOYALTY_999",
+      "role": "user",
+      "sender_label": "",
+      "content": "0899998877",
+      "created_at": "2026-11-02T05:25:00.240717"
+    },
+    {
+      "psid": "mrbuk:line:TEST_LINE_LOYALTY_999",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "[IMAGE:/static/media/MrBuk_QR_Give_2pt.png]",
+      "created_at": "2026-11-02T05:25:00.736900"
+    },
+    {
+      "psid": "mrbuk:line:TEST_LINE_LOYALTY_999",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "เย้! 🎉 ยืนยันตัวตนสำเร็จค่ะคุณ คุณศิริพร ทดสอบแต้ม (เบอร์ 0899998877) 🍚💚\n\n📋 รายการออเดอร์ที่ได้รับแต้มในครั้งนี้:\n\n• บิล ออเดอร์หน้าเพจ ยอด 1,190 บาท = รับ +2 แต้ม\n\n⭐ ได้รับแต้มเพิ่ม: +2 แต้ม\n🏆 แต้มสะสมรวมปัจจุบัน: 6 แต้ม ค่ะ",
+      "created_at": "2026-11-02T05:25:00.747895"
+    },
+    {
+      "psid": "mrbuk:line:TEST_LINE_LOYALTY_999",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "📲 น้องบุกส่งรูป QR Code สำหรับกดรับ +2 แต้ม เข้าบัตรสะสมแต้ม มิสเตอร์บุก VIP ให้ด้านบนนี้แล้วนะคะ\n\n• กดสแกนรูป QR Code ด้านบน (หรือกดลิงก์บัตรสะสมแต้ม https://u.lin.ee/P44JSey) เพื่อสะสมเข้าบัตรใน LINE ได้เลยค่ะ (แต้มถูกบันทึกผูกกับเบอร์โทร 0899998877 ในระบบให้น้องบุกดูแลคู่ขนานเรียบร้อยแล้วค่ะ 😊)\n\n🎉 ยินดีด้วยค่า! คุณลูกค้าสะสมครบ 6 แต้มแล้ว สามารถใช้ 5 แต้ม แลกรับฟรี! ข้าวบุกหอมมะลิซองเล็ก 60 กรัม จำนวน 3 ซอง (มูลค่า 132.-) ไปพร้อมกับการสั่งซื้อครั้งถัดไปได้เลยค่ะ (หรือสะสมเพิ่มอีกเพียง 4 แต้ม เพื่อแลกรับฟรีถุงกลาง 500 กรัม 1 ถุง มูลค่า 249.- ค่ะ)",
+      "created_at": "2026-11-02T05:25:00.758890"
+    },
+    {
+      "psid": "mrbuk:line:TEST_LINE_LOYALTY_999",
+      "role": "user",
+      "sender_label": "",
+      "content": "ขอแลก 5 แต้มค่ะ",
+      "created_at": "2026-11-02T05:25:00.771317"
+    },
+    {
+      "psid": "mrbuk:line:TEST_LINE_LOYALTY_999",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "🎉 แลกแต้มสำเร็จเรียบร้อยแล้วค่าคุณ คุณศิริพร ทดสอบแต้ม (เบอร์ 0899998877)! 🎁💚\n\n• รางวัลที่แลก: ฟรี! ข้าวบุกหอมมะลิซองเล็ก 60 กรัม จำนวน 3 ซอง (มูลค่า 132.-)\n\n• แต้มที่ใช้: 5 แต้ม\n\n• แต้มสะสมคงเหลือ: 1 แต้ม\n\n• เงื่อนไขการรับรางวัล: รับของแถมฟรีไปพร้อมกับการสั่งซื้อครั้งถัดไปค่ะ",
+      "created_at": "2026-11-02T05:25:00.842780"
+    },
+    {
+      "psid": "mrbuk:line:TEST_LINE_LOYALTY_999",
+      "role": "assistant",
+      "sender_label": "",
+      "content": "น้องบุกบันทึกสิทธิ์ของแถมไว้ในระบบให้เรียบร้อยแล้วนะคะ 🍚✨ คุณลูกค้าสนใจสั่งซื้อโปรโมชั่นไหนในรอบนี้เพื่อรับของแถมส่งไปพร้อมกันเลยดีคะ 😊🙏",
+      "created_at": "2026-11-02T05:25:00.853757"
+    }
+  ],
+  "loyalty_members": [
+    {
+      "phone": "0899998877",
+      "brand_id": "mrbuk",
+      "customer_name": "คุณศิริพร ทดสอบแต้ม",
+      "line_user_id": "TEST_LINE_LOYALTY_999",
+      "fb_psid": "mrbuk:facebook:TEST_FB_LOYALTY_999",
+      "total_points": 1,
+      "lifetime_points": 6,
+      "lifetime_spend_thb": 3580,
+      "carryover_thb": 0,
+      "pending_reward": "ฟรี! ซองเล็ก 60g 3 ซอง (แลก 5 แต้ม เมื่อ 2026-11-02)",
+      "redeemed_history": "ฟรี! ซองเล็ก 60g 3 ซอง (แลก 5 แต้ม เมื่อ 2026-11-02)"
+    }
+  ],
+  "loyalty_claimed_orders": [
+    {
+      "order_ref": "CHAT:mrbuk:facebook:TEST_FB_LOYALTY_999:2146",
+      "brand_id": "mrbuk",
+      "phone": "0899998877",
+      "customer_name": "คุณศิริพร ทดสอบแต้ม",
+      "claimed_by_line_user_id": "TEST_LINE_LOYALTY_999",
+      "source": "chatbot_db",
+      "order_amount_thb": 2390,
+      "points_awarded": 4,
+      "qr_images_sent": "MrBuk_QR_Give_4pt.png",
+      "order_date": "2026-11-02 05:24:59"
+    },
+    {
+      "order_ref": "CHAT:mrbuk:facebook:TEST_FB_LOYALTY_999:2154",
+      "brand_id": "mrbuk",
+      "phone": "0899998877",
+      "customer_name": "คุณศิริพร ทดสอบแต้ม",
+      "claimed_by_line_user_id": "TEST_LINE_LOYALTY_999",
+      "source": "chatbot_db",
+      "order_amount_thb": 1190,
+      "points_awarded": 2,
+      "qr_images_sent": "MrBuk_QR_Give_2pt.png",
+      "order_date": "2026-11-02 05:25:00"
+    }
+  ]
+}

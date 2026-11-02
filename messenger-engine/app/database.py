@@ -5,15 +5,60 @@ Tracks each customer across LINE OA, Facebook Messenger, Instagram DM, and Web
 customer display name, notes, and full message log.
 """
 
+import json
+import logging
 import os
 from datetime import datetime, timezone
+from pathlib import Path
 
 from sqlalchemy import Boolean, DateTime, Integer, String, Text, create_engine, inspect, select, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///chatbot.db")
+logger = logging.getLogger(__name__)
 
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+PERSISTENT_SNAPSHOT_PATH = Path(__file__).resolve().parent.parent / "db_persistent_snapshot.json"
+
+
+def _normalize_database_url(raw_url: str) -> str:
+    url = (raw_url or "").strip() or "sqlite:///chatbot.db"
+    if url.startswith("postgres://"):
+        url = "postgresql+psycopg2://" + url[len("postgres://") :]
+    elif url.startswith("postgresql://") and "+psycopg" not in url:
+        url = "postgresql+psycopg2://" + url[len("postgresql://") :]
+    return url
+
+
+DATABASE_URL = _normalize_database_url(
+    os.getenv("EXTERNAL_DATABASE_URL") or os.getenv("POSTGRES_URL") or os.getenv("DATABASE_URL", "sqlite:///chatbot.db")
+)
+_IS_SQLITE = DATABASE_URL.startswith("sqlite")
+
+
+def _build_engine(db_url: str):
+    global _IS_SQLITE
+    if db_url.startswith("sqlite"):
+        _IS_SQLITE = True
+        return create_engine(db_url, connect_args={"check_same_thread": False})
+    try:
+        _IS_SQLITE = False
+        eng = create_engine(
+            db_url,
+            pool_pre_ping=True,
+            pool_recycle=300,
+            pool_size=5,
+            max_overflow=10,
+        )
+        with eng.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        logger.info("Connected to persistent PostgreSQL database successfully.")
+        return eng
+    except Exception as exc:
+        logger.warning("PostgreSQL connection failed (%s); falling back to local SQLite with persistent snapshot.", exc)
+        _IS_SQLITE = True
+        return create_engine("sqlite:///chatbot.db", connect_args={"check_same_thread": False})
+
+
+engine = _build_engine(DATABASE_URL)
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 
 VALID_STATES = ("browsing", "pending_payment", "completed")
@@ -62,14 +107,54 @@ class MessageLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class LoyaltyMember(Base):
+    """Tracks customer loyalty points for Mr.Buk VIP (@misterbuk / @305lhvvt) linked by 10-digit phone number."""
+
+    __tablename__ = "loyalty_members"
+
+    phone: Mapped[str] = mapped_column(String(16), primary_key=True)
+    brand_id: Mapped[str] = mapped_column(String(64), default="mrbuk", index=True)
+    customer_name: Mapped[str] = mapped_column(String(128), default="")
+    line_user_id: Mapped[str] = mapped_column(String(128), default="", index=True)
+    fb_psid: Mapped[str] = mapped_column(String(128), default="")
+    total_points: Mapped[int] = mapped_column(Integer, default=0)
+    lifetime_points: Mapped[int] = mapped_column(Integer, default=0)
+    lifetime_spend_thb: Mapped[int] = mapped_column(Integer, default=0)
+    carryover_thb: Mapped[int] = mapped_column(Integer, default=0)
+    pending_reward: Mapped[str] = mapped_column(Text, default="")
+    redeemed_history: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class LoyaltyClaimedOrder(Base):
+    """Prevents duplicate bill claiming across Facebook (chatbot.db) and JST ERP orders."""
+
+    __tablename__ = "loyalty_claimed_orders"
+
+    order_ref: Mapped[str] = mapped_column(String(128), primary_key=True)
+    brand_id: Mapped[str] = mapped_column(String(64), default="mrbuk", index=True)
+    phone: Mapped[str] = mapped_column(String(16), index=True)
+    customer_name: Mapped[str] = mapped_column(String(128), default="")
+    claimed_by_line_user_id: Mapped[str] = mapped_column(String(128), default="", index=True)
+    source: Mapped[str] = mapped_column(String(32), default="chatbot_db")  # "jst_erp" | "chatbot_db" | "admin_manual"
+    order_amount_thb: Mapped[int] = mapped_column(Integer, default=0)
+    points_awarded: Mapped[int] = mapped_column(Integer, default=0)
+    qr_images_sent: Mapped[str] = mapped_column(String(256), default="")
+    order_date: Mapped[str] = mapped_column(String(64), default="")
+    claimed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 def init_db() -> None:
     Base.metadata.create_all(engine)
     _ensure_columns()
+    restore_persistent_snapshot_if_needed()
 
 
 def _ensure_columns() -> None:
-    """Auto-migrate existing SQLite tables if upgraded from an older version."""
+    """Auto-migrate existing SQLite or PostgreSQL tables if upgraded from an older version."""
     inspector = inspect(engine)
+    ts_col_type = "DATETIME NULL" if _IS_SQLITE else "TIMESTAMP WITH TIME ZONE NULL"
     if "user_sessions" in inspector.get_table_names():
         existing = {c["name"] for c in inspector.get_columns("user_sessions")}
         migrations = [
@@ -77,14 +162,14 @@ def _ensure_columns() -> None:
             ("platform", "VARCHAR(32) DEFAULT 'facebook'"),
             ("external_user_id", "VARCHAR(128) DEFAULT ''"),
             ("customer_name", "VARCHAR(128) DEFAULT 'ลูกค้าใหม่'"),
-            ("is_starred", "BOOLEAN DEFAULT 0"),
-            ("bot_enabled", "BOOLEAN DEFAULT 1"),
+            ("is_starred", "BOOLEAN DEFAULT FALSE"),
+            ("bot_enabled", "BOOLEAN DEFAULT TRUE"),
             ("unread_count", "INTEGER DEFAULT 0"),
             ("notes", "TEXT DEFAULT ''"),
             ("broadcast_tags", "TEXT DEFAULT ''"),
             ("purchased_sku", "VARCHAR(64) DEFAULT 'BSJ1KG1'"),
             ("purchased_qty", "INTEGER DEFAULT 1"),
-            ("purchased_at", "DATETIME NULL"),
+            ("purchased_at", ts_col_type),
             ("after_sales_stage", "INTEGER DEFAULT 0"),
         ]
         with engine.begin() as conn:
@@ -93,7 +178,7 @@ def _ensure_columns() -> None:
                     conn.execute(text(f"ALTER TABLE user_sessions ADD COLUMN {col_name} {col_def}"))
             conn.execute(
                 text(
-                    "UPDATE user_sessions SET is_starred = 1 "
+                    "UPDATE user_sessions SET is_starred = TRUE "
                     "WHERE state = 'completed' OR broadcast_tags LIKE '%ชำระเงินแล้ว%' OR broadcast_tags LIKE '%ติดดาว%'"
                 )
             )
@@ -103,6 +188,225 @@ def _ensure_columns() -> None:
         with engine.begin() as conn:
             if "sender_label" not in existing_msg:
                 conn.execute(text("ALTER TABLE message_log ADD COLUMN sender_label VARCHAR(64) DEFAULT ''"))
+
+
+def _parse_iso_dt(val: str | None) -> datetime | None:
+    if not val:
+        return None
+    try:
+        return datetime.fromisoformat(val)
+    except Exception:
+        return None
+
+
+def save_persistent_snapshot() -> None:
+    """Persist LINE OA sessions, messages, and loyalty records to db_persistent_snapshot.json."""
+    try:
+        with SessionLocal() as db:
+            line_sessions = db.execute(
+                select(UserSession).where(UserSession.platform == "line")
+            ).scalars().all()
+            line_psids = [s.psid for s in line_sessions]
+            line_msgs = []
+            if line_psids:
+                line_msgs = db.execute(
+                    select(MessageLog).where(MessageLog.psid.in_(line_psids)).order_by(MessageLog.id.asc())
+                ).scalars().all()
+            loyalty_members = db.execute(select(LoyaltyMember)).scalars().all()
+            loyalty_claims = db.execute(select(LoyaltyClaimedOrder)).scalars().all()
+
+            payload = {
+                "updated_at": utcnow().isoformat(),
+                "sessions": [
+                    {
+                        "psid": s.psid,
+                        "brand_id": s.brand_id,
+                        "platform": s.platform,
+                        "external_user_id": s.external_user_id,
+                        "customer_name": s.customer_name,
+                        "state": s.state,
+                        "is_starred": bool(s.is_starred),
+                        "bot_enabled": bool(s.bot_enabled),
+                        "unread_count": s.unread_count or 0,
+                        "notes": s.notes or "",
+                        "broadcast_tags": s.broadcast_tags or "",
+                        "purchased_sku": s.purchased_sku or "BSJ1KG1",
+                        "purchased_qty": s.purchased_qty or 1,
+                        "purchased_at": s.purchased_at.isoformat() if s.purchased_at else None,
+                        "after_sales_stage": s.after_sales_stage or 0,
+                        "last_interaction_time": s.last_interaction_time.isoformat() if s.last_interaction_time else None,
+                        "followup_sent_at": s.followup_sent_at.isoformat() if s.followup_sent_at else None,
+                        "created_at": s.created_at.isoformat() if s.created_at else None,
+                    }
+                    for s in line_sessions
+                ],
+                "messages": [
+                    {
+                        "psid": m.psid,
+                        "role": m.role,
+                        "sender_label": m.sender_label or "",
+                        "content": m.content,
+                        "created_at": m.created_at.isoformat() if m.created_at else None,
+                    }
+                    for m in line_msgs
+                ],
+                "loyalty_members": [
+                    {
+                        "phone": lm.phone,
+                        "brand_id": lm.brand_id,
+                        "customer_name": lm.customer_name,
+                        "line_user_id": lm.line_user_id,
+                        "fb_psid": lm.fb_psid,
+                        "total_points": lm.total_points,
+                        "lifetime_points": lm.lifetime_points,
+                        "lifetime_spend_thb": lm.lifetime_spend_thb,
+                        "carryover_thb": lm.carryover_thb,
+                        "pending_reward": lm.pending_reward,
+                        "redeemed_history": lm.redeemed_history,
+                    }
+                    for lm in loyalty_members
+                ],
+                "loyalty_claimed_orders": [
+                    {
+                        "order_ref": lc.order_ref,
+                        "brand_id": lc.brand_id,
+                        "phone": lc.phone,
+                        "customer_name": lc.customer_name,
+                        "claimed_by_line_user_id": lc.claimed_by_line_user_id,
+                        "source": lc.source,
+                        "order_amount_thb": lc.order_amount_thb,
+                        "points_awarded": lc.points_awarded,
+                        "qr_images_sent": lc.qr_images_sent,
+                        "order_date": lc.order_date,
+                    }
+                    for lc in loyalty_claims
+                ],
+            }
+        with open(PERSISTENT_SNAPSHOT_PATH, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+    except Exception as exc:
+        logger.warning("Failed to save persistent DB snapshot: %s", exc)
+
+
+def restore_persistent_snapshot_if_needed() -> None:
+    """Restore LINE OA sessions, messages, and loyalty records from db_persistent_snapshot.json if missing."""
+    if not PERSISTENT_SNAPSHOT_PATH.exists():
+        return
+    try:
+        with open(PERSISTENT_SNAPSHOT_PATH, encoding="utf-8") as f:
+            data = json.load(f)
+        with SessionLocal() as db:
+            restored_sessions = 0
+            for s in data.get("sessions", []):
+                psid = s.get("psid")
+                if not psid or db.get(UserSession, psid) is not None:
+                    continue
+                db.add(
+                    UserSession(
+                        psid=psid,
+                        brand_id=s.get("brand_id", "buksukjai"),
+                        platform=s.get("platform", "line"),
+                        external_user_id=s.get("external_user_id", ""),
+                        customer_name=s.get("customer_name", "ลูกค้า LINE"),
+                        state=s.get("state", "browsing"),
+                        is_starred=bool(s.get("is_starred", False)),
+                        bot_enabled=bool(s.get("bot_enabled", True)),
+                        unread_count=int(s.get("unread_count", 0)),
+                        notes=s.get("notes", ""),
+                        broadcast_tags=s.get("broadcast_tags", ""),
+                        purchased_sku=s.get("purchased_sku", "BSJ1KG1"),
+                        purchased_qty=int(s.get("purchased_qty", 1)),
+                        purchased_at=_parse_iso_dt(s.get("purchased_at")),
+                        after_sales_stage=int(s.get("after_sales_stage", 0)),
+                        last_interaction_time=_parse_iso_dt(s.get("last_interaction_time")) or utcnow(),
+                        followup_sent_at=_parse_iso_dt(s.get("followup_sent_at")),
+                        created_at=_parse_iso_dt(s.get("created_at")) or utcnow(),
+                    )
+                )
+                restored_sessions += 1
+
+            for m in data.get("messages", []):
+                psid = m.get("psid")
+                content = m.get("content", "")
+                if not psid or not content:
+                    continue
+                exists = db.execute(
+                    select(MessageLog).where(
+                        MessageLog.psid == psid,
+                        MessageLog.role == m.get("role", "user"),
+                        MessageLog.content == content,
+                    ).limit(1)
+                ).scalars().first()
+                if exists is None:
+                    db.add(
+                        MessageLog(
+                            psid=psid,
+                            role=m.get("role", "user"),
+                            sender_label=m.get("sender_label", ""),
+                            content=content,
+                            created_at=_parse_iso_dt(m.get("created_at")) or utcnow(),
+                        )
+                    )
+
+            for lm in data.get("loyalty_members", []):
+                phone = lm.get("phone")
+                if phone and db.get(LoyaltyMember, phone) is None:
+                    db.add(
+                        LoyaltyMember(
+                            phone=phone,
+                            brand_id=lm.get("brand_id", "mrbuk"),
+                            customer_name=lm.get("customer_name", ""),
+                            line_user_id=lm.get("line_user_id", ""),
+                            fb_psid=lm.get("fb_psid", ""),
+                            total_points=int(lm.get("total_points", 0)),
+                            lifetime_points=int(lm.get("lifetime_points", 0)),
+                            lifetime_spend_thb=int(lm.get("lifetime_spend_thb", 0)),
+                            carryover_thb=int(lm.get("carryover_thb", 0)),
+                            pending_reward=lm.get("pending_reward", ""),
+                            redeemed_history=lm.get("redeemed_history", ""),
+                        )
+                    )
+
+            for lc in data.get("loyalty_claimed_orders", []):
+                ref = lc.get("order_ref")
+                if ref and db.get(LoyaltyClaimedOrder, ref) is None:
+                    db.add(
+                        LoyaltyClaimedOrder(
+                            order_ref=ref,
+                            brand_id=lc.get("brand_id", "mrbuk"),
+                            phone=lc.get("phone", ""),
+                            customer_name=lc.get("customer_name", ""),
+                            claimed_by_line_user_id=lc.get("claimed_by_line_user_id", ""),
+                            source=lc.get("source", "chatbot_db"),
+                            order_amount_thb=int(lc.get("order_amount_thb", 0)),
+                            points_awarded=int(lc.get("points_awarded", 0)),
+                            qr_images_sent=lc.get("qr_images_sent", ""),
+                            order_date=lc.get("order_date", ""),
+                        )
+                    )
+            db.commit()
+            if restored_sessions > 0:
+                logger.info("Restored %d LINE OA sessions from persistent snapshot.", restored_sessions)
+    except Exception as exc:
+        logger.warning("Failed to restore persistent DB snapshot: %s", exc)
+
+
+def get_database_status() -> dict:
+    """Return current database backend type (PostgreSQL vs SQLite) and record counts."""
+    with SessionLocal() as db:
+        total_sessions = len(db.execute(select(UserSession.psid)).scalars().all())
+        line_sessions = len(
+            db.execute(select(UserSession.psid).where(UserSession.platform == "line")).scalars().all()
+        )
+        loyalty_count = len(db.execute(select(LoyaltyMember.phone)).scalars().all())
+    return {
+        "backend": "sqlite_with_snapshot" if _IS_SQLITE else "postgresql",
+        "is_persistent_postgres": not _IS_SQLITE,
+        "snapshot_file_exists": PERSISTENT_SNAPSHOT_PATH.exists(),
+        "total_sessions": total_sessions,
+        "line_sessions": line_sessions,
+        "loyalty_members": loyalty_count,
+    }
 
 
 def make_session_key(brand_id: str, platform: str, external_user_id: str) -> str:
@@ -172,6 +476,8 @@ def log_message(psid: str, role: str, content: str, sender_label: str = "") -> N
             elif role == "admin":
                 user.unread_count = 0
         db.commit()
+    if _IS_SQLITE and ":line:" in (psid or ""):
+        save_persistent_snapshot()
 
 
 def get_history(psid: str, limit: int = 30) -> list[dict]:

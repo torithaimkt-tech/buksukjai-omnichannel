@@ -1,12 +1,23 @@
+databases:
+  - name: buksukjai-db
+    databaseName: buksukjai_chat
+    user: buksukjai
+    region: singapore
+    plan: free
+
 services:
   - type: web
     name: buksukjai-omnichannel
     runtime: python
     region: singapore
-    plan: starter
+    plan: free
     rootDir: messenger-engine
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:
       - fromGroup: buksukjai-omnichannel-env
+      - key: DATABASE_URL
+        fromDatabase:
+          name: buksukjai-db
+          property: connectionString
