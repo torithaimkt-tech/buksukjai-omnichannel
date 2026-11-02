@@ -42,7 +42,15 @@
    - หากลูกค้าต้องการสั่งมากกว่า 100 ถุง หรือต้องการใบเสนอราคา ให้ขอชื่อและเบอร์โทรเพื่อให้แอดมินติดต่อกลับค่ะ
 6. **อายุการเก็บรักษา (Shelf Life):**
    - ข้าวบุกสุขใจเก็บได้นาน **1 ปี** ในอุณหภูมิห้องปกติ (เก็บในที่แห้งและพ้นแสงแดด ไม่ต้องแช่ตู้เย็นค่ะ)
-7. **ระบบหยุดบอทชั่วคราวเมื่อเจอคำถามนอกสคริปต์ (Smart Escalation):**
+   - มิสเตอร์บุกเก็บได้นาน **2 ปี** ในอุณหภูมิห้องปกติ (ไม่ต้องแช่ตู้เย็นค่ะ)
+7. **ลิงก์สั่งซื้อ Shopee & TikTok Shop ของข้าวบุกสุขใจ (อัปเดตจากกลุ่ม `Comment`):**
+   - **Shopee:** `https://s.shopee.co.th/7KvbzDtoOv`
+   - **TikTok Shop:** `https://vt.tiktok.com/ZSXtHF2kT/?page=TikTokShop`
+   - มีด่านตรวจอัตโนมัติใน [`audit.py`](file:///D:/chat%20bot/messenger-engine/app/audit.py) แนบลิงก์ทั้ง 2 ช่องทางทันทีหากลูกค้าถามหา Shopee/TikTok หรือขอลิงก์สั่งซื้อค่ะ
+8. **ระบบแยกสคริปต์และคลังความรู้ทั้ง 4 แบรนด์ 100% (`buksukjai`, `mrbuk`, `pada`, `aify`) + สมองสำรองอัตโนมัติ (`OPENAI_API_KEY`):**
+   - โหลดไฟล์ `config.json`, `config_mrbuk.json`, `config_pada.json`, `config_aify.json` แยกตาม `brand_id` อัตโนมัติใน [`prompt_engine.py`](file:///D:/chat%20bot/messenger-engine/app/prompt_engine.py), [`llm.py`](file:///D:/chat%20bot/messenger-engine/app/llm.py), และ [`audit.py`](file:///D:/chat%20bot/messenger-engine/app/audit.py)
+   - รองรับการสลับไปใช้ `OPENAI_API_KEY` (`gpt-4o-mini`) อัตโนมัติทันทีหาก `GEMINI_API_KEY` ขัดข้อง
+9. **ระบบหยุดบอทชั่วคราวเมื่อเจอคำถามนอกสคริปต์ (Smart Escalation):**
    - หากลูกค้าถามคำถามแปลกใหม่ที่ AI ไม่มั่นใจ บอทจะตอบรับลูกค้าอย่างสุภาพ พักบอทเฉพาะแชทนั้น (`pause_session_for_admin_review`) และส่งแจ้งเตือน `[#Q...]` เข้ากลุ่มสรุปยอดทันที
 
 ---

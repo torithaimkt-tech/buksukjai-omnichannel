@@ -726,14 +726,33 @@ def audit_outgoing_reply(
             and bool(re.search(r"#BUY\d+", str(m.get("content") or ""), flags=re.IGNORECASE))
             for m in history[-8:]
         )
+        buy_amt = _resolve_order_buy_amount(psid, history, bubbles, raw_reply=raw_reply)
         if not already_sent_buy_tag:
-            buy_amt = _resolve_order_buy_amount(psid, history, bubbles, raw_reply=raw_reply)
             buy_bubble = f"#BUY{buy_amt}"
             if len(bubbles) >= 2:
                 bubbles.insert(len(bubbles) - 1, buy_bubble)
             else:
                 bubbles.append(buy_bubble)
             auto_fixes.append(f"แนบแฮชแท็กปิดการขาย {buy_bubble} แยกเป็น 1 กล่องข้อความเดี่ยวสำหรับระบบ ROI Tracking")
+
+        if b_id_low == "mrbuk":
+            try:
+                from . import loyalty  # type: ignore
+
+                pts = loyalty.calculate_mrbuk_points(buy_amt)
+                invite_bubble = loyalty.format_facebook_post_purchase_loyalty_invite(buy_amt, pts)
+            except Exception:
+                pts = 1 if 490 <= buy_amt < 500 else max(0, int(buy_amt) // 500)
+                invite_bubble = (
+                    f"🎁 พิเศษสำหรับคุณลูกค้ามิสเตอร์บุก! ยอดสั่งซื้อ {buy_amt:,} บาท ได้รับสิทธิ์สะสมแต้ม VIP +{pts} แต้มค่ะ\n"
+                    f"สามารถแอด LINE Official: @misterbuk หรือกดลิงก์บัตรสะสมแต้ม https://u.lin.ee/P44JSey "
+                    f"แล้วแจ้งเบอร์โทรศัพท์เพื่อรับแต้มแลกของแถมฟรีได้เลยนะคะ 💚✨"
+                )
+            joined_now = "\n".join(bubbles)
+            if pts >= 1 and "@misterbuk" not in joined_now and "P44JSey" not in joined_now:
+                bubbles.append(invite_bubble)
+                auto_fixes.append(f"แนบข้อความชวนแอด LINE @misterbuk เพื่อรับสิทธิ์สะสมแต้ม VIP +{pts} แต้ม (ยอดซื้อ {buy_amt:,} บาท)")
+
         checks.append({
             "name": "ตรวจแฮชแท็กปิดการขาย #BUY แยกกล่องข้อความเดี่ยว (ROI Tracking)",
             "status": "ok",
@@ -742,7 +761,10 @@ def audit_outgoing_reply(
     # 7. Official Media Resolution Audit (ห้ามใช้รูปตารางที่สร้างเองเด็ดขาด)
     selected_media_items: list[dict[str, Any]] = []
     if audited_image_key and audited_image_key != "none":
-        candidates = media_generator.resolve_media_items(audited_image_key)
+        try:
+            candidates = media_generator.resolve_media_items(audited_image_key, brand_id=b_id_low)
+        except TypeError:
+            candidates = media_generator.resolve_media_items(audited_image_key)
         recent_assistant_msgs = [
             m.get("content", "") for m in history[-10:] if m.get("role") == "assistant"
         ]
