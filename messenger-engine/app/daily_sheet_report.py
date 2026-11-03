@@ -1255,12 +1255,6 @@ def load_or_build_daily_report(target_date: str) -> dict[str, Any]:
     jst_report: dict[str, Any] | None = None
     try:
         jst_report = build_daily_sales_sheet_rows(target_date)
-        if jst_report and jst_report.get("order_count", 0) > 0:
-            try:
-                jst_report["fb_buy_audit"] = fetch_facebook_buy_audit(target_date)
-            except Exception:
-                pass
-            save_daily_report_snapshot(jst_report, sync_google_sheet=True)
     except Exception as exc:
         logger.info("JST live query skipped/fallback to Google Sheet for %s: %s", target_date, exc)
         err_s = str(exc).lower()
@@ -1280,29 +1274,41 @@ def load_or_build_daily_report(target_date: str) -> dict[str, Any]:
         except Exception:
             cached_report = None
 
-    chosen: dict[str, Any] | None = None
-    # Always treat live JST ERP report (which filters cancelled & duplicate orders) as authoritative when available.
-    if jst_report and int(jst_report.get("order_count") or 0) > 0:
-        chosen = jst_report
-    else:
-        base_candidate = (
+    base_candidate = (
+        jst_report
+        if (jst_report and int(jst_report.get("order_count") or 0) > 0)
+        else (
             sheet_report
             if (sheet_report and int(sheet_report.get("order_count") or 0) > 0)
             else cached_report
         )
-        # If JST ERP was unreachable (e.g. Cookie expired mid-day), check if Facebook Graph API has more
-        # confirmed #BUY orders than a partial morning cached/sheet snapshot!
-        fb_fallback = build_daily_sales_from_facebook_graph(target_date, existing_report=base_candidate)
-        if fb_fallback and float(fb_fallback.get("tot_facebook") or 0.0) > float((base_candidate or {}).get("tot_facebook") or 0.0) + 1.0:
-            chosen = fb_fallback
-            try:
-                save_daily_report_snapshot(chosen, sync_google_sheet=True)
-            except Exception as sync_exc:
-                logger.warning("Failed to sync fb_fallback report for %s: %s", target_date, sync_exc)
-        elif base_candidate and int(base_candidate.get("order_count") or 0) > 0:
-            chosen = base_candidate
-        elif fb_fallback and int(fb_fallback.get("order_count") or 0) > 0:
-            chosen = fb_fallback
+    )
+
+    chosen: dict[str, Any] | None = None
+    # Check if Facebook Graph API has more confirmed #BUY orders on `target_date` than JST ERP's `OrderTime == target_date`
+    # (e.g. when afternoon/evening FB orders were keyed the next morning or after cookie renewal).
+    # Passing `existing_report=base_candidate` preserves all live TikTok & Shopee orders from `jst_report`!
+    fb_merged = build_daily_sales_from_facebook_graph(target_date, existing_report=base_candidate)
+    if fb_merged and float(fb_merged.get("tot_facebook") or 0.0) > float((base_candidate or {}).get("tot_facebook") or 0.0) + 1.0:
+        chosen = fb_merged
+        try:
+            save_daily_report_snapshot(chosen, sync_google_sheet=True)
+        except Exception as sync_exc:
+            logger.warning("Failed to sync fb_merged report for %s: %s", target_date, sync_exc)
+    elif jst_report and int(jst_report.get("order_count") or 0) > 0:
+        chosen = jst_report
+        try:
+            chosen["fb_buy_audit"] = (fb_merged or {}).get("fb_buy_audit") or fetch_facebook_buy_audit(target_date)
+        except Exception:
+            pass
+        try:
+            save_daily_report_snapshot(chosen, sync_google_sheet=True)
+        except Exception as sync_exc:
+            logger.warning("Failed to sync jst_report for %s: %s", target_date, sync_exc)
+    elif base_candidate and int(base_candidate.get("order_count") or 0) > 0:
+        chosen = base_candidate
+    elif fb_merged and int(fb_merged.get("order_count") or 0) > 0:
+        chosen = fb_merged
 
     if not chosen:
         chosen = jst_report or sheet_report or cached_report or {

@@ -67,17 +67,22 @@ FRESH_JST_COOKIE = (
     "client_id=8c55bf3e7cb90f3ba27a22ddfdcc3762_91cdae39f749baaed0f1c166d97c4583; "
     "u_login_id=buksukjai%40gmail.com; VID_bcbff8986118=22755436; VP_bcbff8986118=1; "
     "AVID_147792=22755436; _ati=3616590229392; Notice-22755436-176=True; LanguageId=TH; "
-    "Notice-22755436-177=True; u_cid=ffab80a5bac245c79a723ced80a396a2-22755436-49ce2350e1bfc8869835b061ea8b901d; "
+    "Notice-22755436-177=True; u_cid=48259fda08a245d3bdee668206972fd0-22755436-9d5a61e0c4e148ddf561a3e4c286ebca; "
     "u_id=22755436; u_name=buksukjai; u_co_id=15749167; u_co_name=Buksukjai; ClientTimeZone=7; "
-    ".AspNetCore.GlobalAuthCookie=CfDJ8NUvc5HFTn9EnG_IMr2hg1SHradvjDPVgyUrg9Ex_iD1PHJg9502Q5QjCgRXYpZOnAYsZw7p7V7bU7l1Xyogh-o0XA35sjy4W1Jo_gW3IaxJlFcwJeGig0S8IC60NqfB1Pit2_L7-DV-3G-usY0bEW8eBvdi166HTeMg2o2AmEknpwu9Czp-iBq2duFcNRJWlrKdbPYG2x-z2U4KLbxg-dZy7teE26pZZzIFbcDUbcLjZkDmRVXZ_HCQ9wDb2MthYpWqpyryy6UmU1s99EF0E2A492-ZcV5uYEwiZd9pQs24hJDerLu_ttYz__Wp3JcUjwteQ3RfZ67ioPl8vJ2q10787nDdcnOboKNkoElrOx_3w4kJy851X5Pu8YX6rN7GkFtj270lMwnWO7r6j1AsrS1cdSfB4GDQjHhXqED5vNo30nQQHdwS85hiSl5wJEKTxXlPy6SMaFQDp7ULIauZ0pSZ5ueNz9fTk8XViLaQftV_; "
-    "VT_bcbff8986118=14; SID_bcbff8986118=5596075514064757280"
+    ".AspNetCore.GlobalAuthCookie=CfDJ8NUvc5HFTn9EnG_IMr2hg1QbScA67aC19EuEL5g7p0b5o3Z77WhGqyNhCRGy2x5cIemLnSwCLkE9Ni3wXb5fH6zX2-2YneaFuCJ8xN86Noe5nKWgv5OBNBpsnKjgcNcBC4nXsLCIB8LA6KEuVMiSLaxZuSqqcJ3XrpSpcnP2z9vxNeOw6mRa03t4ygcMoQWdK6x3FFQQLNSDhbdFlP9Dt29D-yyuuSaNUx2xJL4s901oXJyCSxg8WuJUDt1KUO_Ouzi3ReFuEV9yUcDOHvgcJetL7tM7fxjrtYbMqLSixOKRzvDsq4xa6me0wZebPHGJoiHkuyUBcDp0dQhXgL9bmEB_Mmte3mckKSZYjmzLdQHEZU5xGOZPoYD74vMGemVyfvy0xE9kb3nEkW-vs3UuSyiDFR5fQv4ENsc0DtglQuwwnz0jZQOsUy6YxDeumf_aXCeBYONN5OLaT0VT40tnFatYtkKQTHHUaKvAWyuybRmG; "
+    "VT_bcbff8986118=17; SID_bcbff8986118=4915081157153753597"
+)
+
+_EXPIRED_UCIDS = (
+    "8925a23804b941b49f52f1c79c1c3b93",
+    "ffab80a5bac245c79a723ced80a396a2",
 )
 
 _env_jst_cookie = os.getenv("JST_ERP_COOKIE", "").strip()
-# Prefer FRESH_JST_COOKIE if env cookie is empty or still holds the expired 8925a238... u_cid
+# Prefer FRESH_JST_COOKIE if env cookie is empty or still holds an expired u_cid
 DEFAULT_JST_COOKIE = (
     FRESH_JST_COOKIE
-    if (not _env_jst_cookie or "8925a23804b941b49f52f1c79c1c3b93" in _env_jst_cookie)
+    if (not _env_jst_cookie or any(old_id in _env_jst_cookie for old_id in _EXPIRED_UCIDS))
     else _env_jst_cookie
 )
 
@@ -288,8 +293,48 @@ KNOWN_SKUS: dict[str, dict[str, Any]] = {
 }
 
 
+def update_cookie_from_response(resp: httpx.Response) -> bool:
+    """Capture any Set-Cookie headers returned by JST ERP (such as sliding-expiration
+    renewals of `.AspNetCore.GlobalAuthCookie` or `u_cid`) and merge them into `_RUNTIME_COOKIE`.
+    """
+    global _RUNTIME_COOKIE
+    try:
+        set_cookies = resp.headers.get_list("set-cookie")
+    except Exception:
+        set_cookies = []
+    if not set_cookies:
+        return False
+
+    cookie_map: dict[str, str] = {}
+    for part in (_RUNTIME_COOKIE or "").split(";"):
+        part = part.strip()
+        if "=" in part:
+            k, v = part.split("=", 1)
+            cookie_map[k.strip()] = v.strip()
+
+    updated = False
+    for sc in set_cookies:
+        first_pair = sc.split(";", 1)[0].strip()
+        if "=" in first_pair:
+            k, v = first_pair.split("=", 1)
+            k, v = k.strip(), v.strip()
+            if v and v.lower() != "deleted" and cookie_map.get(k) != v:
+                cookie_map[k] = v
+                updated = True
+
+    if updated:
+        new_cookie_str = "; ".join(f"{k}={v}" for k, v in cookie_map.items())
+        _RUNTIME_COOKIE = new_cookie_str
+        try:
+            save_daily_sync_state({"persisted_cookie": new_cookie_str, "cookie_refreshed_at": datetime.now(timezone(timedelta(hours=7))).isoformat()})
+        except Exception:
+            pass
+    return updated
+
+
 def check_jst_cookie_health(alert_line_on_expired: bool = True) -> dict[str, Any]:
-    """Verify whether the current JST ERP session cookie is still active and valid.
+    """Verify whether the current JST ERP session cookie is still active and valid,
+    and automatically capture any sliding-session `Set-Cookie` renewal headers.
     If expired/unauthorized and `alert_line_on_expired` is True, sends an immediate alert
     to the LINE Summary Work Group (with a 6-hour cooldown so it does not spam).
     """
@@ -297,6 +342,19 @@ def check_jst_cookie_health(alert_line_on_expired: bool = True) -> dict[str, Any
     h["Origin"] = "https://asia.jsterp.com"
     h["Referer"] = "https://asia.jsterp.com/Wms/Inventory/SkuInventory"
     try:
+        # 1. Sliding session keep-alive ping on Account endpoint
+        try:
+            auth_resp = httpx.get(
+                "https://asia.jsterp.com/Account/Shop/GetAuthorizeData",
+                headers=h,
+                timeout=10.0,
+                follow_redirects=False,
+            )
+            update_cookie_from_response(auth_resp)
+            h["Cookie"] = get_jst_cookie()
+        except Exception:
+            pass
+
         resp = httpx.post(
             "https://asia.jsterp.com/wms/Inventory/GetSkuInventorys",
             headers=h,
@@ -307,6 +365,7 @@ def check_jst_cookie_health(alert_line_on_expired: bool = True) -> dict[str, Any
             timeout=12.0,
             follow_redirects=False,
         )
+        update_cookie_from_response(resp)
         if resp.status_code in (301, 302, 401, 403):
             reason = f"HTTP {resp.status_code} (Session Redirect/Unauthorized)"
             if alert_line_on_expired:
@@ -487,6 +546,8 @@ def check_duplicate_order(phone: str, within_days: int = 7) -> dict[str, Any]:
             "order_time": order_time_str,
             "status": status_display,
             "pay_amount": pay_amount,
+            "freight": row_dict.get("Freight") or row_dict.get("PostFee") or 0,
+            "skus": row_dict.get("Skus") or [],
             "payment": payment_name,
             "receiver_name": str(row_dict.get("ReceiverName") or "").strip(),
             "receiver_mobile": row_ph or clean_phone,
@@ -568,6 +629,8 @@ def search_jst_orders_by_receiver_name(receiver_name: str, limit: int = 100) -> 
                 "order_time": str(row_dict.get("OrderTime") or ""),
                 "status": status_display,
                 "pay_amount": row_dict.get("PayAmount"),
+                "freight": row_dict.get("Freight") or row_dict.get("PostFee") or 0,
+                "skus": row_dict.get("Skus") or [],
                 "payment": str(row_dict.get("Payment") or row_dict.get("SettlementMethodDisplay") or ""),
                 "receiver_name": r_name,
                 "receiver_mobile": row_ph,
@@ -1956,6 +2019,37 @@ def extract_order_from_session(psid: str) -> dict[str, Any]:
             sku_id, qty, unit_price, freight = "BSJ1KG3_60G3", 1, 1299.0, 0.0
         elif total_hint in (1339, 1369):
             sku_id, qty, unit_price, freight, is_cod, cod_confirmed = "BSJ1KG3_60G3", 1, 1299.0, float(total_hint - 1299), True, True
+        # Mr.Buk (มิสเตอร์บุก) Promo Totals
+        elif total_hint == 44:
+            sku_id, qty, unit_price, freight = "MRBUK60G1", 1, 44.0, 0.0
+        elif total_hint == 74:
+            sku_id, qty, unit_price, freight = "MRBUK60G1", 1, 44.0, 30.0
+        elif total_hint == 114:
+            sku_id, qty, unit_price, freight, is_cod, cod_confirmed = "MRBUK60G1", 1, 44.0, 70.0, True, True
+        elif total_hint == 249:
+            sku_id, qty, unit_price, freight = "MRBUK500G1", 1, 249.0, 0.0
+        elif total_hint == 279:
+            sku_id, qty, unit_price, freight = "MRBUK500G1", 1, 249.0, 30.0
+        elif total_hint == 319:
+            sku_id, qty, unit_price, freight, is_cod, cod_confirmed = "MRBUK500G1", 1, 249.0, 70.0, True, True
+        elif total_hint in (465, 490):
+            sku_id, qty, unit_price, freight = "MRBUK1KG1", 1, float(total_hint), 0.0
+        elif total_hint == 530:
+            sku_id, qty, unit_price, freight, is_cod, cod_confirmed = "MRBUK1KG1", 1, 490.0, 40.0, True, True
+        elif total_hint == 599:
+            sku_id, qty, unit_price, freight = "MRBUK60G15", 1, 599.0, 0.0
+        elif total_hint == 639:
+            sku_id, qty, unit_price, freight, is_cod, cod_confirmed = "MRBUK60G15", 1, 599.0, 40.0, True, True
+        elif total_hint in (902, 950):
+            sku_id, qty, unit_price, freight = "MRBUK1KG2_60G1", 1, float(total_hint), 0.0
+        elif total_hint == 990:
+            sku_id, qty, unit_price, freight, is_cod, cod_confirmed = "MRBUK1KG2_60G1", 1, 950.0, 40.0, True, True
+        elif total_hint in (1130, 1190):
+            sku_id, qty, unit_price, freight = "MRBUK60G30", 1, float(total_hint), 0.0
+        elif total_hint == 1230:
+            sku_id, qty, unit_price, freight, is_cod, cod_confirmed = "MRBUK60G30", 1, 1190.0, 40.0, True, True
+        elif total_hint in (2270, 2390):
+            sku_id, qty, unit_price, freight = "MRBUK1KG5", 1, float(total_hint), 0.0
 
     # 8. Cross-check customer's requested bag quantity against extracted SKU
     sku_matches_chat = True
@@ -1965,7 +2059,10 @@ def extract_order_from_session(psid: str) -> dict[str, Any]:
         req_bag_matches = re.findall(r"\b(\d{1,2})\s*(?:ซอง|ชอง|ถุง)\b", user_only_text.lower())
         if req_bag_matches and "1 ก" not in user_only_text.lower() and "1kg" not in user_only_text.lower():
             req_bags = int(req_bag_matches[-1])
-            bag_mult = {"BSJ60G20": 20, "BSJ60G15": 15, "BSJ60G10": 10, "BSJ60G5": 5, "BSJ60G3": 3, "BSJ60G1": 1}.get(sku_id, 0)
+            bag_mult = {
+                "BSJ60G20": 20, "BSJ60G15": 15, "BSJ60G10": 10, "BSJ60G5": 5, "BSJ60G3": 3, "BSJ60G1": 1,
+                "MRBUK60G30": 30, "MRBUK60G15": 15, "MRBUK60G1": 1,
+            }.get(sku_id, 0)
             eff_bags = bag_mult * int(qty)
             if req_bags >= 3 and eff_bags != req_bags:
                 sku_matches_chat = False
@@ -1975,10 +2072,11 @@ def extract_order_from_session(psid: str) -> dict[str, Any]:
     effective_unit_price = float(unit_price if unit_price is not None else sku_meta.get("price", 0.0))
     total_amount = round(effective_unit_price * int(qty) + float(freight), 2) if sku_id else 0.0
     item_name = sku_meta.get("propertyShortName") or sku_meta.get("name") or sku_id or "ยังไม่ระบุสินค้า"
+    transfer_bank_label = "โอนเงิน (กสิกรไทย 989-2-13624-3)" if brand_id == "mrbuk" else "โอนเงิน (SCB 304-407545-5)"
     payment_label = (
         "เก็บเงินปลายทาง (COD)"
         if is_cod is True
-        else ("โอนเงิน (SCB 304-407545-5)" if is_cod is False else "ยังไม่ระบุวิธีชำระเงิน")
+        else (transfer_bank_label if is_cod is False else "ยังไม่ระบุวิธีชำระเงิน")
     )
     remark_tag = f" (#BUY{int(total_amount)})" if total_amount > 0 else ""
 
