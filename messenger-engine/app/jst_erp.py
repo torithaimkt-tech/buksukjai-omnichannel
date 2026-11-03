@@ -393,6 +393,14 @@ def check_jst_cookie_health(alert_line_on_expired: bool = True) -> dict[str, Any
 
 def get_jst_cookie() -> str:
     global _RUNTIME_COOKIE
+    try:
+        st = get_daily_sync_state()
+        persisted = str(st.get("persisted_cookie") or "").strip()
+        if persisted and not any(old_id in persisted for old_id in _EXPIRED_UCIDS):
+            _RUNTIME_COOKIE = persisted
+            return _RUNTIME_COOKIE
+    except Exception:
+        pass
     if not _RUNTIME_COOKIE:
         _RUNTIME_COOKIE = os.getenv("JST_ERP_COOKIE", "").strip()
     return _RUNTIME_COOKIE
@@ -400,7 +408,15 @@ def get_jst_cookie() -> str:
 
 def set_jst_cookie(cookie: str) -> None:
     global _RUNTIME_COOKIE
-    _RUNTIME_COOKIE = cookie.strip()
+    clean_c = cookie.strip()
+    _RUNTIME_COOKIE = clean_c
+    try:
+        save_daily_sync_state({
+            "persisted_cookie": clean_c,
+            "cookie_refreshed_at": datetime.now(timezone(timedelta(hours=7))).isoformat(),
+        })
+    except Exception:
+        pass
 
 
 def is_auto_sync_enabled() -> bool:
@@ -515,6 +531,7 @@ def check_duplicate_order(phone: str, within_days: int = 7) -> dict[str, Any]:
         json=payload,
         timeout=15.0,
     )
+    update_cookie_from_response(resp)
     resp.raise_for_status()
     data = resp.json()
     rows_obj = data.get("Rows") or {}
@@ -2285,6 +2302,7 @@ def get_warehouse_stock_summary() -> dict[str, Any]:
             },
             timeout=15.0,
         )
+        update_cookie_from_response(resp)
         resp.raise_for_status()
         data = (resp.json() or {}).get("Data") or []
     except Exception as exc:
