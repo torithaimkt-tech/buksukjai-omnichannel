@@ -1,0 +1,11 @@
+{
+  "sync_mode": "daily_6am",
+  "daily_hour_bkk": 6,
+  "schedule_description": "คีย์ข้อมูลวันละ 1 ครั้ง ตอน 06:00 น. (รวบรวมออเดอร์ของเมื่อวาน)",
+  "last_daily_sync_date": "",
+  "last_daily_sync_at": "",
+  "last_created_count": 0,
+  "last_duplicate_skipped_count": 0,
+  "persisted_cookie": "client_id=8c55bf3e7cb90f3ba27a22ddfdcc3762_91cdae39f749baaed0f1c166d97c4583; u_login_id=buksukjai%40gmail.com; VID_bcbff8986118=22755436; VP_bcbff8986118=1; AVID_147792=22755436; _ati=3616590229392; Notice-22755436-176=True; LanguageId=TH; Notice-22755436-177=True; u_cid=48259fda08a245d3bdee668206972fd0-22755436-9d5a61e0c4e148ddf561a3e4c286ebca; u_id=22755436; u_name=buksukjai; u_co_id=15749167; u_co_name=Buksukjai; ClientTimeZone=7; .AspNetCore.GlobalAuthCookie=CfDJ8NUvc5HFTn9EnG_IMr2hg1QbScA67aC19EuEL5g7p0b5o3Z77WhGqyNhCRGy2x5cIemLnSwCLkE9Ni3wXb5fH6zX2-2YneaFuCJ8xN86Noe5nKWgv5OBNBpsnKjgcNcBC4nXsLCIB8LA6KEuVMiSLaxZuSqqcJ3XrpSpcnP2z9vxNeOw6mRa03t4ygcMoQWdK6x3FFQQLNSDhbdFlP9Dt29D-yyuuSaNUx2xJL4s901oXJyCSxg8WuJUDt1KUO_Ouzi3ReFuEV9yUcDOHvgcJetL7tM7fxjrtYbMqLSixOKRzvDsq4xa6me0wZebPHGJoiHkuyUBcDp0dQhXgL9bmEB_Mmte3mckKSZYjmzLdQHEZU5xGOZPoYD74vMGemVyfvy0xE9kb3nEkW-vs3UuSyiDFR5fQv4ENsc0DtglQuwwnz0jZQOsUy6YxDeumf_aXCeBYONN5OLaT0VT40tnFatYtkKQTHHUaKvAWyuybRmG; VT_bcbff8986118=17; SID_bcbff8986118=4915081157153753597",
+  "cookie_refreshed_at": "2026-11-03T10:05:40.989918+07:00"
+}

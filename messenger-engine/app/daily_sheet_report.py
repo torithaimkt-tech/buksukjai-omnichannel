@@ -103,11 +103,18 @@ def build_daily_sales_sheet_rows(target_date: str) -> dict[str, Any]:
         and "Cancel" not in str(x.get("Status") or "")
     ]
 
+    def _effective_order_date(row_item: dict[str, Any]) -> str:
+        rem = str(row_item.get("SellerRemark") or "")
+        m_rem = re.search(r"ออเดอร์\s*(\d{4}-\d{2}-\d{2})", rem)
+        if m_rem:
+            return m_rem.group(1)
+        return str(row_item.get("OrderTime") or "")[:10]
+
     # Track phones that already had an active ManualOrder on an earlier date (< target_date)
     # so bot-rekeyed old orders ("FB: ...") are never counted again on later days.
     earlier_manual_phones: set[str] = set()
     for x in non_cancelled_rows:
-        ot = str(x.get("OrderTime") or "")[:10]
+        ot = _effective_order_date(x)
         if ot and ot < target_date and str(x.get("SaveType") or "") == "ManualOrder":
             ph = jst_erp.normalize_thai_phone(str(x.get("ReceiverMobileEn") or x.get("ReceiverPhoneEn") or ""))
             if ph:
@@ -116,7 +123,7 @@ def build_daily_sales_sheet_rows(target_date: str) -> dict[str, Any]:
     raw_day_orders = [
         x
         for x in non_cancelled_rows
-        if str(x.get("OrderTime") or "").startswith(target_date)
+        if _effective_order_date(x) == target_date
     ]
     raw_day_orders.sort(key=lambda x: str(x.get("OrderTime") or ""))
 
@@ -630,14 +637,14 @@ def fetch_facebook_buy_audit(target_date: str) -> dict[str, Any]:
         convs: list[dict[str, Any]] = []
         next_url: str | None = "https://graph.facebook.com/v21.0/me/conversations"
         next_params: dict[str, Any] | None = {
-            "fields": "participants,updated_time,messages.limit(40){message,created_time,from}",
-            "limit": 100,
+            "fields": "participants,updated_time,messages.limit(40){message,created_time,from,attachments{id,image_data}}",
+            "limit": 50,
             "access_token": token,
         }
         for _page_idx in range(3):
             if not next_url:
                 break
-            resp = httpx.get(next_url, params=next_params, timeout=20.0)
+            resp = httpx.get(next_url, params=next_params, timeout=25.0)
             if resp.status_code != 200:
                 break
             payload = resp.json()
@@ -651,15 +658,16 @@ def fetch_facebook_buy_audit(target_date: str) -> dict[str, Any]:
             next_url = (payload.get("paging") or {}).get("next")
             next_params = None
         if not convs:
-            return {"raw_buy_count": 0, "raw_buy_total": 0.0, "dedup_count": 0, "dedup_total": 0.0, "duplicates": [], "orders": []}
+            return {"raw_buy_count": 0, "raw_buy_total": 0.0, "dedup_count": 0, "dedup_total": 0.0, "duplicates": [], "unpaid_no_slip": [], "orders": []}
     except Exception as exc:
         logger.warning("Facebook #BUY audit query warning: %s", exc)
-        return {"raw_buy_count": 0, "raw_buy_total": 0.0, "dedup_count": 0, "dedup_total": 0.0, "duplicates": [], "orders": []}
+        return {"raw_buy_count": 0, "raw_buy_total": 0.0, "dedup_count": 0, "dedup_total": 0.0, "duplicates": [], "unpaid_no_slip": [], "orders": []}
 
     raw_buy_count = 0
     raw_buy_total = 0.0
     dedup_orders: list[dict[str, Any]] = []
     duplicates: list[dict[str, Any]] = []
+    unpaid_no_slip: list[dict[str, Any]] = []
 
     for c in convs:
         parts = [
@@ -673,6 +681,7 @@ def fetch_facebook_buy_audit(target_date: str) -> dict[str, Any]:
         day_buys: list[dict[str, Any]] = []
         last_summary_text = ""
         last_phone_seen = ""
+        has_user_slip = False
         for m in msgs:
             created_str = str(m.get("created_time") or "")
             if not created_str:
@@ -689,6 +698,22 @@ def fetch_facebook_buy_audit(target_date: str) -> dict[str, Any]:
             if dt_bkk.strftime("%Y-%m-%d") != target_date:
                 continue
 
+            sender_name = str((m.get("from") or {}).get("name") or "")
+            is_user_msg = "ข้าวบุก" not in sender_name
+            if is_user_msg:
+                if "ส่งการชำระเงินจำนวน" in txt_any:
+                    has_user_slip = True
+                for att in ((m.get("attachments") or {}).get("data") or []):
+                    att_id = str(att.get("id") or "")
+                    img_d = att.get("image_data") or {}
+                    img_u = str(img_d.get("url") or "")
+                    w = int(img_d.get("width") or 0)
+                    h = int(img_d.get("height") or 0)
+                    if "sticker" in att_id or "39178562_1505197616293642" in img_u:
+                        continue
+                    if img_u and (w <= 0 or h <= 0 or (h / float(w)) >= 1.12):
+                        has_user_slip = True
+
             txt = txt_any
             if "เพจ :" in txt and "สินค้า :" in txt:
                 last_summary_text = txt
@@ -704,6 +729,7 @@ def fetch_facebook_buy_audit(target_date: str) -> dict[str, Any]:
                         day_buys[-1]["summary_text"] = last_summary_text
                     if last_phone_seen:
                         day_buys[-1]["phone"] = last_phone_seen
+                    day_buys[-1]["has_user_slip"] = has_user_slip
                     continue
                 raw_buy_count += 1
                 raw_buy_total += amt
@@ -714,12 +740,15 @@ def fetch_facebook_buy_audit(target_date: str) -> dict[str, Any]:
                         "time_bkk": dt_bkk.strftime("%H:%M:%S"),
                         "summary_text": last_summary_text,
                         "phone": last_phone_seen,
+                        "has_user_slip": has_user_slip,
                     }
                 )
 
         if day_buys:
             latest = day_buys[-1]
-            dedup_orders.append(latest)
+            latest["has_user_slip"] = has_user_slip
+            summary_str = str(latest.get("summary_text") or "")
+            is_cod_order = ("ปลายทาง" in summary_str) or ("COD" in summary_str.upper())
             if len(day_buys) > 1:
                 earlier_tags = [f"#BUY{int(x['amount'])}" for x in day_buys[:-1]]
                 latest_tag = f"#BUY{int(latest['amount'])}"
@@ -732,6 +761,17 @@ def fetch_facebook_buy_audit(target_date: str) -> dict[str, Any]:
                         "duplicate_amount": round(dup_amt, 2),
                     }
                 )
+            if is_cod_order or has_user_slip:
+                dedup_orders.append(latest)
+            else:
+                unpaid_no_slip.append(
+                    {
+                        "fb_name": fb_name,
+                        "amount": round(float(latest["amount"]), 2),
+                        "phone": latest.get("phone") or "",
+                        "time_bkk": latest.get("time_bkk") or "",
+                    }
+                )
 
     dedup_total = round(sum(x["amount"] for x in dedup_orders), 2)
     return {
@@ -740,6 +780,9 @@ def fetch_facebook_buy_audit(target_date: str) -> dict[str, Any]:
         "dedup_count": len(dedup_orders),
         "dedup_total": dedup_total,
         "duplicates": duplicates,
+        "unpaid_no_slip": unpaid_no_slip,
+        "unpaid_no_slip_count": len(unpaid_no_slip),
+        "unpaid_no_slip_total": round(sum(x["amount"] for x in unpaid_no_slip), 2),
         "orders": dedup_orders,
     }
 
@@ -974,16 +1017,17 @@ def format_line_group_daily_summary(report: dict[str, Any]) -> str:
 
     fb_audit = report.get("fb_buy_audit") or {}
     dups = fb_audit.get("duplicates") or []
+    unpaid_list = fb_audit.get("unpaid_no_slip") or []
     raw_buy_cnt = int(fb_audit.get("raw_buy_count") or 0)
     raw_buy_tot = float(fb_audit.get("raw_buy_total") or 0.0)
     dedup_cnt = int(fb_audit.get("dedup_count") or 0)
 
     fb_line = f"• Facebook : {fb_amt:,.2f} บาท"
     if dedup_cnt > 0:
-        if not dups and abs(fb_amt - float(fb_audit.get("dedup_total") or 0.0)) < 1.0:
+        if not dups and not unpaid_list and abs(fb_amt - float(fb_audit.get("dedup_total") or 0.0)) < 1.0:
             fb_line = f"• Facebook : {fb_amt:,.2f} บาท ({dedup_cnt} ออเดอร์ — ตรงกับชีท & ROI Tracking 100% ค่ะ)"
         else:
-            fb_line = f"• Facebook : {fb_amt:,.2f} บาท ({dedup_cnt} ออเดอร์จัดส่งจริง)"
+            fb_line = f"• Facebook : {fb_amt:,.2f} บาท ({dedup_cnt} ออเดอร์ยืนยันจัดส่งจริง)"
 
     lines = [
         f"📊 สรุปยอดขายและตัดสต็อกประจำวันที่ {t_date}",
@@ -997,8 +1041,12 @@ def format_line_group_daily_summary(report: dict[str, Any]) -> str:
             f"{d['fb_name']} ({'/'.join(d['earlier_tags'])} เปลี่ยนเป็น {d['latest_tag']})" for d in dups
         )
         lines.append(
-            f"  ↳ 💡 เทียบ ROI Tracking เพจ: แอดมินติดแท็ก #BUY {raw_buy_cnt} ครั้ง ({raw_buy_tot:,.2f} บาท) "
-            f"เนื่องจากติดแท็กซ้ำในแชทเดิม ({dup_desc}) จึงตัดบิลซ้ำออกให้ตรงกับที่จัดส่งจริงค่ะ"
+            f"  ↳ 💡 ตัดบิลติดแท็ก #BUY ซ้ำในแชทเดิมออก: {dup_desc}"
+        )
+    if unpaid_list:
+        unpaid_tot = sum(float(u.get("amount") or 0.0) for u in unpaid_list)
+        lines.append(
+            f"  ↳ ⚠️ ตัดแชทที่แอดมินพิมพ์ #BUY (โอน) ล่วงหน้าแต่ลูกค้ายังไม่ส่งสลิปออก {len(unpaid_list)} รายการ ({unpaid_tot:,.2f} บาท) เพื่อไม่ให้คีย์ส่งของฟรีค่ะ"
         )
 
     lines.extend(
