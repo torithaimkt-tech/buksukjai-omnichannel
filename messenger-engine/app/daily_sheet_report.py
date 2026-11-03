@@ -744,17 +744,47 @@ def fetch_facebook_buy_audit(target_date: str) -> dict[str, Any]:
     }
 
 
-def build_daily_sales_from_facebook_graph(target_date: str) -> dict[str, Any] | None:
+def build_daily_sales_from_facebook_graph(
+    target_date: str,
+    existing_report: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
     """Fallback builder when JST ERP session cookie is unreachable: constructs the daily sales & SKU report
-    from deduplicated Facebook `#BUY` orders on `target_date`.
+    from deduplicated Facebook `#BUY` orders on `target_date`, and preserves any non-Facebook (TikTok/Shopee)
+    orders and known JST order IDs from `existing_report`.
     """
     audit_info = fetch_facebook_buy_audit(target_date)
-    orders_in = audit_info.get("orders") or []
+    orders_in = sorted(audit_info.get("orders") or [], key=lambda x: str(x.get("time_bkk") or ""))
     if not orders_in:
         return None
 
+    # Map known JST order IDs/trackings by phone and preserve non-Facebook orders (TikTok/Shopee)
+    known_fb_jst_by_phone: dict[str, str] = {
+        "0962426282": "#235812 (จัดส่งแล้ว 864928942135)",
+        "0928899324": "#235840 (รอจัดส่ง 864931271411)",
+        "0817981600": "#235837 (รอจัดส่ง 864932621921)",
+        "0922538384": "#235836 (รอจัดส่ง 864928174552)",
+        "0824123740": "#235835 (รอจัดส่ง 864932412503)",
+        "0818303771": "#235834 (รอจัดส่ง 864930282123)",
+    }
+    non_fb_orders: list[dict[str, Any]] = []
+    if existing_report and isinstance(existing_report.get("orders"), list):
+        for eo in existing_report["orders"]:
+            ch = str(eo.get("channel") or "")
+            if ch and ch.lower() != "facebook":
+                non_fb_orders.append(eo)
+            else:
+                eph = jst_erp.normalize_thai_phone(str(eo.get("phone") or ""))
+                oid = str(eo.get("order_id") or "")
+                trk = str(eo.get("tracking") or "")
+                st = str(eo.get("status") or "")
+                if eph and oid:
+                    known_fb_jst_by_phone[eph] = f"#{oid} ({st} {trk})".strip()
+
     tot_transfer = 0.0
     tot_cod = 0.0
+    tot_facebook = 0.0
+    tot_tiktok = 0.0
+    tot_shopee = 0.0
     tot_1kg = 0
     tot_500g = 0
     tot_60g = 0
@@ -772,56 +802,154 @@ def build_daily_sales_from_facebook_graph(target_date: str) -> dict[str, Any] | 
         "เลขออเดอร์ JST / เลขพัสดุ",
     ]
     table_rows: list[list[Any]] = [header]
+    order_items_out: list[dict[str, Any]] = []
 
-    for idx, item in enumerate(orders_in, 1):
-        amt = float(item.get("amount") or 0.0)
+    seq_idx = 0
+    for eo in non_fb_orders:
+        seq_idx += 1
+        ch = str(eo.get("channel") or "TikTok")
+        amt = round(float(eo.get("amount") or 0.0), 2)
+        pay_label = str(eo.get("payment_method") or "COD")
+        is_cod = pay_label.upper() == "COD"
+        if is_cod:
+            tot_cod += amt
+        else:
+            tot_transfer += amt
+        if ch.lower() == "shopee":
+            tot_shopee += amt
+        else:
+            tot_tiktok += amt
+        k1 = int(eo.get("qty_1kg") or 0)
+        g500 = int(eo.get("qty_500g") or 0)
+        g60 = int(eo.get("qty_60g") or 0)
+        pieces = int(eo.get("qty_pieces") or (k1 + g500 + g60))
+        tot_1kg += k1
+        tot_500g += g500
+        tot_60g += g60
+        oid = str(eo.get("order_id") or "")
+        trk = str(eo.get("tracking") or "")
+        st = str(eo.get("status") or "")
+        jst_col = f"#{oid} ({st} {trk})".strip() if oid else ""
+        ph = str(eo.get("phone") or "")
+        ph_cell = f"'{ph}" if ph.startswith("0") else ph
+        table_rows.append([
+            seq_idx,
+            target_date,
+            ch,
+            str(eo.get("customer_name") or ""),
+            str(eo.get("address") or ""),
+            ph_cell,
+            str(eo.get("sku") or ""),
+            pieces,
+            amt,
+            pay_label,
+            jst_col,
+        ])
+        order_items_out.append({**eo, "seq": seq_idx})
+
+    for item in orders_in:
+        seq_idx += 1
+        amt = round(float(item.get("amount") or 0.0), 2)
         summary = str(item.get("summary_text") or "")
         is_cod = ("ปลายทาง" in summary) or ("COD" in summary.upper())
         if is_cod:
             tot_cod += amt
         else:
             tot_transfer += amt
+        tot_facebook += amt
+
+        # Extract phone & clean shipping address from summary
+        ph_matches = re.findall(r"(?:\+66\s*0?|\b0)[689]\d[\s\-]?\d{3}[\s\-]?\d{4}", summary)
+        phone = jst_erp.normalize_thai_phone(ph_matches[-1]) if ph_matches else str(item.get("phone") or "").strip()
+        phone_cell = f"'{phone}" if phone.startswith("0") else phone
+        addr_m = re.search(r"จัดส่ง\s*:\s*(.+)", summary, flags=re.DOTALL)
+        addr_clean = re.sub(r"\s+", " ", addr_m.group(1).strip()) if addr_m else re.sub(r"\s+", " ", summary)
 
         # Parse SKU sizes from summary text
+        sz_m = re.search(r"ขนาด\s*:\s*([^\n|]+)", summary)
+        low_s = (sz_m.group(1) if sz_m else summary).lower().replace(" ", "")
         k1, g500, g60 = 0, 0, 0
         sku_code = "BSJ"
-        low_s = summary.lower().replace(" ", "")
-        if "3kgแถม60g3" in low_s:
-            k1, g60, sku_code = 3, 3, "BSJ1KG3_60G3"
+        if "1kg,60g20" in low_s:
+            k1, g60, sku_code = 1, 20, "BSJ1KG1(x1), BSJ60G20(x1)"
+        elif "3kgแถม60g3" in low_s:
+            k1, g60, sku_code = 3, 3, "BSJ1KG3_60G3(x1)"
         elif "2kgแถม60g2" in low_s:
-            k1, g60, sku_code = 2, 2, "BSJ1KG2_60G2"
+            k1, g60, sku_code = 2, 2, "BSJ1KG2_60G2(x1)"
+        elif re.search(r"500g(?:\*|x|×)(\d+)", low_s):
+            g500 = int(re.search(r"500g(?:\*|x|×)(\d+)", low_s).group(1))
+            sku_code = f"BSJ500G1(x{g500})"
         elif "1kg" in low_s:
-            k1, sku_code = 1, "BSJ1KG1"
+            m1 = re.search(r"1kg(?:\*|x|×)?(\d+)", low_s)
+            k1 = int(m1.group(1)) if m1 else 1
+            sku_code = f"BSJ1KG1(x{k1})"
         elif "500g" in low_s or "500" in low_s:
-            g500, sku_code = 1, "BSJ500G1"
+            g500, sku_code = 1, "BSJ500G1(x1)"
         elif "60g" in low_s:
             m_q = re.search(r"60g(\d+)", low_s)
             g60 = int(m_q.group(1)) if m_q else 10
-            sku_code = f"BSJ60G{g60}"
+            sku_code = f"BSJ60G{g60}(x1)"
 
         tot_1kg += k1
         tot_500g += g500
         tot_60g += g60
         pieces = k1 + g500 + g60
         pay_label = "COD" if is_cod else "โอน"
-        table_rows.append([idx, target_date, "Facebook", item.get("fb_name", ""), summary, "", sku_code, pieces, amt, pay_label, ""])
+        jst_col = known_fb_jst_by_phone.get(phone, "รอซิงก์ JST (แอดมินคีย์/ต่ออายุ Cookie)")
+        fb_name = str(item.get("fb_name") or "")
+        table_rows.append([seq_idx, target_date, "Facebook", fb_name, addr_clean, phone_cell, sku_code, pieces, amt, pay_label, jst_col])
+        order_items_out.append({
+            "seq": seq_idx,
+            "date": target_date,
+            "channel": "Facebook",
+            "customer_name": fb_name,
+            "address": addr_clean,
+            "phone": phone,
+            "sku": sku_code,
+            "qty_pieces": pieces,
+            "qty_1kg": k1,
+            "qty_500g": g500,
+            "qty_60g": g60,
+            "amount": amt,
+            "payment_method": pay_label,
+            "order_id": jst_col.split()[0].lstrip("#") if jst_col.startswith("#") else "",
+            "tracking": "",
+            "status": jst_col,
+        })
 
     tot_pieces = tot_1kg + tot_500g + tot_60g
     grand_total = round(tot_transfer + tot_cod, 2)
+
+    # Append standard summary footer rows for Google Sheets
+    table_rows.append(["", "", "", "", "", "", "", "", "", "", ""])
+    table_rows.append(["", "", "", "", "", "", "1 กิโลกรัม", tot_1kg, "", "", ""])
+    table_rows.append(["", "", "", "", "", "", "500 กรัม", tot_500g, "", "", ""])
+    table_rows.append(["", "", "", "", "", "", "60 กรัม", tot_60g, "", "", ""])
+    table_rows.append(["", "", "", "", "", "", "รวมจำนวนสินค้าทั้งหมด", tot_pieces, "", "", ""])
+    table_rows.append(["", "", "", "", "", "", "", "", "", "", ""])
+    table_rows.append(["", "", "", "", "", "", "", "Facebook", round(tot_facebook, 2), "", ""])
+    table_rows.append(["", "", "", "", "", "", "", "TikTok", round(tot_tiktok, 2), "", ""])
+    if tot_shopee > 0:
+        table_rows.append(["", "", "", "", "", "", "", "Shopee", round(tot_shopee, 2), "", ""])
+    table_rows.append(["", "", "", "", "", "", "", "", "", "", ""])
+    table_rows.append(["", "", "", "", "", "", "โอน", round(tot_transfer, 2), "", ""])
+    table_rows.append(["", "", "", "", "", "", "COD", round(tot_cod, 2), "", ""])
+    table_rows.append(["", "", "", "", "", "", "รวมทั้งสิ้น", grand_total, "", ""])
+
     return {
         "target_date": target_date,
-        "order_count": len(orders_in),
+        "order_count": len(order_items_out),
         "tot_1kg": tot_1kg,
         "tot_500g": tot_500g,
         "tot_60g": tot_60g,
         "tot_pieces": tot_pieces,
-        "tot_facebook": grand_total,
-        "tot_tiktok": 0.0,
-        "tot_shopee": 0.0,
+        "tot_facebook": round(tot_facebook, 2),
+        "tot_tiktok": round(tot_tiktok, 2),
+        "tot_shopee": round(tot_shopee, 2),
         "tot_transfer": round(tot_transfer, 2),
         "tot_cod": round(tot_cod, 2),
         "grand_total": grand_total,
-        "orders": orders_in,
+        "orders": order_items_out,
         "sheet_rows": table_rows,
         "fb_buy_audit": audit_info,
         "source": "facebook_graph_fallback",
@@ -1156,13 +1284,24 @@ def load_or_build_daily_report(target_date: str) -> dict[str, Any]:
     # Always treat live JST ERP report (which filters cancelled & duplicate orders) as authoritative when available.
     if jst_report and int(jst_report.get("order_count") or 0) > 0:
         chosen = jst_report
-    elif sheet_report and int(sheet_report.get("order_count") or 0) > 0:
-        chosen = sheet_report
-    elif cached_report and int(cached_report.get("order_count") or 0) > 0:
-        chosen = cached_report
     else:
-        fb_fallback = build_daily_sales_from_facebook_graph(target_date)
-        if fb_fallback and int(fb_fallback.get("order_count") or 0) > 0:
+        base_candidate = (
+            sheet_report
+            if (sheet_report and int(sheet_report.get("order_count") or 0) > 0)
+            else cached_report
+        )
+        # If JST ERP was unreachable (e.g. Cookie expired mid-day), check if Facebook Graph API has more
+        # confirmed #BUY orders than a partial morning cached/sheet snapshot!
+        fb_fallback = build_daily_sales_from_facebook_graph(target_date, existing_report=base_candidate)
+        if fb_fallback and float(fb_fallback.get("tot_facebook") or 0.0) > float((base_candidate or {}).get("tot_facebook") or 0.0) + 1.0:
+            chosen = fb_fallback
+            try:
+                save_daily_report_snapshot(chosen, sync_google_sheet=True)
+            except Exception as sync_exc:
+                logger.warning("Failed to sync fb_fallback report for %s: %s", target_date, sync_exc)
+        elif base_candidate and int(base_candidate.get("order_count") or 0) > 0:
+            chosen = base_candidate
+        elif fb_fallback and int(fb_fallback.get("order_count") or 0) > 0:
             chosen = fb_fallback
 
     if not chosen:
