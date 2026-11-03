@@ -691,7 +691,7 @@ def fetch_facebook_buy_audit(target_date: str) -> dict[str, Any]:
             except Exception:
                 continue
             txt_any = str(m.get("message") or "").strip()
-            ph_m_any = re.findall(r"(?:\+66\s*0?|\b0)[689]\d[\s\-]?\d{3}[\s\-]?\d{4}", txt_any)
+            ph_m_any = re.findall(r"(?:\+66\s*0?|0)[689]\d(?:[\s\-]*\d){7}", txt_any)
             if ph_m_any:
                 last_phone_seen = jst_erp.normalize_thai_phone(ph_m_any[-1])
 
@@ -715,18 +715,19 @@ def fetch_facebook_buy_audit(target_date: str) -> dict[str, Any]:
                         has_user_slip = True
 
             txt = txt_any
-            if "เพจ :" in txt and "สินค้า :" in txt:
+            if ("เพจ :" in txt and "สินค้า :" in txt) or any(k in txt for k in ("สรุป", "บันทึกออเดอร์", "ทวนรายละเอียด", "เก็บเงินปลายทาง", "ชำระปลายทาง", "ยอดโอน")):
                 last_summary_text = txt
 
             m_buy = re.search(r"#\s*BUY\s*(\d+(?:\.\d+)?)", txt, re.IGNORECASE)
             if m_buy:
                 amt = float(m_buy.group(1))
+                summary_for_buy = txt if any(k in txt for k in ("ปลายทาง", "COD", "cod", "โอน")) else last_summary_text
                 # Ignore identical #BUY<amt> repeated in the same conversation on the same day
                 # (ROI Tracking counts identical #BUY tags in the same chat as 1 order)
                 if day_buys and abs(day_buys[-1]["amount"] - amt) < 0.01:
                     day_buys[-1]["time_bkk"] = dt_bkk.strftime("%H:%M:%S")
-                    if last_summary_text:
-                        day_buys[-1]["summary_text"] = last_summary_text
+                    if summary_for_buy:
+                        day_buys[-1]["summary_text"] = summary_for_buy
                     if last_phone_seen:
                         day_buys[-1]["phone"] = last_phone_seen
                     day_buys[-1]["has_user_slip"] = has_user_slip
@@ -738,7 +739,7 @@ def fetch_facebook_buy_audit(target_date: str) -> dict[str, Any]:
                         "fb_name": fb_name,
                         "amount": amt,
                         "time_bkk": dt_bkk.strftime("%H:%M:%S"),
-                        "summary_text": last_summary_text,
+                        "summary_text": summary_for_buy,
                         "phone": last_phone_seen,
                         "has_user_slip": has_user_slip,
                     }
@@ -748,7 +749,12 @@ def fetch_facebook_buy_audit(target_date: str) -> dict[str, Any]:
             latest = day_buys[-1]
             latest["has_user_slip"] = has_user_slip
             summary_str = str(latest.get("summary_text") or "")
-            is_cod_order = ("ปลายทาง" in summary_str) or ("COD" in summary_str.upper())
+            amt_int = int(round(float(latest["amount"])))
+            is_cod_order = (
+                ("ปลายทาง" in summary_str)
+                or ("COD" in summary_str.upper())
+                or (amt_int in (157, 224, 265, 309, 460, 499, 595, 760, 939, 1339) and "โอน" not in summary_str)
+            )
             if len(day_buys) > 1:
                 earlier_tags = [f"#BUY{int(x['amount'])}" for x in day_buys[:-1]]
                 latest_tag = f"#BUY{int(latest['amount'])}"

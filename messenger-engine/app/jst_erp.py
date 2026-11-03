@@ -1805,9 +1805,9 @@ def extract_order_from_session(psid: str) -> dict[str, Any]:
     last_summary_idx = admin_summaries[-1][0] if admin_summaries else -1
     latest_summary = admin_summaries[-1][1] if admin_summaries else ""
 
-    # 2. Extract phone number (supports 08xxxxxxxx, 08x-xxx-xxxx, and +66936179424)
+    # 2. Extract phone number (supports 08xxxxxxxx, 08x-xxx-xxxx, 0640-497-947-, โทร084-8607585, and +66936179424)
     phone = ""
-    phone_pattern = r"(?:\+66\s*0?|\b0)[689]\d[\s\-]?\d{3}[\s\-]?\d{4}"
+    phone_pattern = r"(?:\+66\s*0?|0)[689]\d(?:[\s\-]*\d){7}"
     phone_search_target = latest_summary if latest_summary else full_text
     phone_matches = re.findall(phone_pattern, phone_search_target)
     if not phone_matches and latest_summary:
@@ -1822,6 +1822,7 @@ def extract_order_from_session(psid: str) -> dict[str, Any]:
         if am:
             raw_address = am.group(1).strip()
             raw_address = re.sub(r"#BUY\d+.*$", "", raw_address, flags=re.DOTALL).strip()
+            raw_address = re.sub(r"[()（）]", " ", raw_address)
     if not raw_address:
         for m in reversed(msgs):
             if m["role"] == "user":
@@ -1977,8 +1978,8 @@ def extract_order_from_session(psid: str) -> dict[str, Any]:
                     sku_id, qty, unit_price = "BSJ60G10", 3, 370.0
                     freight = float(max(0, total_hint - 1110)) if total_hint >= 1110 else 0.0
                 elif n_bags == 5:
-                    sku_id, qty, unit_price = "BSJ60G5", 1, (195.0 if total_hint in (195, 225) else 199.0)
-                    freight = 30.0 if total_hint == 225 else 0.0
+                    sku_id, qty, unit_price = "BSJ60G5", 1, (195.0 if total_hint in (195, 225, 265) else 199.0)
+                    freight = float(max(0, total_hint - unit_price)) if total_hint > unit_price else 0.0
                 elif n_bags == 3:
                     sku_id, qty, unit_price, freight = "BSJ60G3", 1, float(total_hint or 140), 0.0
                 else:
