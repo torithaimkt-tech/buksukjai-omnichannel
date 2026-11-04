@@ -22,5 +22,23 @@
     "title": "โปรตุนสุดคุ้ม 3 แถม 3 (1,299.- ส่งฟรี)",
     "subtitle": "รูปจริงจากโฟลเดอร์ pro buksukjai (ซื้อ 1 กก. 3 ถุง แถม 60g 3 ถุง)",
     "filename": "promo_1299.jpg"
+  },
+  "mrbuk_qr_1pt": {
+    "key": "mrbuk_qr_1pt",
+    "title": "QR Code รับแต้ม มิสเตอร์บุก VIP (+1 แต้ม)",
+    "subtitle": "สแกนรับ 1 แต้มเข้าบัตรสะสมแต้ม LINE OA @misterbuk (ยอดซื้อ 500.- / ถุง 1 กก. 490.- / เซ็ตคู่ 950.-)",
+    "filename": "MrBuk_QR_Give_1pt.png"
+  },
+  "mrbuk_qr_2pt": {
+    "key": "mrbuk_qr_2pt",
+    "title": "QR Code รับแต้ม มิสเตอร์บุก VIP (+2 แต้ม)",
+    "subtitle": "สแกนรับ 2 แต้มเข้าบัตรสะสมแต้ม LINE OA @misterbuk (ยอดซื้อ 1,000.- ขึ้นไป / เซ็ต 30 ซอง 1,190.-)",
+    "filename": "MrBuk_QR_Give_2pt.png"
+  },
+  "mrbuk_qr_4pt": {
+    "key": "mrbuk_qr_4pt",
+    "title": "QR Code รับแต้ม มิสเตอร์บุก VIP (+4 แต้ม)",
+    "subtitle": "สแกนรับ 4 แต้มเข้าบัตรสะสมแต้ม LINE OA @misterbuk (ยอดซื้อ 2,000.- ขึ้นไป / เซ็ตใหญ่ 5 กก. 2,390.-)",
+    "filename": "MrBuk_QR_Give_4pt.png"
   }
 }

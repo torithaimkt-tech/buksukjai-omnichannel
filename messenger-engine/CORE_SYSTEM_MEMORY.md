@@ -2,7 +2,7 @@
 
 > **อัปเดตล่าสุด:** 2 พฤศจิกายน 2026 (เวลา 10:17 น. เวลาไทย)
 > **เซิร์ฟเวอร์ Production (24/7 Cloud):** `https://buksukjai-omnichannel.onrender.com`
-> **GitHub Repository:** `https://github.com/pordiporditeam-sudo/buksukjai-omnichannel`
+> **GitHub Repository:** `https://github.com/torithaimkt-tech/buksukjai-omnichannel`
 > **Google Sheets สรุปยอดขายรายวัน (AI Process 1):** `https://docs.google.com/spreadsheets/d/1mMO_aZnaCaDskrJMreJiaonFqna-WNKBhOoozAWxIhE/edit?gid=0#gid=0`
 
 ---

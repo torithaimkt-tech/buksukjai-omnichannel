@@ -19,6 +19,7 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 MEDIA_DIR = STATIC_DIR / "media"
 MEDIA_CATALOG_PATH = MEDIA_DIR / "catalog.json"
 PRO_SOURCE_DIR = Path(r"D:\buksukjai\pro buksukjai")
+MRBUK_LINE_OA_DIR = Path(r"D:\MrBuk Content\Mr buk line oa")
 
 BANNED_GENERATED_FILES = (
     "promo_catalog.png",
@@ -32,6 +33,12 @@ SOURCE_FILES_MAP = {
     "promo_60g_set.jpg": "839008140_2022772361717236_6125442964393378345_n.jpg",
     "promo_899.jpg": "833296835_2006071957015432_4696061562761295679_n.jpg",
     "promo_1299.jpg": "833260523_1863026684665733_769880910253820938_n.jpg",
+}
+
+MRBUK_QR_FILES_MAP = {
+    "MrBuk_QR_Give_1pt.png": "MrBuk_QR_Give_1pt.png",
+    "MrBuk_QR_Give_2pt.png": "MrBuk_QR_Give_2pt.png",
+    "MrBuk_QR_Give_4pt.png": "MrBuk_QR_Give_4pt.png",
 }
 
 DEFAULT_SLOTS = {
@@ -59,6 +66,24 @@ DEFAULT_SLOTS = {
         "subtitle": "รูปจริงจากโฟลเดอร์ pro buksukjai (ซื้อ 1 กก. 3 ถุง แถม 60g 3 ถุง)",
         "filename": "promo_1299.jpg",
     },
+    "mrbuk_qr_1pt": {
+        "key": "mrbuk_qr_1pt",
+        "title": "QR Code รับแต้ม มิสเตอร์บุก VIP (+1 แต้ม)",
+        "subtitle": "สแกนรับ 1 แต้มเข้าบัตรสะสมแต้ม LINE OA @misterbuk (ยอดซื้อ 500.- / ถุง 1 กก. 490.- / เซ็ตคู่ 950.-)",
+        "filename": "MrBuk_QR_Give_1pt.png",
+    },
+    "mrbuk_qr_2pt": {
+        "key": "mrbuk_qr_2pt",
+        "title": "QR Code รับแต้ม มิสเตอร์บุก VIP (+2 แต้ม)",
+        "subtitle": "สแกนรับ 2 แต้มเข้าบัตรสะสมแต้ม LINE OA @misterbuk (ยอดซื้อ 1,000.- ขึ้นไป / เซ็ต 30 ซอง 1,190.-)",
+        "filename": "MrBuk_QR_Give_2pt.png",
+    },
+    "mrbuk_qr_4pt": {
+        "key": "mrbuk_qr_4pt",
+        "title": "QR Code รับแต้ม มิสเตอร์บุก VIP (+4 แต้ม)",
+        "subtitle": "สแกนรับ 4 แต้มเข้าบัตรสะสมแต้ม LINE OA @misterbuk (ยอดซื้อ 2,000.- ขึ้นไป / เซ็ตใหญ่ 5 กก. 2,390.-)",
+        "filename": "MrBuk_QR_Give_4pt.png",
+    },
 }
 
 KEY_ALIASES = {
@@ -66,11 +91,17 @@ KEY_ALIASES = {
     "product_photo": "promo_3sizes",
     "how_to_cook": "promo_3sizes",
     "payment_qr": "promo_3sizes",
+    "MrBuk_QR_Give_1pt.png": "mrbuk_qr_1pt",
+    "MrBuk_QR_Give_2pt.png": "mrbuk_qr_2pt",
+    "MrBuk_QR_Give_4pt.png": "mrbuk_qr_4pt",
+    "qr_1pt": "mrbuk_qr_1pt",
+    "qr_2pt": "mrbuk_qr_2pt",
+    "qr_4pt": "mrbuk_qr_4pt",
 }
 
 
 def sync_official_promo_images() -> None:
-    """Purge any old generated PNGs and sync official JPGs from D:\\buksukjai\\pro buksukjai."""
+    """Purge any old generated PNGs and sync official JPGs/PNGs from Buk Sukjai & Mr.Buk folders."""
     MEDIA_DIR.mkdir(parents=True, exist_ok=True)
     for banned in BANNED_GENERATED_FILES:
         bp = MEDIA_DIR / banned
@@ -80,13 +111,19 @@ def sync_official_promo_images() -> None:
             except Exception:
                 pass
 
-    if not PRO_SOURCE_DIR.exists():
-        return
-    for dest_name, src_name in SOURCE_FILES_MAP.items():
-        src_path = PRO_SOURCE_DIR / src_name
-        dest_path = MEDIA_DIR / dest_name
-        if src_path.exists() and not dest_path.exists():
-            shutil.copy2(src_path, dest_path)
+    if PRO_SOURCE_DIR.exists():
+        for dest_name, src_name in SOURCE_FILES_MAP.items():
+            src_path = PRO_SOURCE_DIR / src_name
+            dest_path = MEDIA_DIR / dest_name
+            if src_path.exists() and not dest_path.exists():
+                shutil.copy2(src_path, dest_path)
+
+    if MRBUK_LINE_OA_DIR.exists():
+        for dest_name, src_name in MRBUK_QR_FILES_MAP.items():
+            src_path = MRBUK_LINE_OA_DIR / src_name
+            dest_path = MEDIA_DIR / dest_name
+            if src_path.exists() and not dest_path.exists():
+                shutil.copy2(src_path, dest_path)
 
 
 def load_media_catalog() -> dict:
@@ -136,3 +173,33 @@ def resolve_media_items(image_key: str | None) -> list[dict]:
         return get_all_promo_items()
     single = get_media_item(image_key)
     return [single] if single else []
+
+
+def get_mrbuk_qr_media_for_points(points: int) -> list[dict]:
+    """Return the official Mr.Buk LINE OA Point QR Code media item(s) matching `points` (using 4pt, 2pt, 1pt denominations).
+
+    - 1 point  -> [MrBuk_QR_Give_1pt.png]
+    - 2 points -> [MrBuk_QR_Give_2pt.png]
+    - 3 points -> [MrBuk_QR_Give_2pt.png, MrBuk_QR_Give_1pt.png]
+    - 4 points -> [MrBuk_QR_Give_4pt.png]
+    - etc. (capped at 4 images per LINE reply batch).
+    """
+    sync_official_promo_images()
+    remaining = max(0, int(points))
+    if remaining <= 0:
+        return []
+
+    denominations = [
+        (4, "mrbuk_qr_4pt"),
+        (2, "mrbuk_qr_2pt"),
+        (1, "mrbuk_qr_1pt"),
+    ]
+    selected: list[dict] = []
+    for denom, slot_key in denominations:
+        while remaining >= denom and len(selected) < 4:
+            item = get_media_item(slot_key)
+            if not item:
+                break
+            selected.append(item)
+            remaining -= denom
+    return selected

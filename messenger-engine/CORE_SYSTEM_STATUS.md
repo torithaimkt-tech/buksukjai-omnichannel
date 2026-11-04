@@ -2,9 +2,8 @@
 **อัปเดตล่าสุด:** 2 พฤศจิกายน 2026 (เวลา 12:02 น.)
 **โฟลเดอร์แกนกลาง:** `D:\chat bot\messenger-engine`
 **เซิร์ฟเวอร์ออนไลน์ (Cloud URL):** `https://buksukjai-omnichannel.onrender.com`
-**GitHub Repositories:**
-- `origin`: `https://github.com/pordiporditeam-sudo/buksukjai-omnichannel.git`
-- `render-origin`: `https://github.com/torithaimkt-tech/buksukjai-omnichannel.git`
+**GitHub Repository:**
+- `origin`: `https://github.com/torithaimkt-tech/buksukjai-omnichannel.git`
 
 ---
 
@@ -60,7 +59,7 @@
 3. **อัปเกรดฐานข้อมูลบน Cloud Render ให้เก็บข้อมูลถาวร (Persistent DB):** เชื่อมต่อ PostgreSQL หรือติด Persistent Disk บนแพ็กเกจ Starter (\$7/เดือน) ของ Render เพื่อป้องกันไฟล์ `chatbot.db` ถูกรีเซ็ตเวลาเซิร์ฟเวอร์อัปเดตโค้ดใหม่
 4. **เชื่อม Token ช่องทางจริงของอีก 3 แบรนด์ใน `pages.json`:** นำ `line_channel_secret`, `line_channel_access_token`, `fb_page_id`, `fb_page_access_token` ของ มิสเตอร์บุก (`@305lhvvt`), PADA AI (`@506xhsrj`), และ AIFY (`@599fgktd`) มาใส่ในระบบและตั้งค่า `META_VERIFY_TOKEN` / `META_APP_SECRET` จริงค่ะ
 5. **เปลี่ยนชื่อ Account และรูปโปรไฟล์จริงของบอทส่งรีพอร์ต (`workbot` `@934ndvfs`) แทนชื่อบริษัทเก่า (`GENIUS POINT`):**
-   * **🔒 กฎเหล็ก:** ห้ามใช้ชื่อ/มาสคอต/คำใดๆ ที่เกี่ยวกับบริษัทใหม่ (`Pordipordi House` / `พอดีสุข` / `ทูลี่` / `ขุนสุข`) เด็ดขาด 100% เพราะหุ้นส่วนฝั่ง `Mr.Buk` และ `ข้าวบุกสุขใจ` ไม่รู้เรื่องบริษัทใหม่และห้ามรู้เด็ดขาด
+   * **🔒 กฎเหล็ก:** ใช้เฉพาะชื่อกลางของระบบรายงาน (เช่น **`Daily Report Bot`** หรือ **`Buk Report Bot`**) ห้ามนำชื่อของบริษัทอื่นที่ไม่ได้อยู่ในโปรเจกต์นี้มาปะปนเด็ดขาด 100%
    * **สิ่งที่ต้องทำต่อ:** นำคำสั่งสร้างรูปโปรไฟล์ตัวการ์ตูน 1:1 (บันทึกไว้ใน `CHATBOT_CORE_MEMORY.md` หัวข้อ 5.2) ไปเจนรูป แล้วเข้าไปอัปโหลดและเปลี่ยนชื่อในเว็บ `manager.line.biz` จาก `GENIUS POINT` เป็น **`Daily Report Bot`** หรือ **`Buk Report Bot`** พร้อมอัปเดตฟิลด์ `"name"` ใน `pages.json` และ `pages.default.json` ค่ะ
 
 ---
@@ -70,10 +69,10 @@
    * ตัดสินใจกติกาแต้มสะสม 3 ข้อ (การปัดเศษ/ทบยอดบิล `950.-`, การอนุโลมถุง `1 กก. 490.-` รับ 1 แต้ม, และระบบเก็บแต้ม Hybrid ผูกเบอร์โทรคู่กับ QR Code)
    * เขียนโค้ดให้ `app/main.py` โหลด `config_mrbuk.json` ตาม `brand_id == "mrbuk"` อัตโนมัติ, นำรูปโปรโมชั่นมิสเตอร์บุกและรูป QR แต้ม (`1pt/2pt/4pt`) ใส่ `app/static/media/`, และเขียนโมดูลเช็กเบอร์โทรลูกค้าจาก Facebook / JST ERP เพื่อแจกแต้มใน LINE OA `@misterbuk`
 2. **งานสถาปัตยกรรม Cloud / n8n / ข้อมูลแชทย้อนหลัง:**
-   * กดเชื่อม GitHub (`pordiporditeam-sudo/buksukjai-omnichannel`) เข้ากับบัญชี Render ใหม่ของ `buksukjai@gmail.com` (`Bukrice's workspace`)
+   * เชื่อม GitHub (`torithaimkt-tech/buksukjai-omnichannel`) เข้ากับบัญชี Render ของ `buksukjai@gmail.com` (`Bukrice's workspace`)
    * กด Import ไฟล์ JSON แม่แบบทั้ง 4 โฟลว์ (`messenger-engine/n8n_workflows/*.json`) เข้าหน้าเว็บ n8n Self-Hosted ของ `Tori Marketing` และผูก Token ของบอทตัวที่ 4 (`torimarketing_admin`)
    * ดาวน์โหลดไฟล์แชท Facebook ย้อนหลังช่วงที่ยังแหว่ง (`20 ก.ค. – 16 ก.ย. 2026`) เฉพาะของเพจหลัก `Mr.Buk มิสเตอร์บุก` มาเติมเข้าฐานข้อมูลลูกค้าซื้อจริง (`customers.csv`) ค่ะ
-5. **เปลี่ยนชื่อ Account และรูปโปรไฟล์จริงของบอทส่งรีพอร์ต (`workbot` @934ndvfs):** เปลี่ยนชื่อใน `manager.line.biz` จากชื่อบริษัทเก่า (`GENIUS POINT`) เป็นชื่อกลางที่ปลอดภัย 100% (เช่น **`Daily Report Bot`** หรือ **`Buk Report Bot`** — *ห้ามใช้ชื่อที่เกี่ยวข้องกับพอดีสุข/พอดิพอดีเด็ดขาด*) พร้อมอัปโหลดรูปโปรไฟล์การ์ตูน 1:1 และอัปเดตชื่อใน `pages.json` ค่ะ
+5. **เปลี่ยนชื่อ Account และรูปโปรไฟล์จริงของบอทส่งรีพอร์ต (`workbot` @934ndvfs):** เปลี่ยนชื่อใน `manager.line.biz` จากชื่อบริษัทเก่า (`GENIUS POINT`) เป็นชื่อกลางที่ปลอดภัย 100% (เช่น **`Daily Report Bot`** หรือ **`Buk Report Bot`**) พร้อมอัปโหลดรูปโปรไฟล์การ์ตูน 1:1 และอัปเดตชื่อใน `pages.json` ค่ะ
 
 ---
 
@@ -81,7 +80,7 @@
 
 #### ✅ สิ่งที่ทำเสร็จแล้ว (ส่วนอื่นๆ):
 1. **การรวมฐานข้อมูลประวัติแชท Facebook Messenger ทั้ง 3 เพจ (`23,206 แชท` / `446,743 ข้อความ` ถึง 29 ต.ค. 2026) เพื่อทำฐานข้อมูลลูกค้าและการตลาด:**
-   * สกัดรายชื่อลูกค้าซื้อจริงตัดซ้ำด้วยเบอร์โทรได้ **`3,722 ราย`** (`D:\pordisuk project\customer_database_output\customers.csv` และไฟล์ยิงแอด `meta_upload_all.csv`)
+   * สกัดรายชื่อลูกค้าซื้อจริงตัดซ้ำด้วยเบอร์โทรได้ **`3,722 ราย`** (`customers.csv` และไฟล์ยิงแอด `meta_upload_all.csv`)
    * สกัดรายชื่อผู้ติดต่อขอเรทส่ง/ตัวแทนจำหน่าย (`46` ราย), อินฟลูเอนเซอร์ (`5` ราย), พาร์ทเนอร์ OEM (`3` ราย) รวม **`54 ราย`** (`collab_offers_leads.csv`)
    * สร้างรายงานวิเคราะห์แชท Mister Buk ทั้ง 2 เพจ (`C:\Users\PC\Downloads\mrbuk\Mr_Buk_Summary.docx`)
 2. **การตั้งค่าระบบบัตรสะสมแต้มและคูปอง VIP ลด 5% บน LINE OA ของมิสเตอร์บุก (`@misterbuk` / `@305lhvvt`):**

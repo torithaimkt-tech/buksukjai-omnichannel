@@ -1,0 +1,36 @@
+[
+  {
+    "phone": "0899998877",
+    "brand_id": "mrbuk",
+    "customer_name": "คุณศิริพร ทดสอบแต้ม",
+    "line_user_id": "TEST_LINE_LOYALTY_999",
+    "fb_psid": "mrbuk:facebook:TEST_FB_LOYALTY_999",
+    "total_points": 1,
+    "lifetime_points": 6,
+    "lifetime_spend_thb": 3580,
+    "carryover_thb": 0,
+    "pending_reward": "ฟรี! ซองเล็ก 60g 3 ซอง (แลก 5 แต้ม เมื่อ 2026-11-02)",
+    "redeemed_history": "ฟรี! ซองเล็ก 60g 3 ซอง (แลก 5 แต้ม เมื่อ 2026-11-02)",
+    "updated_at": "2026-11-02T05:26:19.542800",
+    "claimed_orders": [
+      {
+        "order_ref": "CHAT:mrbuk:facebook:TEST_FB_LOYALTY_999:2154",
+        "source": "chatbot_db",
+        "order_amount_thb": 1190,
+        "points_awarded": 2,
+        "qr_images_sent": "MrBuk_QR_Give_2pt.png",
+        "order_date": "2026-11-02 05:25:00",
+        "claimed_at": "2026-11-02T05:26:19.544940"
+      },
+      {
+        "order_ref": "CHAT:mrbuk:facebook:TEST_FB_LOYALTY_999:2146",
+        "source": "chatbot_db",
+        "order_amount_thb": 2390,
+        "points_awarded": 4,
+        "qr_images_sent": "MrBuk_QR_Give_4pt.png",
+        "order_date": "2026-11-02 05:24:59",
+        "claimed_at": "2026-11-02T05:26:19.544435"
+      }
+    ]
+  }
+]
