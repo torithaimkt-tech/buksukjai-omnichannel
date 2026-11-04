@@ -18,21 +18,57 @@ IMAGE_KEYS = ["none", "promo_3sizes", "promo_60g_set", "promo_899", "promo_1299"
 BASE_DIR = Path(__file__).resolve().parent.parent
 BRAND_CONFIG_FILES: dict[str, str] = {
     "buksukjai": "config.json",
+    "workbot": "config.json",
+    "coachbot": "config.json",
     "mrbuk": "config_mrbuk.json",
     "pada": "config_pada.json",
+    "pada_golf": "config_pada_golf.json",
+    "gavy": "config_gavy.json",
     "aify": "config_aify.json",
+    "torimarketing": "config_torimarketing.json",
+    "luluna": "config_luluna.json",
+    "sopure": "config_sopure.json",
+    "namneung": "config_namneung.json",
 }
 _BRAND_CONFIG_CACHE: dict[str, tuple[float, dict]] = {}
 _BRAND_PROMPT_CACHE: dict[str, tuple[float, str]] = {}
 
 
-def load_brand_config(brand_id: str = "buksukjai", fallback_config: dict | None = None) -> dict:
-    """Load and cache the brand-specific JSON config file by brand_id."""
+def _resolve_brand_config_path(brand_id: str) -> Path:
+    """Resolve the exact JSON config path for `brand_id` without ever leaking `config.json` (Buk Sukjai) to other brands."""
     b_id = (brand_id or "buksukjai").strip().lower()
-    rel_file = BRAND_CONFIG_FILES.get(b_id, "config.json")
-    cfg_path = BASE_DIR / rel_file
+    if b_id in BRAND_CONFIG_FILES:
+        return BASE_DIR / BRAND_CONFIG_FILES[b_id]
+    return BASE_DIR / f"config_{b_id}.json"
+
+
+def _empty_isolated_brand_config(brand_id: str) -> dict:
+    """Safe isolated config returned when a new brand's JSON file hasn't been created yet (never leaks Buk Sukjai)."""
+    b_id = (brand_id or "").strip().lower()
+    return {
+        "brand_id": b_id,
+        "brand_persona": {
+            "brand_name": b_id.upper(),
+            "bot_name": "แอดมิน",
+            "customer_pronoun": ["คุณลูกค้า"],
+            "tone_of_voice": "แอดมินผู้หญิง สุภาพ อบอุ่น ลงท้ายด้วย ค่ะ / คะ / นะคะ เสมอ ห้ามใช้ ครับ เด็ดขาด",
+            "greeting_message": "สวัสดีค่ะ 🙏 ขอบคุณที่ติดต่อเข้ามานะคะ|||แอดมินได้รับข้อความเรียบร้อยแล้ว จะรีบตรวจสอบข้อมูลและติดต่อกลับโดยเร็วที่สุดนะคะ 😊",
+        },
+        "products": [],
+        "faq": [],
+        "payment_methods": {"bank_accounts": []},
+    }
+
+
+def load_brand_config(brand_id: str = "buksukjai", fallback_config: dict | None = None) -> dict:
+    """Load and cache the brand-specific JSON config file by brand_id (strictly isolated per brand)."""
+    b_id = (brand_id or "buksukjai").strip().lower()
+    cfg_path = _resolve_brand_config_path(b_id)
     if not cfg_path.exists():
-        cfg_path = BASE_DIR / "config.json"
+        if b_id in ("buksukjai", "workbot", "coachbot"):
+            cfg_path = BASE_DIR / "config.json"
+        else:
+            return _empty_isolated_brand_config(b_id)
     try:
         mtime = cfg_path.stat().st_mtime
         cached = _BRAND_CONFIG_CACHE.get(b_id)
@@ -42,20 +78,17 @@ def load_brand_config(brand_id: str = "buksukjai", fallback_config: dict | None 
         _BRAND_CONFIG_CACHE[b_id] = (mtime, data)
         return data
     except Exception:
-        if fallback_config:
+        if b_id in ("buksukjai", "workbot", "coachbot") and fallback_config:
             return fallback_config
-        return {}
+        return _empty_isolated_brand_config(b_id)
 
 
 def get_brand_system_prompt(brand_id: str = "buksukjai", fallback_config: dict | None = None) -> str:
     """Return the cached, brand-isolated system prompt for the given brand_id."""
     b_id = (brand_id or "buksukjai").strip().lower()
-    rel_file = BRAND_CONFIG_FILES.get(b_id, "config.json")
-    cfg_path = BASE_DIR / rel_file
-    if not cfg_path.exists():
-        cfg_path = BASE_DIR / "config.json"
+    cfg_path = _resolve_brand_config_path(b_id)
     try:
-        mtime = cfg_path.stat().st_mtime
+        mtime = cfg_path.stat().st_mtime if cfg_path.exists() else 0.0
         cached = _BRAND_PROMPT_CACHE.get(b_id)
         if cached and cached[0] == mtime:
             return cached[1]

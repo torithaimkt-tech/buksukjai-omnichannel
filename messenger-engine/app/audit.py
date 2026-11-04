@@ -250,12 +250,38 @@ def audit_outgoing_reply(
     cfg_with_brand = dict(load_brand_config(b_id_low, fallback_config=config) or {})
     cfg_with_brand["brand_id"] = b_id_low
 
-    # Strict Brand Isolation for non-konjac brands (PADA Academy & AIFY)
-    if b_id_low in ("pada", "aify"):
+    # 3.0 Hard Cross-Brand Isolation Wall (ห้ามหลุดชื่อแบรนด์ข้ามกันเด็ดขาด 100%)
+    legacy_banned = (
+        "genius point", "น้องนีนี่",
+    )
+    isolated_bubbles: list[str] = []
+    isolation_fixed = False
+    for b in bubbles:
+        cb = b
+        for banned_term in legacy_banned:
+            if banned_term.lower() in cb.lower():
+                target_brand_name = "มิสเตอร์บุก" if b_id_low == "mrbuk" else "ข้าวบุกสุขใจ"
+                cb = re.sub(re.escape(banned_term), target_brand_name, cb, flags=re.IGNORECASE)
+                isolation_fixed = True
+        if b_id_low == "buksukjai" and any(w in cb.lower() for w in ("มิสเตอร์บุก", "mr.buk", "mrbuk", "989-2-13624-3", "9892136243")):
+            cb = re.sub(r"มิสเตอร์บุก|mr\.?\s*buk", "ข้าวบุกสุขใจ", cb, flags=re.IGNORECASE)
+            cb = re.sub(r"989[\-\s]?2[\-\s]?13624[\-\s]?3", "304-407545-5", cb)
+            isolation_fixed = True
+        elif b_id_low == "mrbuk" and any(w in cb.lower() for w in ("ข้าวบุกสุขใจ", "บุกสุขใจ", "buksukjai", "304-407545-5", "3044075455")):
+            cb = re.sub(r"ข้าวบุกสุขใจ|บุกสุขใจ|buksukjai", "มิสเตอร์บุก", cb, flags=re.IGNORECASE)
+            cb = re.sub(r"304[\-\s]?407545[\-\s]?5", "989-2-13624-3", cb)
+            isolation_fixed = True
+        isolated_bubbles.append(cb)
+    bubbles = isolated_bubbles
+    if isolation_fixed:
+        auto_fixes.append(f"บล็อกและแก้ไขคำข้ามบริษัท/ข้ามแบรนด์ให้ตรงกับแบรนด์ {b_id_low} 100%")
+
+    # Strict Brand Isolation for non-konjac brands (PADA Academy, AIFY, LULUNA, Sopure, etc.)
+    if b_id_low not in ("buksukjai", "mrbuk", "workbot", "coachbot"):
         sanitized_non_konjac: list[str] = []
         konjac_leaked = False
         for b in bubbles:
-            if any(k in b for k in ("ข้าวบุกสุขใจ", "มิสเตอร์บุก", "ข้าวบุก", "304-407545-5", "3044075455")):
+            if any(k in b for k in ("ข้าวบุกสุขใจ", "มิสเตอร์บุก", "ข้าวบุก", "304-407545-5", "3044075455", "989-2-13624-3", "9892136243")):
                 konjac_leaked = True
                 continue
             sanitized_non_konjac.append(b)

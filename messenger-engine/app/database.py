@@ -200,18 +200,11 @@ def _parse_iso_dt(val: str | None) -> datetime | None:
 
 
 def save_persistent_snapshot() -> None:
-    """Persist LINE OA sessions, messages, and loyalty records to db_persistent_snapshot.json."""
+    """Persist all Omnichannel sessions, messages, and loyalty records to db_persistent_snapshot.json."""
     try:
         with SessionLocal() as db:
-            line_sessions = db.execute(
-                select(UserSession).where(UserSession.platform == "line")
-            ).scalars().all()
-            line_psids = [s.psid for s in line_sessions]
-            line_msgs = []
-            if line_psids:
-                line_msgs = db.execute(
-                    select(MessageLog).where(MessageLog.psid.in_(line_psids)).order_by(MessageLog.id.asc())
-                ).scalars().all()
+            all_sessions = db.execute(select(UserSession)).scalars().all()
+            all_msgs = db.execute(select(MessageLog).order_by(MessageLog.id.asc())).scalars().all()
             loyalty_members = db.execute(select(LoyaltyMember)).scalars().all()
             loyalty_claims = db.execute(select(LoyaltyClaimedOrder)).scalars().all()
 
@@ -238,17 +231,18 @@ def save_persistent_snapshot() -> None:
                         "followup_sent_at": s.followup_sent_at.isoformat() if s.followup_sent_at else None,
                         "created_at": s.created_at.isoformat() if s.created_at else None,
                     }
-                    for s in line_sessions
+                    for s in all_sessions
                 ],
                 "messages": [
                     {
                         "psid": m.psid,
                         "role": m.role,
                         "sender_label": m.sender_label or "",
-                        "content": m.content,
+                        "content": m.content[:4000] if m.content else "",
                         "created_at": m.created_at.isoformat() if m.created_at else None,
                     }
-                    for m in line_msgs
+                    for m in all_msgs
+                    if m.content and not str(m.content).startswith("data:image/")
                 ],
                 "loyalty_members": [
                     {
@@ -289,18 +283,20 @@ def save_persistent_snapshot() -> None:
 
 
 def restore_persistent_snapshot_if_needed() -> None:
-    """Restore LINE OA sessions, messages, and loyalty records from db_persistent_snapshot.json if missing."""
+    """Restore all Omnichannel sessions, messages, and loyalty records from db_persistent_snapshot.json if missing."""
     if not PERSISTENT_SNAPSHOT_PATH.exists():
         return
     try:
         with open(PERSISTENT_SNAPSHOT_PATH, encoding="utf-8") as f:
             data = json.load(f)
         with SessionLocal() as db:
+            existing_psids = set(db.execute(select(UserSession.psid)).scalars().all())
             restored_sessions = 0
             for s in data.get("sessions", []):
                 psid = s.get("psid")
-                if not psid or db.get(UserSession, psid) is not None:
+                if not psid or psid in existing_psids:
                     continue
+                existing_psids.add(psid)
                 db.add(
                     UserSession(
                         psid=psid,
@@ -325,23 +321,23 @@ def restore_persistent_snapshot_if_needed() -> None:
                 )
                 restored_sessions += 1
 
+            existing_msg_keys = {
+                (row[0], row[1], row[2])
+                for row in db.execute(select(MessageLog.psid, MessageLog.role, MessageLog.content)).all()
+            }
             for m in data.get("messages", []):
                 psid = m.get("psid")
+                role = m.get("role", "user")
                 content = m.get("content", "")
                 if not psid or not content:
                     continue
-                exists = db.execute(
-                    select(MessageLog).where(
-                        MessageLog.psid == psid,
-                        MessageLog.role == m.get("role", "user"),
-                        MessageLog.content == content,
-                    ).limit(1)
-                ).scalars().first()
-                if exists is None:
+                key = (psid, role, content)
+                if key not in existing_msg_keys:
+                    existing_msg_keys.add(key)
                     db.add(
                         MessageLog(
                             psid=psid,
-                            role=m.get("role", "user"),
+                            role=role,
                             sender_label=m.get("sender_label", ""),
                             content=content,
                             created_at=_parse_iso_dt(m.get("created_at")) or utcnow(),

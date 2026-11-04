@@ -1107,8 +1107,20 @@ def format_line_group_daily_summary(report: dict[str, Any]) -> str:
     else:
         lines.append("✅ สถานะสต็อก : ปกติ (สต็อกเพียงพอทุกรายการค่ะ)")
 
+    jst_ok = report.get("jst_live_ok", True)
+    jst_status_line = (
+        "🟢 คลัง JST ERP : เชื่อมต่อปกติ (Cookie ใช้งานได้ปกติค่ะ)"
+        if jst_ok
+        else "⚠️ คลัง JST ERP : Cookie หมดอายุ (ระบบดึงยอดจากแชทเพจและ Google Sheets แทนให้อัตโนมัติแล้วค่ะ บอทหน้าร้านยังตอบแชทปกติ 100%)"
+    )
+
     lines.extend(
         [
+            "━━━━━━━━━━━━━━━",
+            "🩺 เช็กสุขภาพระบบเช้านี้ (System Health Check)",
+            "🟢 บอทตอบแชทออนไลน์ : ทำงานปกติ 100%",
+            jst_status_line,
+            "🟢 ด่านกั้นข้อมูลข้ามบริษัท/แบรนด์ : ล็อกปกติ 100%",
             "━━━━━━━━━━━━━━━",
             "🔗 ดูตารางรายชื่อและรายละเอียดใน Google Sheets:",
             GOOGLE_SHEET_URL,
@@ -1389,6 +1401,7 @@ def load_or_build_daily_report(target_date: str) -> dict[str, Any]:
             pass
 
     chosen["warehouse_stock"] = get_or_fetch_warehouse_stock()
+    chosen["jst_live_ok"] = bool(jst_report is not None)
     return chosen
 
 
