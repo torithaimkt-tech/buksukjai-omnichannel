@@ -336,8 +336,9 @@ async def receive_meta_webhook(request: Request, background_tasks: BackgroundTas
 
             if attachments:
                 for att in attachments:
-                    if att.get("type") == "image":
-                        payload_obj = att.get("payload", {}) or {}
+                    att_type = str(att.get("type") or "").lower()
+                    payload_obj = att.get("payload", {}) or {}
+                    if att_type == "image":
                         img_url = payload_obj.get("url", "")
                         sticker_id = payload_obj.get("sticker_id")
                         # Ignore Facebook Thumbs-Up / stickers so they are never mistaken for payment slips
@@ -354,6 +355,9 @@ async def receive_meta_webhook(request: Request, background_tasks: BackgroundTas
                             database.log_message(session_key, "user", f"[IMAGE:{img_url}]")
                         if not text:
                             text = "[ลูกค้าแนบสลิปเข้ามาในแชทค่ะ]"
+                    elif att_type in ("template", "fallback") and not text:
+                        # Customer clicked Facebook's "คำขอโอนเงิน (Transfer Request)" button which hides the slip image from Graph API
+                        text = "[ลูกค้ากดแนบสลิปผ่านปุ่มคำขอโอนเงิน Facebook]"
 
             if not text:
                 continue
@@ -812,12 +816,19 @@ async def process_omnichannel_message(
         if not skip_user_log:
             database.log_message(session_key, "user", text)
 
-        from .llm import is_active_order_or_payment_intent, is_bank_transfer_request
+        from .llm import (
+            is_active_order_or_payment_intent,
+            is_bank_transfer_request,
+            is_customer_claiming_paid,
+        )
 
         transfer_req = is_bank_transfer_request(text)
-        # If customer explicitly asks for bank account or chooses bank transfer, ALWAYS auto-wake the bot
-        # so the human admin never has to manually copy-paste the bank account!
-        if not user.bot_enabled and transfer_req:
+        claimed_paid = is_customer_claiming_paid(text) or (
+            text == "[ลูกค้ากดแนบสลิปผ่านปุ่มคำขอโอนเงิน Facebook]"
+        )
+        # If customer explicitly asks for bank account, chooses bank transfer, or claims they paid,
+        # ALWAYS auto-wake the bot so it works 100% autonomously without human admins!
+        if not user.bot_enabled and (transfer_req or claimed_paid):
             raw_tags = getattr(user, "broadcast_tags", "") or ""
             cleaned_tags = ",".join(
                 t.strip() for t in raw_tags.split(",") if t.strip() and "รอแอดมิน" not in t
@@ -825,7 +836,7 @@ async def process_omnichannel_message(
             database.update_session_meta(session_key, bot_enabled=True, broadcast_tags=cleaned_tags)
             user.bot_enabled = True
             user.broadcast_tags = cleaned_tags
-            logger.info("Auto-re-enabled AI bot for %s on bank transfer request: %s", session_key, text)
+            logger.info("Auto-re-enabled AI bot for %s on payment/transfer event: %s", session_key, text)
 
         # If Human Admin paused the AI bot for this customer, do not auto-reply
         if not user.bot_enabled:
@@ -877,6 +888,36 @@ async def process_omnichannel_message(
                 }
 
         history = database.get_history(session_key)
+        has_user_slip_image = any(
+            m.get("role") == "user" and str(m.get("content", "")).startswith("[IMAGE:")
+            for m in history
+        )
+        # Zero-Human Auto-Slip Recovery:
+        # If customer says "โอนแล้วค่ะ / โอนไปแล้วค่ะ" or clicks Facebook's hidden Transfer Request button,
+        # but Graph API has NO visible [IMAGE:...] slip in normal chat, politely ask them to send the slip image in normal chat!
+        if platform == "facebook" and claimed_paid and not has_user_slip_image:
+            recovery_msg = (
+                "ขอบพระคุณมากค่ะคุณลูกค้า 🍚💚 พอดีหากกดแนบสลิปผ่านปุ่ม 'คำขอโอนเงิน' ของระบบ Facebook "
+                "รูปสลิปจะไม่แสดงในระบบจัดส่งอัตโนมัติของทางร้านค่ะ รบกวนคุณลูกค้ากดส่งรูปสลิปลงในช่องแชทปกติ "
+                "(กดปุ่มรูปภาพด้านล่างซ้ายของแชท) อีกครั้งนะคะ พอน้องบุกได้รับรูปสลิปแล้วจะรีบตัดสต็อกและจัดส่งให้ทันทีเลยค่ะ 😊🙏"
+            )
+            database.log_message(session_key, "assistant", recovery_msg)
+            await messenger.send_omnichannel_text(
+                platform=platform,
+                external_user_id=external_user_id,
+                text=recovery_msg,
+                brand_id=brand_id,
+                reply_token=reply_token,
+            )
+            logger.info("Sent Auto-Slip Recovery prompt to %s (claimed paid without visible API image)", session_key)
+            return {
+                "session_key": session_key,
+                "bot_replied": True,
+                "reply": recovery_msg,
+                "bubbles": [recovery_msg],
+                "state": user.state,
+            }
+
         clean_history = [
             m for m in history if not str(m.get("content", "")).startswith("[IMAGE:")
         ]

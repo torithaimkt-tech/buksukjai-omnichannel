@@ -244,20 +244,33 @@ def _get_official_payment_info(config: dict | None = None) -> dict:
 
 BANK_TRANSFER_ALREADY_PAID_MARKERS = (
     "โอนแล้ว",
+    "โอนไปแล้ว",
     "โอนเงินแล้ว",
     "โอนเรียบร้อย",
     "โอนให้แล้ว",
     "โอนไปเมื่อ",
+    "โอนเมื่อกี้",
     "โอนเมื่อวาน",
-    "โอนพรุ่งนี้",
-    "โอนวันพรุ่งนี้",
     "จ่ายแล้ว",
     "ชำระแล้ว",
-    "ส่งสลิป",
-    "แนบสลิป",
+    "ส่งสลิปแล้ว",
+    "แนบสลิปแล้ว",
+    "แจ้งโอน",
     "ส่งการชำระเงินจำนวน",
     "ทำเครื่องหมายคำสั่งซื้อว่าชำระเงินแล้ว",
 )
+
+
+def is_customer_claiming_paid(user_text: str) -> bool:
+    """Return True when the customer says they have already transferred/paid or attached a slip."""
+    clean_t = _strip_system_override(user_text).strip()
+    if not clean_t or clean_t.startswith("[ลูกค้า"):
+        return False
+    u_low = clean_t.lower()
+    compact = re.sub(r"\s+", "", u_low)
+    if any(neg in u_low or neg in compact for neg in BANK_TRANSFER_NEGATIVE_MARKERS):
+        return False
+    return any(w in u_low or w in compact for w in BANK_TRANSFER_ALREADY_PAID_MARKERS)
 
 BANK_TRANSFER_NEGATIVE_MARKERS = (
     "ไม่โอน",
@@ -538,7 +551,7 @@ def enforce_authentic_bank_account(bubbles: list[str], history: list[dict], conf
             cleaned_bubbles = [
                 official_block,
                 acct_raw,
-                "เมื่อโอนแล้วรบกวนแจ้งสลิป พร้อมชื่อ-นามสกุล ที่อยู่จัดส่ง และเบอร์โทรได้เลยนะคะ 😊🙏",
+                "เมื่อโอนแล้วรบกวนกดส่งรูปสลิปลงในช่องแชทนี้โดยตรง (ไม่ต้องกดผ่านปุ่มคำขอโอนเงินนะคะ) พร้อมชื่อ-นามสกุล ที่อยู่จัดส่ง และเบอร์โทรได้เลยนะคะ 😊🙏",
             ]
         elif len(cleaned_bubbles) == 1:
             b0 = cleaned_bubbles[0]
@@ -549,13 +562,13 @@ def enforce_authentic_bank_account(bubbles: list[str], history: list[dict], conf
                     b0,
                     official_block,
                     acct_raw,
-                    "เมื่อโอนแล้วรบกวนแจ้งสลิป พร้อมชื่อ-นามสกุล ที่อยู่จัดส่ง และเบอร์โทรได้เลยนะคะ 😊🙏",
+                    "เมื่อโอนแล้วรบกวนกดส่งรูปสลิปลงในช่องแชทนี้โดยตรง (ไม่ต้องกดผ่านปุ่มคำขอโอนเงินนะคะ) พร้อมชื่อ-นามสกุล ที่อยู่จัดส่ง และเบอร์โทรได้เลยนะคะ 😊🙏",
                 ]
             else:
                 cleaned_bubbles = [
                     official_block,
                     acct_raw,
-                    "เมื่อโอนแล้วรบกวนแจ้งสลิป พร้อมชื่อ-นามสกุล ที่อยู่จัดส่ง และเบอร์โทรได้เลยนะคะ 😊🙏",
+                    "เมื่อโอนแล้วรบกวนกดส่งรูปสลิปลงในช่องแชทนี้โดยตรง (ไม่ต้องกดผ่านปุ่มคำขอโอนเงินนะคะ) พร้อมชื่อ-นามสกุล ที่อยู่จัดส่ง และเบอร์โทรได้เลยนะคะ 😊🙏",
                 ]
         else:
             cleaned_bubbles = cleaned_bubbles[:-1] + [official_block, acct_raw, cleaned_bubbles[-1]]
