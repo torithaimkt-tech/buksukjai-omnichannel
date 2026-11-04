@@ -1829,6 +1829,19 @@ def extract_order_from_session(psid: str) -> dict[str, Any]:
         if fb_msgs:
             # Use the current-inquiry-sliced FB thread as authoritative so old orders from weeks ago never leak in
             msgs = list(fb_msgs)
+            # Also preserve any verified slip [IMAGE:...] logged locally (e.g. from webhook or MBS bank_slips)
+            # that Facebook Graph API /conversations hides when attached via Transfer Request (Is App Switch: Yes)
+            if not fb_slip_url:
+                for lm in reversed(local_msgs[-10:]):
+                    if lm.get("role") == "user" and "[IMAGE:" in (lm.get("content") or ""):
+                        im_local = re.search(r"\[IMAGE:(https?://[^\]]+)\]", lm.get("content") or "")
+                        if im_local:
+                            cand_local = im_local.group(1)
+                            ok_local, _ = verify_image_is_payment_slip(image_url=cand_local)
+                            if ok_local:
+                                fb_slip_url = cand_local
+                                msgs.append({"role": "user", "content": lm["content"]})
+                                break
 
     if not msgs:
         # Slice local_msgs to the latest inquiry boundary marker
