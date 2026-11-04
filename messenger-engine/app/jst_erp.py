@@ -563,6 +563,7 @@ def check_duplicate_order(phone: str, within_days: int = 7) -> dict[str, Any]:
             "order_time": order_time_str,
             "status": status_display,
             "pay_amount": pay_amount,
+            "is_cod": bool(row_dict.get("IsCod")),
             "freight": row_dict.get("Freight") or row_dict.get("PostFee") or 0,
             "skus": row_dict.get("Skus") or [],
             "payment": payment_name,
@@ -1013,8 +1014,21 @@ def auto_fix_missing_express_orders(
         if ph:
             approved_phones_in_pass.add(ph)
 
-        # Only run_audit if COD or payment already confirmed (`WaitPay` hasn't confirmed payment yet)
-        can_audit = bool(d.get("IsCod")) or ("รอชำระเงิน" not in st_disp and "WaitPay" not in str(d.get("StatusCode") or ""))
+        # Ironclad Anti-Free-Shipping Check (Round 2):
+        # 1) PayAmount must ALWAYS be > 0
+        # 2) If IsCod is False (Bank Transfer, so courier collects 0 THB at door), NEVER run_audit unless payment is 100% confirmed
+        pay_amt_val = float(d.get("PayAmount") or 0.0)
+        st_code = str(d.get("StatusCode") or "")
+        mach_audit = str(d.get("MachineAuditStatus") or "")
+        is_unconfirmed_transfer = (not bool(d.get("IsCod"))) and (
+            "รอการชำระเงิน" in st_disp
+            or "รอชำระเงิน" in st_disp
+            or "รอตรวจสอบ" in st_disp
+            or "WaitPay" in st_code
+            or "WaitConfirm" in st_code
+            or mach_audit == "Fail"
+        )
+        can_audit = (pay_amt_val > 0) and (not is_unconfirmed_transfer)
         res = assign_express_and_audit_orders([oid], run_audit=can_audit)
         fixed_list.append(
             {
@@ -1546,16 +1560,48 @@ def create_order_in_jst(
     created_order = verify_info["recent_orders"][0] if verify_info["recent_orders"] else None
 
     if created_order and created_order.get("order_id"):
-        oid_created = created_order["order_id"]
+        oid_created = str(created_order["order_id"])
+        saved_pay_amt = float(created_order.get("pay_amount") or 0.0)
+        saved_is_cod = bool(created_order.get("is_cod"))
+
+        # Round-2 Check A: Verify saved payment type (COD vs Transfer) and exact amount (> 0) match 100%
+        if saved_pay_amt <= 0 or abs(saved_pay_amt - total_pay) > 0.5 or saved_is_cod != bool(is_cod):
+            cancel_orders_in_jst(
+                [oid_created],
+                f"Audit รอบที่ 2 ยกเลิกอัตโนมัติ: ยอดเงิน ({saved_pay_amt} vs {total_pay}) หรือวิธีชำระเงิน (IsCod={saved_is_cod} vs {bool(is_cod)}) ไม่ตรงกัน ป้องกันการส่งของฟรีค่ะ",
+            )
+            return {
+                "status": "error",
+                "message": "ระบบทวนสอบรอบที่ 2 พบความผิดปกติของยอดชำระ/ประเภท COD จึงยกเลิกบิลอัตโนมัติเพื่อป้องกันการส่งของฟรีค่ะ",
+            }
+
+        slip_qr_verified = False
         if not is_cod and voucher_id:
             try:
-                # Wait briefly for JST ERP's async pay-ocr worker to finish scanning the slip, then verify & confirm
+                # Wait briefly for JST ERP's async pay-ocr worker to finish scanning the slip, then verify QR & amount
                 time.sleep(4.0)
-                verify_and_auto_confirm_jst_slips(limit=25)
+                slip_audit_res = verify_and_auto_confirm_jst_slips(limit=25)
+                confirmed_ids = {
+                    str(x.get("order_id")) for x in (slip_audit_res.get("auto_confirmed") or [])
+                }
+                rejected_ids = {
+                    str(x.get("order_id")) for x in (slip_audit_res.get("rejected") or [])
+                }
+                if oid_created in confirmed_ids:
+                    slip_qr_verified = True
+                elif oid_created not in rejected_ids:
+                    # Re-check live status in case JST ERP's built-in MachineAudit already passed it automatically
+                    recheck = check_duplicate_order(phone, within_days=1)
+                    latest_st = str((recheck["recent_orders"][0] if recheck["recent_orders"] else {}).get("status") or "")
+                    if latest_st and "รอการชำระเงิน" not in latest_st and "รอตรวจสอบ" not in latest_st:
+                        slip_qr_verified = True
             except Exception as exc:
                 logger.warning("Auto ConfirmOrder warning for %s: %s", oid_created, exc)
+
+        # Round-2 Check B: Only push to warehouse (`run_audit=True`) if COD is verified OR Transfer Slip QR is verified
+        allow_warehouse_audit = bool(is_cod) or slip_qr_verified
         try:
-            assign_express_and_audit_orders([oid_created], run_audit=True)
+            assign_express_and_audit_orders([oid_created], run_audit=allow_warehouse_audit)
         except Exception as exc:
             logger.warning("Auto assign_express_and_audit_orders warning for %s: %s", oid_created, exc)
 
@@ -2098,7 +2144,6 @@ def extract_order_from_session(psid: str) -> dict[str, Any]:
     )
     remark_tag = f" (#BUY{int(total_amount)})" if total_amount > 0 else ""
 
-    has_fb_payment_record = ("ส่งการชำระเงินจำนวน" in full_text) or ("ทำเครื่องหมายคำสั่งซื้อว่าชำระเงินแล้ว" in full_text)
     base_info: dict[str, Any] = {
         "psid": psid,
         "customer_name": customer_name,
@@ -2115,7 +2160,7 @@ def extract_order_from_session(psid: str) -> dict[str, Any]:
         "payment_label": payment_label,
         "customer_confirmed_cod": cod_confirmed,
         "has_slip": bool(slip_image_url),
-        "has_admin_buy_summary": bool(has_fb_payment_record),
+        "has_admin_buy_summary": bool(slip_image_url),
         "slip_url": slip_image_url,
         "slip_image_url": slip_image_url,
         "dialogue_complete": dialogue_complete,
@@ -2148,12 +2193,11 @@ def extract_order_from_session(psid: str) -> dict[str, Any]:
             "valid": False,
             "reason": "ออเดอร์เก็บเงินปลายทาง (COD) ยังไม่ได้รับการคอนเฟิร์มขั้นสุดท้ายจากลูกค้าค่ะ",
         }
-    has_fb_payment_record = ("ส่งการชำระเงินจำนวน" in full_text) or ("ทำเครื่องหมายคำสั่งซื้อว่าชำระเงินแล้ว" in full_text)
-    if not is_cod and not slip_image_url and not has_fb_payment_record:
+    if not is_cod and not slip_image_url:
         return {
             **base_info,
             "valid": False,
-            "reason": "ออเดอร์โอนเงินแต่ยังไม่มีสลิปโอนเงินจริงที่ตรวจสอบแล้วค่ะ (ห้ามส่งเข้า JST ERP จนกว่าลูกค้าจะส่งสลิปจริง)",
+            "reason": "ออเดอร์โอนเงินแต่ยังไม่มีสลิปโอนเงินจริงที่ตรวจสอบแล้วค่ะ (ห้ามส่งเข้า JST ERP เด็ดขาดจนกว่าลูกค้าจะส่งสลิปจริง เพื่อป้องกันการส่งของฟรี)",
         }
 
     return {**base_info, "valid": True, "reason": "ok"}
