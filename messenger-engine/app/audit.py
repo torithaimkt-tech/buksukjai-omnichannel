@@ -371,7 +371,15 @@ def audit_outgoing_reply(
         audited_state = proposed_state
 
     # 5.5 No-Assumed-COD Guardrail, Ambiguous-Size Guardrail, FDA/อย. Auto-Pause & Cancellation/Tracking Shield
-    all_user_text = "\n".join(str(m.get("content") or "") for m in history if m.get("role") == "user").lower()
+    from . import jst_erp as _jst_num_mod
+
+    user_text = _jst_num_mod.translate_thai_numerals(user_text)
+    user_text = re.sub(r"(\b\d{5})(?=(?:\+66|0[689]))", r"\1 ", user_text)
+    u_low = user_text.lower()
+
+    raw_user_history_str = "\n".join(str(m.get("content") or "") for m in history if m.get("role") == "user")
+    all_user_text = _jst_num_mod.translate_thai_numerals(raw_user_history_str).lower()
+    all_user_text = re.sub(r"(\b\d{5})(?=(?:\+66|0[689]))", r"\1 ", all_user_text)
     user_ever_said_cod = any(w in all_user_text for w in ("ปลายทาง", "cod", "เก็บเงินปลายทาง"))
     user_ever_said_transfer = any(w in all_user_text for w in ("โอน", "สลิป", "เลขบัญชี", "บช"))
     reply_joined = "\n".join(bubbles)
@@ -509,15 +517,9 @@ def audit_outgoing_reply(
             "ต่องจ่าย2รอบ",
         )
     )
-    is_tracking_complaint = is_duplicate_delivery_complaint or any(
+    is_severe_claim = is_duplicate_delivery_complaint or any(
         w in u_low
         for w in (
-            "ยังไม่ได้รับของ",
-            "โอนเงินไปแล้วตั้งแต่",
-            "ช่วยเช็คการส่ง",
-            "เช็คการส่ง",
-            "ตามของ",
-            "ส่งของหรือยัง",
             "ส่งสินค้าไปเปลี่ยน",
             "ถุงแตก",
             "ถุงรั่ว",
@@ -528,6 +530,28 @@ def audit_outgoing_reply(
             "ขอคืนเงิน",
         )
     )
+    is_tracking_inquiry = any(
+        w in u_low
+        for w in (
+            "ขอเลขพัสดุ",
+            "เช็คเลขพัสดุ",
+            "เช็กเลขพัสดุ",
+            "เช็คเลข",
+            "เช็กเลข",
+            "เช็คในระบบ",
+            "เช็กในระบบ",
+            "ไม่พบข้อมูลพัสดุ",
+            "เลขพัสดุอะไร",
+            "ยังไม่ได้รับของ",
+            "โอนเงินไปแล้วตั้งแต่",
+            "ช่วยเช็คการส่ง",
+            "เช็คการส่ง",
+            "ตามของ",
+            "ส่งของหรือยัง",
+            "[ลูกค้าส่งรูปตรวจสอบพัสดุ",
+        )
+    )
+    is_tracking_complaint = is_severe_claim or is_tracking_inquiry
     if is_tracking_complaint:
         if is_duplicate_delivery_complaint:
             bubbles = [
@@ -535,22 +559,62 @@ def audit_outgoing_reply(
                 "สำหรับพัสดุรอบที่จัดส่งซ้ำ คุณลูกค้าสามารถแจ้งขนส่งปฏิเสธการรับและตีกลับได้เลยโดยไม่มีค่าใช้จ่ายนะคะ (หรือหากคุณลูกค้ารับไว้/ชำระแบบโอนเงิน น้องบุกขออนุญาตประสานพี่แอดมินตรวจสอบและมอบส่วนลดพิเศษเพิ่มให้ 10% ทันทีเลยค่ะ) รบกวนรอพี่แอดมินติดต่อดูแลสักครู่นะคะ 😊🙏",
             ]
             escalation_reason = "ลูกค้าแจ้งได้รับพัสดุซ้ำ 2 บิล (ด่วน! รอแอดมินตรวจสอบ)"
+            audited_image_key = "none"
+            audited_state = "pending_payment"
+            escalate_to_line_group = True
+            try:
+                database.set_bot_enabled(psid, False)
+                updated_tags = database._add_tag_str(getattr(user_session, "broadcast_tags", "") or "", "ตามพัสดุ/เคลม (รอแอดมิน)")
+                database.update_session_meta(psid=psid, broadcast_tags=updated_tags)
+            except Exception:
+                pass
+            auto_fixes.append("ตรวจพบข้อความแจ้งส่งซ้ำ 2 บิล — ตอบรับอย่างสุภาพ พักบอท และส่งแจ้งเตือนเข้ากลุ่ม LINE สรุปยอด")
+        elif is_tracking_inquiry and not is_severe_claim:
+            # Try live J&T Express tracking lookup in JST ERP first ($0 cost)
+            live_track = None
+            try:
+                from . import parcel_tracker as _pt_mod
+                live_track = _pt_mod.lookup_customer_tracking_for_chat(psid, user_text)
+            except Exception:
+                live_track = None
+
+            if live_track and live_track.get("reply_message"):
+                bubbles = [str(live_track["reply_message"])]
+                audited_image_key = "none"
+                escalate_to_line_group = False
+                auto_fixes.append(f"ค้นหาสถานะเลขพัสดุจริง ({live_track.get('tracking_no')}) จาก JST ERP ตอบลูกค้าทันที")
+            else:
+                bubbles = [
+                    "ต้องขออภัยคุณลูกค้าเป็นอย่างสูงเลยนะคะ 🙏💚",
+                    "น้องบุกขออนุญาตส่งเรื่องประสานพี่แอดมินตรวจสอบสถานะพัสดุและรายละเอียดในระบบให้ด่วนที่สุดเลยค่ะ รบกวนรอสักครู่นะคะ 😊",
+                ]
+                escalation_reason = "ลูกค้าติดตามสถานะพัสดุ (รอแอดมินเช็กเลขพัสดุ)"
+                audited_image_key = "none"
+                audited_state = "pending_payment"
+                escalate_to_line_group = True
+                try:
+                    database.set_bot_enabled(psid, False)
+                    updated_tags = database._add_tag_str(getattr(user_session, "broadcast_tags", "") or "", "ตามพัสดุ/เคลม (รอแอดมิน)")
+                    database.update_session_meta(psid=psid, broadcast_tags=updated_tags)
+                except Exception:
+                    pass
+                auto_fixes.append("ตรวจพบข้อความติดตามพัสดุ — ตอบรับอย่างสุภาพ พักบอท และส่งแจ้งเตือนเข้ากลุ่ม LINE สรุปยอด")
         else:
             bubbles = [
                 "ต้องขออภัยคุณลูกค้าเป็นอย่างสูงเลยนะคะ 🙏💚",
                 "น้องบุกขออนุญาตส่งเรื่องประสานพี่แอดมินตรวจสอบสถานะพัสดุและรายละเอียดในระบบให้ด่วนที่สุดเลยค่ะ รบกวนรอสักครู่นะคะ 😊",
             ]
             escalation_reason = "ลูกค้าติดตามสถานะพัสดุ / แจ้งปัญหาการส่งหรือเคลมสินค้า"
-        audited_image_key = "none"
-        audited_state = "pending_payment"
-        escalate_to_line_group = True
-        try:
-            database.set_bot_enabled(psid, False)
-            updated_tags = database._add_tag_str(getattr(user_session, "broadcast_tags", "") or "", "ตามพัสดุ/เคลม (รอแอดมิน)")
-            database.update_session_meta(psid=psid, broadcast_tags=updated_tags)
-        except Exception:
-            pass
-        auto_fixes.append("ตรวจพบข้อความติดตามพัสดุ/แจ้งส่งซ้ำ/เคลมสินค้า — ตอบรับอย่างสุภาพ พักบอท และส่งแจ้งเตือนเข้ากลุ่ม LINE สรุปยอด")
+            audited_image_key = "none"
+            audited_state = "pending_payment"
+            escalate_to_line_group = True
+            try:
+                database.set_bot_enabled(psid, False)
+                updated_tags = database._add_tag_str(getattr(user_session, "broadcast_tags", "") or "", "ตามพัสดุ/เคลม (รอแอดมิน)")
+                database.update_session_meta(psid=psid, broadcast_tags=updated_tags)
+            except Exception:
+                pass
+            auto_fixes.append("ตรวจพบข้อความแจ้งปัญหาการส่งหรือเคลมสินค้า — ตอบรับอย่างสุภาพ พักบอท และส่งแจ้งเตือนเข้ากลุ่ม LINE สรุปยอด")
 
     # E2) Official Wholesale Rate Answer (เรทราคาส่ง 100 ถุง — ตอบได้ทันทีตามที่แอดมินสอนไว้ในกลุ่ม LINE)
     is_wholesale_inquiry = any(w in u_low for w in ("ราคาส่ง", "เรทส่ง", "ขายส่ง", "เรทราคาส่ง"))
@@ -706,8 +770,59 @@ def audit_outgoing_reply(
                 pass
             auto_fixes.append(f"ตรวจพบคำถามที่ AI ไม่มั่นใจ/คำถามพิเศษ ({escalation_reason}) — ตอบรับแบบสุภาพกลางๆ พักบอท และส่งแจ้งเตือนเข้ากลุ่ม LINE สรุปยอด")
 
-    # 6. Order Confirmation Gate & Direct Thank-You after Order Summary (ตามคอมเมนต์คุณนัด/คุณแอมมี่: ทวนรายการสั่งซื้อแล้วไม่ต้องให้ลูกค้าพิมพ์ยืนยัน ขอบคุณที่สั่งซื้อได้เลย)
-    has_user_phone = bool(re.search(r"(?:\+66\s*0?|\b0)[689]\d[\s\-]?\d{3}[\s\-]?\d{4}", all_user_text))
+    # 6. Order Confirmation Gate, Phone/Address Completeness Guardrail & One-Click Repeat Order
+    # Aggregate last 5 user messages (with Thai digits converted & zip-phone separated)
+    user_bubbles_recent = [
+        re.sub(
+            r"(\b\d{5})(?=(?:\+66|0[689]))",
+            r"\1 ",
+            _jst_num_mod.translate_thai_numerals(str(m.get("content") or "")),
+        )
+        for m in history[-10:]
+        if m.get("role") == "user" and str(m.get("content") or "").strip()
+    ]
+    combined_last_5_user = " \n ".join(user_bubbles_recent[-5:])
+
+    # Check for One-Click Repeat Order saved address profile
+    saved_profile = None
+    try:
+        saved_profile = _jst_num_mod.get_saved_customer_address_profile(psid)
+    except Exception:
+        saved_profile = None
+
+    user_confirmed_saved_address = bool(
+        saved_profile
+        and re.search(
+            r"(ที่อยู่เดิม|ส่งที่เดิม|ตามที่อยู่เดิม|ที่เดิมค่ะ|ที่เดิมคะ|ที่เดิมจ้า|เบอร์เดิมที่อยู่เดิม)",
+            all_user_text,
+            re.I,
+        )
+    )
+
+    has_user_phone = bool(
+        re.search(r"(?:\+66\s*0?|\b0)[689]\d[\s\-]?\d{3}[\s\-]?\d{4}\b", all_user_text)
+        or user_confirmed_saved_address
+    )
+    # Detect mistyped 9-digit or 11-digit phone number when no valid 10-digit phone exists
+    has_invalid_length_phone = False
+    if not has_user_phone:
+        for cand_tok in re.findall(r"\b0[689][\d\-]{6,11}\b", combined_last_5_user):
+            d_only = re.sub(r"\D", "", cand_tok)
+            if len(d_only) in (9, 11):
+                has_invalid_length_phone = True
+                break
+
+    # Check if customer has provided an address (supports Bangkok 10xxx postal codes without requiring ตำบล/อำเภอ)
+    has_bkk_zip = bool(re.search(r"\b10\d{3}\b", all_user_text) or "กทม" in all_user_text or "กรุงเทพ" in all_user_text)
+    has_user_address = bool(
+        user_confirmed_saved_address
+        or has_bkk_zip
+        or re.search(
+            r"(\b\d{5}\b|ตำบล|อำเภอ|จังหวัด|แขวง|เขต|ต\.|อ\.|จ\.|หมู่บ้าน|หมู่ที่|ม\.\d|ซอย|ถนน|\d+/\d+)",
+            all_user_text,
+        )
+    )
+
     raw_full_msgs = database.get_full_messages(psid, limit=30)
     has_user_slip = (
         any(
@@ -722,6 +837,7 @@ def audit_outgoing_reply(
     has_complete_cod_info = bool(
         specified_any_size_or_price
         and has_user_phone
+        and has_user_address
         and user_ever_said_cod
         and not is_cancel_request
         and not is_fda_oy_question
@@ -730,6 +846,7 @@ def audit_outgoing_reply(
     has_complete_transfer_info = bool(
         specified_any_size_or_price
         and has_user_phone
+        and has_user_address
         and has_user_slip
         and not is_cancel_request
         and not is_fda_oy_question
@@ -740,6 +857,49 @@ def audit_outgoing_reply(
         k in reply_joined_check
         for k in ("ทวนรายละเอียดคำสั่งซื้อ", "ทวนรายการสั่งซื้อ", "ยอดชำระปลายทาง", "ผู้รับ:", "• ที่อยู่:", "ได้รับสลิป", "ตรวจสอบยอดโอน")
     )
+
+    # One-Click Repeat Order Prompt:
+    # When a repeat customer has a saved address profile, hasn't given a new address yet, and the bot asks for their address,
+    # offer a 1-step confirmation ("จัดส่งตามที่อยู่เดิมของ... เลยไหมคะ และรอบนี้รับเป็นโอนส่งฟรี หรือเก็บปลายทางดีคะ")
+    bot_asking_for_address = any(
+        k in reply_joined_check
+        for k in ("แจ้งชื่อ-ที่อยู่", "แจ้ง ชื่อ-ที่อยู่", "ขอทราบชื่อ-ที่อยู่", "ขอชื่อ-ที่อยู่", "ชื่อ-ที่อยู่ และเบอร์โทร")
+    )
+    if (
+        saved_profile
+        and not has_user_phone
+        and not user_confirmed_saved_address
+        and bot_asking_for_address
+        and not is_cancel_request
+        and not is_fda_oy_question
+        and not is_tracking_complaint
+    ):
+        repeat_prompt = (
+            f"จัดส่งตามที่อยู่เดิมของ{saved_profile['short_preview']} เลยไหมคะ "
+            f"และรอบนี้รับเป็น โอนส่งฟรี หรือ เก็บปลายทาง ดีคะ 🍚💚\n"
+            f"(พิมพ์ตอบสั้นๆ ว่า 'ที่อยู่เดิม โอนค่ะ' หรือ 'ที่อยู่เดิม ปลายทางค่ะ' ได้เลยนะคะ หรือหากต้องการส่งที่อยู่ใหม่ พิมพ์แจ้งน้องบุกได้เลยค่ะ)"
+        )
+        bubbles[-1] = repeat_prompt
+        audited_state = "pending_payment"
+        auto_fixes.append(f"ดึงข้อมูลที่อยู่เดิมของลูกค้าเก่า ({saved_profile['short_preview']}) มาถามยืนยันสั้นๆ 1 ครั้ง (One-Click Repeat Order)")
+
+    # Guardrail for 9-digit / 11-digit mistyped phone number before closing order
+    if (
+        has_invalid_length_phone
+        and not has_user_phone
+        and (audited_state == "completed" or is_order_summary_turn or has_user_address)
+        and not is_cancel_request
+        and not is_fda_oy_question
+        and not is_tracking_complaint
+    ):
+        bubbles = [
+            "น้องบุกได้รับข้อมูลที่อยู่จัดส่งแล้วนะคะ 📝💚 ขออนุญาตรบกวนคุณลูกค้าช่วยเช็กเบอร์โทรศัพท์ให้อีกนิดนึงนะคะ "
+            "พอดีเบอร์โทรที่แจ้งมายังไม่ครบ 10 หลัก (หรือตัวเลขขาด/เกินไปค่ะ) รบกวนพิมพ์เบอร์โทรศัพท์ 10 หลักแจ้งน้องบุกอีกครั้งเพื่อจัดส่งพัสดุได้เลยนะคะ 🙏😊"
+        ]
+        audited_state = "pending_payment"
+        audited_image_key = "none"
+        is_order_summary_turn = False
+        auto_fixes.append("ดักจับเบอร์โทรศัพท์ไม่ครบ 10 หลัก (9 หรือ 11 หลัก) ก่อนปิดออเดอร์ — แจ้งให้ลูกค้าทวนเบอร์โทร 10 หลักอย่างสุภาพ")
 
     # Strip any redundant "รบกวนพิมพ์คำว่า 'ยืนยัน'..." bubble when summarizing an order
     if any("พิมพ์คำว่า" in b and "ยืนยัน" in b for b in bubbles):
@@ -926,14 +1086,20 @@ def audit_session_for_jst(psid: str) -> dict[str, Any]:
     if not phone_ok:
         issues.append("ยังไม่มีเบอร์โทรศัพท์มือถือ 10 หลักที่ถูกต้อง")
 
-    # 3. Address & Recipient Name check
+    # 3. Address & Recipient Name check (supports Bangkok 10xxx postal codes without requiring ตำบล/อำเภอ)
     addr = extracted.get("parsed_address") or {}
     rec_name = (addr.get("receiver_name") or "").strip()
-    addr_ok = bool(rec_name and addr.get("state") and addr.get("city") and addr.get("district"))
+    post_code = str(addr.get("post_code") or "").strip()
+    state_str = str(addr.get("state") or "").strip()
+    is_bkk_addr = post_code.startswith("10") or ("กรุงเทพ" in state_str) or ("กทม" in state_str)
+    if is_bkk_addr:
+        addr_ok = bool(rec_name and (addr.get("city") or addr.get("district") or addr.get("detail")))
+    else:
+        addr_ok = bool(rec_name and state_str and addr.get("city") and addr.get("district"))
     checks.append({
-        "name": "ชื่อผู้รับ & ที่อยู่จัดส่ง (ตำบล / อำเภอ / จังหวัด / รหัสไปรษณีย์)",
+        "name": "ชื่อผู้รับ & ที่อยู่จัดส่ง (ตำบล/แขวง / อำเภอ/เขต / จังหวัด / รหัสไปรษณีย์)",
         "value": (
-            f"ผู้รับ: {rec_name or 'ไม่ระบุ'} | ต.{addr.get('district', '-')} อ.{addr.get('city', '-')} จ.{addr.get('state', '-')} {addr.get('post_code', '')}".strip()
+            f"ผู้รับ: {rec_name or 'ไม่ระบุ'} | ต.{addr.get('district', '-')} อ.{addr.get('city', '-')} จ.{state_str or '-'} {post_code}".strip()
             if addr
             else "ไม่สมบูรณ์"
         ),

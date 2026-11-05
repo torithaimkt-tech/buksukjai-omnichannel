@@ -435,6 +435,46 @@ def set_jst_cookie(cookie: str) -> None:
         pass
 
 
+def enqueue_pending_jst_retry(psid: str, reason: str = "") -> None:
+    """Save a confirmed order's PSID into the persistent Retry Queue when JST cookie is expired or network fails."""
+    if not psid:
+        return
+    try:
+        st = get_daily_sync_state()
+        q = dict(st.get("pending_jst_retry_queue") or {})
+        q[psid] = {
+            "psid": psid,
+            "reason": str(reason or "รอคีย์ซ้ำอัตโนมัติเมื่อต่ออายุคุกกี้ JST"),
+            "queued_at": datetime.now(timezone(timedelta(hours=7))).strftime("%Y-%m-%d %H:%M:%S"),
+        }
+        save_daily_sync_state({"pending_jst_retry_queue": q})
+    except Exception as exc:
+        logger.warning("Failed to enqueue pending JST retry for %s: %s", psid, exc)
+
+
+def dequeue_pending_jst_retry(psid: str) -> None:
+    """Remove a PSID from the persistent Retry Queue once successfully keyed or verified as duplicate in JST."""
+    if not psid:
+        return
+    try:
+        st = get_daily_sync_state()
+        q = dict(st.get("pending_jst_retry_queue") or {})
+        if psid in q:
+            q.pop(psid, None)
+            save_daily_sync_state({"pending_jst_retry_queue": q})
+    except Exception as exc:
+        logger.warning("Failed to dequeue pending JST retry for %s: %s", psid, exc)
+
+
+def get_pending_jst_retry_queue() -> dict[str, dict[str, Any]]:
+    """Return all PSIDs currently waiting in the JST ERP Retry Queue."""
+    try:
+        st = get_daily_sync_state()
+        return dict(st.get("pending_jst_retry_queue") or {})
+    except Exception:
+        return {}
+
+
 def is_auto_sync_enabled() -> bool:
     return AUTO_SYNC_ENABLED
 
@@ -458,6 +498,9 @@ def get_daily_sync_state() -> dict[str, Any]:
         "last_daily_sync_at": "",
         "last_created_count": 0,
         "last_duplicate_skipped_count": 0,
+        "pending_jst_retry_queue": {},
+        "used_slip_refs": {},
+        "alerted_rejected_slip_oids": [],
     }
     if os.path.exists(JST_SYNC_STATE_PATH):
         try:
@@ -513,8 +556,24 @@ def _headers(json_body: bool = True) -> dict[str, str]:
     return h
 
 
+_THAI_DIGIT_TABLE = str.maketrans("๐๑๒๓๔๕๖๗๘๙", "0123456789")
+
+
+def translate_thai_numerals(text: str) -> str:
+    """Convert Thai numerals (๐-๙) into standard Arabic digits (0-9)."""
+    return (text or "").translate(_THAI_DIGIT_TABLE)
+
+
 def normalize_thai_phone(phone: str) -> str:
-    digits = re.sub(r"\D", "", phone or "")
+    s = translate_thai_numerals(phone or "")
+    # Separate 5-digit postal code if stuck directly before a mobile number (e.g. "201300812345678" or "20130 081-234-5678")
+    s = re.sub(r"(\b\d{5})(?=(?:\+66|0[689]))", r"\1 ", s)
+    m_formatted = re.search(r"(?:\+66\s*0?|0)([689]\d(?:[\s\-]*\d){7})\b", s)
+    if m_formatted:
+        return "0" + re.sub(r"\D", "", m_formatted.group(1))
+    digits = re.sub(r"\D", "", s)
+    if len(digits) == 15 and digits[5:7] in ("06", "08", "09"):
+        digits = digits[5:]
     if digits.startswith("66") and len(digits) == 11:
         digits = "0" + digits[2:]
     if len(digits) == 10 and digits.startswith("0"):
@@ -757,6 +816,12 @@ def verify_and_auto_confirm_jst_slips(limit: int = 50) -> dict[str, Any]:
     auto_confirmed: list[dict[str, Any]] = []
     rejected: list[dict[str, Any]] = []
 
+    sync_state = get_daily_sync_state()
+    used_slip_refs: dict[str, Any] = dict(sync_state.get("used_slip_refs") or {})
+    alerted_oids: list[str] = list(sync_state.get("alerted_rejected_slip_oids") or [])
+    state_dirty = False
+    bkk_now_str = datetime.now(timezone(timedelta(hours=7))).strftime("%Y-%m-%d %H:%M:%S")
+
     for d in all_rows:
         oid = str(d.get("OrderId") or "").strip()
         if not oid or oid in cancelled_oids or d.get("IsCod"):
@@ -764,6 +829,8 @@ def verify_and_auto_confirm_jst_slips(limit: int = 50) -> dict[str, Any]:
         status_disp = str(d.get("StatusDisplay") or "")
         mach_status = str(d.get("MachineAuditStatus") or "")
         mach_msg = str(d.get("MachineAuditMessage") or "")
+        rec_name = str(d.get("ReceiverName") or "ลูกค้า").strip()
+        rec_phone = normalize_thai_phone(str(d.get("ReceiverMobileEn") or d.get("ReceiverPhoneEn") or ""))
 
         # Check orders that failed MachineAudit or are waiting for payment confirmation
         if mach_status != "Fail" and "รอตรวจสอบ" not in status_disp and "WaitConfirm" not in str(d.get("StatusCode") or ""):
@@ -778,7 +845,12 @@ def verify_and_auto_confirm_jst_slips(limit: int = 50) -> dict[str, Any]:
         det = (r_det.json() or {}).get("data") or {}
         pays = det.get("pays") or []
         if not pays:
-            rejected.append({"order_id": oid, "reason": "ไม่มีข้อมูลสลิปในระบบ (pays ว่าง)"})
+            rejected.append({
+                "order_id": oid,
+                "receiver_name": rec_name,
+                "receiver_phone": rec_phone,
+                "reason": "ไม่มีข้อมูลสลิปในระบบ (pays ว่าง หรือยังไม่ได้แนบสลิปค่ะ)",
+            })
             continue
 
         latest_pay = pays[0]
@@ -786,20 +858,83 @@ def verify_and_auto_confirm_jst_slips(limit: int = 50) -> dict[str, Any]:
         qr_amt = float(latest_pay.get("qrCodeAmount") or 0.0)
         order_amt = float(d.get("PayAmount") or latest_pay.get("amount") or 0.0)
         audit_msg = str(latest_pay.get("auditMessage") or mach_msg or "").strip()
+        receive_acc = str(
+            latest_pay.get("receiveAccount")
+            or latest_pay.get("receiverAccount")
+            or latest_pay.get("accountNo")
+            or latest_pay.get("receiveName")
+            or ""
+        ).strip()
 
+        # เงื่อนไขที่ 1: ต้องมี QR Code / เลขรหัสอ้างอิงธนาคาร (ป้องกันแคปหน้าจอก่อนกดยืนยันโอน)
         if not ref_id:
-            rejected.append({"order_id": oid, "reason": "ไม่พบรหัสอ้างอิง QR Code ธนาคารบนสลิป (platformPayId ว่าง)"})
+            rejected.append({
+                "order_id": oid,
+                "receiver_name": rec_name,
+                "receiver_phone": rec_phone,
+                "order_amount": order_amt,
+                "reason": "ไม่พบรหัสอ้างอิง QR Code บนสลิป (อาจเป็นภาพแคปหน้าจอก่อนกดยืนยันโอน หรือไม่ใช่สลิปจริงค่ะ)",
+            })
             continue
 
+        # เงื่อนไขที่ 2: ชื่อผู้รับ / เลขบัญชีต้องตรง (รองรับ บจก. ดิจิสท์ ฮับ, บริษัท ดิจิสท์ ฮับ, หรือเลขท้าย 7545-5 / 7545)
+        wrong_account_keywords = ("บัญชีผู้รับไม่ตรง", "ผู้รับเงินไม่ถูกต้อง", "ชื่อบัญชีไม่ตรง", "account mismatch")
+        if any(wk in audit_msg.lower() for wk in wrong_account_keywords):
+            rejected.append({
+                "order_id": oid,
+                "receiver_name": rec_name,
+                "receiver_phone": rec_phone,
+                "order_amount": order_amt,
+                "platformPayId": ref_id,
+                "reason": f"ชื่อบัญชีหรือเลขบัญชีผู้รับบนสลิปไม่ตรงกับบัญชีบริษัท ({audit_msg})",
+            })
+            continue
+        if receive_acc:
+            acc_clean = receive_acc.lower().replace("-", "").replace(" ", "")
+            valid_acc_markers = ("7545", "3044075455", "ดิจิสท์", "digist", "9892136243", "มิสเตอร์บุก", "mrbuk")
+            if not any(vm in acc_clean for vm in valid_acc_markers):
+                rejected.append({
+                    "order_id": oid,
+                    "receiver_name": rec_name,
+                    "receiver_phone": rec_phone,
+                    "order_amount": order_amt,
+                    "platformPayId": ref_id,
+                    "reason": f"บัญชีผู้รับเงิน ({receive_acc}) ไม่ตรงกับบัญชี บจก. ดิจิสท์ ฮับ (ลงท้าย 7545-5) ค่ะ",
+                })
+                continue
+
+        # เงื่อนไขที่ 3: ยอดเงินในสลิปต้องตรงกับยอดออเดอร์
         if abs(qr_amt - order_amt) > 0.5:
             rejected.append(
                 {
                     "order_id": oid,
-                    "reason": f"ยอดเงินใน QR สลิป ({qr_amt:.2f}) ไม่ตรงกับยอดออเดอร์ ({order_amt:.2f})",
+                    "receiver_name": rec_name,
+                    "receiver_phone": rec_phone,
+                    "order_amount": order_amt,
+                    "qr_amount": qr_amt,
+                    "reason": f"ยอดเงินโอนในสลิป ({qr_amt:,.2f} บาท) ไม่ตรงกับยอดออเดอร์ ({order_amt:,.2f} บาท) ค่ะ",
                     "platformPayId": ref_id,
                 }
             )
             continue
+
+        # เงื่อนไขที่ 4: เลข Ref นี้ต้องไม่เคยถูกใช้กับออเดอร์อื่นที่ยัง Active มาก่อน (Anti-Replay Registry + JST Check)
+        prev_ref_entry = used_slip_refs.get(ref_id)
+        if prev_ref_entry:
+            prev_oid = str(prev_ref_entry.get("order_id") or "").strip()
+            if prev_oid and prev_oid != oid and prev_oid not in cancelled_oids:
+                rejected.append(
+                    {
+                        "order_id": oid,
+                        "receiver_name": rec_name,
+                        "receiver_phone": rec_phone,
+                        "order_amount": order_amt,
+                        "qr_amount": qr_amt,
+                        "platformPayId": ref_id,
+                        "reason": f"รหัสอ้างอิงสลิป ({ref_id}) เคยถูกใช้ยืนยันในออเดอร์ #{prev_oid} ไปแล้วค่ะ (ป้องกันสลิปซ้ำ)",
+                    }
+                )
+                continue
 
         # If flagged as 'ใบสั่งซื้อถูกใช้ไปแล้ว <dup_oid>', verify whether <dup_oid> is cancelled
         m_dup = re.search(r"ใบสั่งซื้อถูกใช้ไปแล้ว\s*(\d+)", audit_msg)
@@ -828,14 +963,23 @@ def verify_and_auto_confirm_jst_slips(limit: int = 50) -> dict[str, Any]:
                     rejected.append(
                         {
                             "order_id": oid,
+                            "receiver_name": rec_name,
+                            "receiver_phone": rec_phone,
                             "reason": f"สลิปซ้ำกับออเดอร์ #{dup_oid} ที่ยังไม่ได้ยกเลิก ({dup_status}) — ยกเลิกใบซ้ำให้อัตโนมัติแล้วค่ะ",
                             "platformPayId": ref_id,
                         }
                     )
                     continue
 
-        # Passed all genuine slip checks! Auto-confirm in JST ERP
+        # Passed all 4 genuine slip conditions! Auto-confirm in JST ERP & record in Anti-Replay registry
         confirm_orders_in_jst([oid])
+        used_slip_refs[ref_id] = {
+            "order_id": oid,
+            "amount": qr_amt,
+            "receiver_name": rec_name,
+            "confirmed_at": bkk_now_str,
+        }
+        state_dirty = True
         auto_confirmed.append(
             {
                 "order_id": oid,
@@ -845,6 +989,32 @@ def verify_and_auto_confirm_jst_slips(limit: int = 50) -> dict[str, Any]:
                 "overridden_jst_audit_message": audit_msg,
             }
         )
+
+    # Notify admin in LINE group for any newly rejected slip (1 alert per order_id, never spam)
+    new_alerts_to_send = [
+        item for item in rejected
+        if item.get("order_id") and str(item["order_id"]) not in alerted_oids
+        and "ยกเลิกใบซ้ำให้อัตโนมัติแล้ว" not in str(item.get("reason") or "")
+    ]
+    if new_alerts_to_send:
+        try:
+            from . import daily_sheet_report
+            daily_sheet_report.send_slip_issue_alert_to_line_groups(new_alerts_to_send)
+            for item in new_alerts_to_send:
+                alerted_oids.append(str(item["order_id"]))
+            state_dirty = True
+        except Exception as exc:
+            logger.warning("Failed to send slip issue alert to LINE group: %s", exc)
+
+    if state_dirty:
+        # Keep registry bounded to the latest 1,500 slip refs & 500 alerted OIDs
+        if len(used_slip_refs) > 1500:
+            keys_keep = list(used_slip_refs.keys())[-1500:]
+            used_slip_refs = {k: used_slip_refs[k] for k in keys_keep}
+        save_daily_sync_state({
+            "used_slip_refs": used_slip_refs,
+            "alerted_rejected_slip_oids": alerted_oids[-500:],
+        })
 
     express_fixed = auto_fix_missing_express_orders(all_rows=all_rows)
 
@@ -1065,7 +1235,7 @@ def recognize_and_clean_address(
     explicit_phone: str = "",
 ) -> dict[str, str]:
     """Use JST ERP's `AddresseeRecognition` API and clean up Thai name vs street address."""
-    cleaned_input = (raw_address or "").strip()
+    cleaned_input = translate_thai_numerals(raw_address or "").strip()
     # Normalize common Thai typos and strip conversational prefixes before recognition
     cleaned_input = (
         cleaned_input.replace("แขลง", "แขวง")
@@ -1079,6 +1249,9 @@ def recognize_and_clean_address(
         flags=re.I,
     )
     cleaned_input = re.sub(r"\b(?:โทร\.?|เบอร์โทร|เบอร์|มือถือ|t\.|tel\.?)\s*[:：]?\s*(?=0|\+66)", " ", cleaned_input, flags=re.I)
+
+    # Separate 5-digit postal code if stuck directly before phone number (e.g. "20130081-234-5678")
+    cleaned_input = re.sub(r"(\b\d{5})(?=(?:\+66|0[689]))", r"\1 ", cleaned_input)
 
     # Insert spaces around unspaced Thai administrative markers (e.g. "39หมู่6ตำบลสมอทองอำเภอท่าชนะจังหวัดสุราษฎร์ธานี84170")
     cleaned_input = re.sub(r"(?<=[ก-๙\d])(?=(?:ตำบล|อำเภอ|จังหวัด|แขวง|เขต|หมู่ที่|หมู่\s*\d))", " ", cleaned_input)
@@ -1096,9 +1269,12 @@ def recognize_and_clean_address(
         # Move leading phone after the address so AddresseeRecognition parses the name cleanly
         cleaned_input = f"{leading_name_hint} {cleaned_input[m_lead_ph.end():].strip()} {m_lead_ph.group(1)}"
 
-    # If customer wrote แขวง/เขต + 10xxx postal code without mentioning กรุงเทพ, append กรุงเทพมหานคร so JST recognizes it
-    if ("เขต" in cleaned_input or "แขวง" in cleaned_input) and re.search(r"\b10\d{3}\b", cleaned_input):
-        if "กรุงเทพ" not in cleaned_input and "กทม" not in cleaned_input:
+    # If customer wrote a Bangkok 10xxx postal code (even without แขวง/เขต, e.g. "ลาดพร้าว จตุจักร กทม 10900"),
+    # ensure "กรุงเทพมหานคร" is present so JST AddresseeRecognition recognizes Bangkok automatically
+    is_bkk_input = bool(re.search(r"\b10\d{3}\b", cleaned_input) or "กรุงเทพ" in cleaned_input or "กทม" in cleaned_input)
+    if is_bkk_input and "กรุงเทพ" not in cleaned_input:
+        cleaned_input = re.sub(r"\bกทม\.?\b", "กรุงเทพมหานคร", cleaned_input)
+        if "กรุงเทพ" not in cleaned_input:
             cleaned_input = f"{cleaned_input} กรุงเทพมหานคร"
 
     # Extract trailing recipient name after phone number if present (e.g., "... 12130 0909187907 วรรณา")
@@ -1129,19 +1305,25 @@ def recognize_and_clean_address(
     city = (rec.get("receiverCity") or "").strip()
     district = (rec.get("receiverDistrict") or "").strip()
     zip_code = (rec.get("receiverZip") or "").strip()
-    mobile = normalize_thai_phone(explicit_phone or rec.get("receiverMobile") or "")
+    mobile = normalize_thai_phone(explicit_phone or rec.get("receiverMobile") or cleaned_input)
 
     rec_name = (rec.get("receiverFirstName") or "").strip()
     rec_detail = (rec.get("receiverAddress") or "").strip()
     if not rec_name and not rec_detail:
         lines_in = [ln.strip() for ln in (raw_address or "").splitlines() if ln.strip()]
-        if lines_in and not re.search(r"\d", lines_in[0]):
+        if lines_in and not re.search(r"\d", translate_thai_numerals(lines_in[0])):
             rec_name = lines_in[0]
             rec_detail = " ".join(lines_in[1:])
         else:
             rec_detail = cleaned_input
-    if not province and ("กรุงเทพ" in cleaned_input or "กทม" in cleaned_input):
-        province = "กรุงเทพ"
+
+    if not zip_code:
+        m_zip = re.search(r"\b(\d{5})\b", cleaned_input)
+        if m_zip:
+            zip_code = m_zip.group(1)
+
+    if not province and (is_bkk_input or zip_code.startswith("10")):
+        province = "กรุงเทพมหานคร"
 
     # Fallback subdistrict/city/province extraction if AddresseeRecognition missed them
     if not district:
@@ -1158,10 +1340,23 @@ def recognize_and_clean_address(
         m_prov = re.search(r"(?:จังหวัด|จ\.)\s*([ก-๙]{2,25})", cleaned_input)
         if m_prov:
             province = m_prov.group(1).strip()
-    if not zip_code:
-        m_zip = re.search(r"\b(\d{5})\b", cleaned_input)
-        if m_zip:
-            zip_code = m_zip.group(1)
+
+    # Smart Bangkok 10xxx fallback when customer writes "ลาดพร้าว จตุจักร กทม 10900" without แขวง/เขต prefixes
+    if (zip_code.startswith("10") or province in ("กรุงเทพ", "กรุงเทพมหานคร", "กทม", "กทม.")) and (not city or not district):
+        m_bkk_pair = re.search(
+            r"([ก-๙]{2,25})\s+([ก-๙]{2,25})\s+(?:กรุงเทพมหานคร|กรุงเทพฯ?|กทม\.?|\b10\d{3}\b)",
+            cleaned_input,
+        )
+        if m_bkk_pair:
+            cand_sub, cand_dist = m_bkk_pair.group(1).strip(), m_bkk_pair.group(2).strip()
+            if not district and cand_sub not in ("ถนน", "ซอย", "หมู่บ้าน", "อาคาร", "คอนโด"):
+                district = cand_sub
+            if not city and cand_dist not in ("ถนน", "ซอย", "หมู่บ้าน", "อาคาร", "คอนโด"):
+                city = cand_dist
+        if city and not district:
+            district = city
+        elif district and not city:
+            city = district
 
     rec_detail = re.sub(
         r"\b(จัดส่งที่นี่นะครับ|จัดส่งที่นี่นะคะ|ที่อยู่จัดส่ง|แขวง|เขต|ตำบล|อำเภอ|จังหวัด|ต\.|อ\.|จ\.|รหัส|เบอร์|โทร|ชื่อ)\s*(?=\s|$)",
@@ -1214,7 +1409,7 @@ def verify_image_is_payment_slip(
 ) -> tuple[bool, str]:
     """Verify that an image is a real portrait bank transfer slip and NEVER a square/landscape promotion poster."""
     if image_url:
-        if image_url.startswith("/static/") or "39178562_1505197616293642" in image_url:
+        if image_url.startswith("/static/media/promo") or "39178562_1505197616293642" in image_url:
             return False, "เป็นรูปสินค้าของร้านหรือสติกเกอร์ ไม่ใช่สลิปโอนเงินค่ะ"
 
     w, h = int(width_hint or 0), int(height_hint or 0)
@@ -1225,9 +1420,14 @@ def verify_image_is_payment_slip(
 
             raw = image_bytes
             if raw is None and image_url:
-                r = httpx.get(image_url, timeout=15.0, follow_redirects=True)
-                r.raise_for_status()
-                raw = r.content
+                if image_url.startswith("/static/"):
+                    local_p = Path(__file__).resolve().parent / image_url.lstrip("/")
+                    if local_p.exists():
+                        raw = local_p.read_bytes()
+                else:
+                    r = httpx.get(image_url, timeout=15.0, follow_redirects=True)
+                    r.raise_for_status()
+                    raw = r.content
             if raw:
                 with Image.open(io.BytesIO(raw)) as im:
                     w, h = im.size
@@ -1244,6 +1444,102 @@ def verify_image_is_payment_slip(
                 f"รูปภาพมีสัดส่วน {w}x{h} (h/w={ratio:.2f}) ซึ่งเป็นรูปโปรโมชั่นสินค้าหรือภาพจัตุรัส/แนวนอน ไม่ใช่สลิปโอนเงินค่ะ",
             )
     return True, "ok"
+
+
+def classify_incoming_chat_image(
+    image_url: str = "",
+    image_bytes: bytes | None = None,
+    width_hint: int = 0,
+    height_hint: int = 0,
+    accompanying_text: str = "",
+    is_completed_order: bool = False,
+) -> dict[str, Any]:
+    """Classify an incoming customer chat image FIRST into 1 of 3 categories ($0 cost):
+    1. 'payment_slip'      — รูปสลิปโอนเงิน
+    2. 'promo_or_product'  — รูปตารางโปรโมชั่นสินค้า / รูปถุงข้าว / สติกเกอร์
+    3. 'parcel_or_claim'   — รูปเช็กเลขพัสดุ / รูปพัสดุหรือของเสียหาย
+    """
+    txt_low = (accompanying_text or "").lower().strip()
+
+    # Check if customer text indicates parcel tracking screenshot or damaged item photo
+    parcel_or_claim_keywords = (
+        "เลขพัสดุ",
+        "เช็คเลข",
+        "เช็กเลข",
+        "เช็คในระบบ",
+        "เช็กในระบบ",
+        "ไม่พบข้อมูลพัสดุ",
+        "ตามพัสดุ",
+        "ตามของ",
+        "ถุงแตก",
+        "ถุงรั่ว",
+        "เสียหาย",
+        "ของไม่ครบ",
+        "ส่งผิด",
+        "เคลม",
+    )
+    if any(k in txt_low for k in parcel_or_claim_keywords):
+        return {
+            "category": "parcel_or_claim",
+            "is_slip": False,
+            "placeholder_text": "[ลูกค้าส่งรูปตรวจสอบพัสดุหรือแจ้งปัญหาสินค้าเข้ามาในแชทค่ะ]",
+            "reason": "ข้อความประกอบรูปภาพเกี่ยวข้องกับการเช็กเลขพัสดุหรือแจ้งปัญหาสินค้าค่ะ",
+        }
+
+    # Check if customer text indicates selecting a promotion poster ("เอาอันนี้ค่ะ", "โปรนี้ค่ะ")
+    promo_select_keywords = (
+        "เอาอันนี้",
+        "รับอันนี้",
+        "โปรนี้",
+        "เอาโปรนี้",
+        "รับโปรนี้",
+        "ชุดนี้",
+        "สนใจอันนี้",
+        "แบบในรูป",
+    )
+    if any(k in txt_low for k in promo_select_keywords) and not any(
+        p in txt_low for p in ("โอน", "สลิป", "ชำระ")
+    ):
+        return {
+            "category": "promo_or_product",
+            "is_slip": False,
+            "placeholder_text": "[ลูกค้าส่งรูปโปรโมชั่นสินค้าที่สนใจเข้ามาในแชทค่ะ]",
+            "reason": "ลูกค้าส่งรูปโปรโมชั่นพร้อมข้อความเลือกสินค้าค่ะ",
+        }
+
+    # Check image aspect ratio & dimensions via verify_image_is_payment_slip
+    ok_slip, reason = verify_image_is_payment_slip(
+        image_bytes=image_bytes,
+        image_url=image_url,
+        width_hint=width_hint,
+        height_hint=height_hint,
+    )
+    if not ok_slip:
+        return {
+            "category": "promo_or_product",
+            "is_slip": False,
+            "placeholder_text": "[ลูกค้าส่งรูปโปรโมชั่นหรือรูปสินค้าเข้ามาในแชทค่ะ]",
+            "reason": reason,
+        }
+
+    # If the order was already completed earlier and the customer is not ordering/paying again,
+    # treat the portrait screenshot as a tracking/after-sales screenshot rather than a new slip
+    if is_completed_order and not any(
+        w in txt_low for w in ("โอน", "สลิป", "สั่งเพิ่ม", "รับเพิ่ม", "เอาเพิ่ม", "ชำระ")
+    ):
+        return {
+            "category": "parcel_or_claim",
+            "is_slip": False,
+            "placeholder_text": "[ลูกค้าส่งรูปภาพหลังการขาย/ตรวจสอบสถานะพัสดุเข้ามาในแชทค่ะ]",
+            "reason": "ออเดอร์ปิดการขายไปแล้ว จึงจัดเป็นรูปภาพหลังการขาย/เช็กพัสดุค่ะ",
+        }
+
+    return {
+        "category": "payment_slip",
+        "is_slip": True,
+        "placeholder_text": "[ลูกค้าแนบสลิปเข้ามาในแชทค่ะ]",
+        "reason": "ok",
+    }
 
 
 def upload_payment_slip(image_url: str) -> dict[str, str]:
@@ -2011,6 +2307,94 @@ def check_dialogue_completion(msgs: list[dict[str, str]], has_verified_slip: boo
     return True, "ลูกค้าตอบคำถามและยืนยันข้อมูลครบถ้วนแล้วค่ะ"
 
 
+def get_saved_customer_address_profile(psid: str) -> dict[str, str] | None:
+    """Retrieve a repeat customer's previously used shipping address & phone from past chat history or session notes.
+    Used for One-Click Repeat Order confirmation (NEVER auto-closes without asking the customer to confirm first!).
+    """
+    with SessionLocal() as db:
+        session = db.get(UserSession, psid)
+        if not session:
+            return None
+        cust_name = (session.customer_name or "").strip()
+        notes = (session.notes or "").strip()
+
+    all_msgs = get_full_messages(psid, limit=120)
+    if not all_msgs and not notes:
+        return None
+
+    candidate_addr_raw = ""
+    # 1. Check past Admin/Bot Order Summaries ("เพจ : ... จัดส่ง : ...")
+    for m in reversed(all_msgs):
+        c = translate_thai_numerals(m.get("content") or "")
+        if ("เพจ :" in c or "เพจ:" in c) and "จัดส่ง" in c:
+            am = re.search(r"จัดส่ง\s*:\s*(.+)", c, flags=re.DOTALL)
+            if am:
+                cand = re.sub(r"#BUY\d+.*$", "", am.group(1), flags=re.DOTALL).strip()
+                cand = re.sub(r"[()（）]", " ", cand).strip()
+                if len(cand) >= 12:
+                    candidate_addr_raw = cand
+                    break
+
+    # 2. Check past bot confirmation bullets ("ผู้รับ: ... • ที่อยู่: ...")
+    if not candidate_addr_raw:
+        full_hist_txt = translate_thai_numerals("\n".join(m.get("content") or "" for m in all_msgs))
+        rec_m = re.findall(r"ผู้รับ:\s*([^\n]+)\n+•\s*ที่อยู่:\s*([^\n]+)", full_hist_txt)
+        if rec_m:
+            candidate_addr_raw = f"{rec_m[-1][0].strip()} {rec_m[-1][1].strip()}"
+
+    # 3. Check past user messages containing a 5-digit postal code + 10-digit phone
+    if not candidate_addr_raw:
+        user_lines = [
+            translate_thai_numerals(m.get("content") or "").strip()
+            for m in all_msgs
+            if m.get("role") == "user" and (m.get("content") or "").strip() and not str(m.get("content")).startswith("[IMAGE")
+        ]
+        for idx in range(len(user_lines) - 1, -1, -1):
+            window = " ".join(user_lines[max(0, idx - 3) : idx + 1])
+            if re.search(r"\b\d{5}\b", window) and normalize_thai_phone(window):
+                candidate_addr_raw = window
+                break
+
+    if not candidate_addr_raw:
+        return None
+
+    phone = normalize_thai_phone(candidate_addr_raw)
+    if len(phone) != 10:
+        return None
+
+    m_zip = re.search(r"\b(\d{5})\b", candidate_addr_raw)
+    zip_code = m_zip.group(1) if m_zip else ""
+
+    province = ""
+    if zip_code.startswith("10") or "กรุงเทพ" in candidate_addr_raw or "กทม" in candidate_addr_raw:
+        province = "กรุงเทพมหานคร"
+    else:
+        m_prov = re.search(r"(?:จังหวัด|จ\.)\s*([ก-๙]{2,25})", candidate_addr_raw)
+        if m_prov:
+            province = f"จ.{m_prov.group(1).strip()}"
+
+    # Extract clean recipient name
+    rec_name = cust_name
+    m_name = re.match(r"^\s*([ก-๙a-zA-Z\s\.]{2,30}?)(?=\s+\d+|\s+บ้านเลขที่|\s+หมู่)", candidate_addr_raw)
+    if m_name:
+        rec_name = m_name.group(1).strip()
+    rec_name = re.sub(r"^(?:คุณ|ผู้รับ|ชื่อ)\s*", "", rec_name).strip() or "ลูกค้า"
+
+    fmt_phone = f"{phone[:3]}-{phone[3:6]}-{phone[6:]}"
+    prov_label = f" {province}" if province else (f" รหัส {zip_code}" if zip_code else "")
+    short_preview = f"คุณ{rec_name} (เบอร์ {fmt_phone}{prov_label})"
+
+    return {
+        "receiver_name": rec_name,
+        "phone": phone,
+        "formatted_phone": fmt_phone,
+        "province": province,
+        "post_code": zip_code,
+        "full_address": candidate_addr_raw,
+        "short_preview": short_preview,
+    }
+
+
 def extract_order_from_session(psid: str) -> dict[str, Any]:
     """Automatically extract SKU, price, shipping, COD/Transfer, recipient address, slip URL, and dialogue audit from session history."""
     with SessionLocal() as db:
@@ -2059,29 +2443,31 @@ def extract_order_from_session(psid: str) -> dict[str, Any]:
                 start_idx = idx
         msgs = local_msgs[start_idx:]
 
-    full_text = "\n".join(m["content"] for m in msgs if m.get("content"))
-    user_only_text = "\n".join(m["content"] for m in msgs if m.get("role") == "user" and m.get("content"))
+    full_text = translate_thai_numerals("\n".join(m["content"] for m in msgs if m.get("content")))
+    user_only_text = translate_thai_numerals(
+        "\n".join(m["content"] for m in msgs if m.get("role") == "user" and m.get("content"))
+    )
 
     # 1. Check if there is an explicit Admin Order Summary block in the current inquiry
     admin_summaries = [
-        (idx, m["content"])
+        (idx, translate_thai_numerals(m["content"]))
         for idx, m in enumerate(msgs)
         if ("เพจ :" in m["content"] or "เพจ:" in m["content"]) and "จัดส่ง" in m["content"]
     ]
     last_summary_idx = admin_summaries[-1][0] if admin_summaries else -1
     latest_summary = admin_summaries[-1][1] if admin_summaries else ""
 
-    # 2. Extract phone number (supports 08xxxxxxxx, 08x-xxx-xxxx, 0640-497-947-, โทร084-8607585, and +66936179424)
+    # 2. Extract phone number (supports Thai numerals, 20130 081-234-5678, 08xxxxxxxx, 08x-xxx-xxxx, and +66936179424)
     phone = ""
     phone_pattern = r"(?:\+66\s*0?|0)[689]\d(?:[\s\-]*\d){7}"
-    phone_search_target = latest_summary if latest_summary else full_text
+    phone_search_target = re.sub(r"(\b\d{5})(?=(?:\+66|0[689]))", r"\1 ", latest_summary if latest_summary else full_text)
     phone_matches = re.findall(phone_pattern, phone_search_target)
     if not phone_matches and latest_summary:
-        phone_matches = re.findall(phone_pattern, full_text)
+        phone_matches = re.findall(phone_pattern, re.sub(r"(\b\d{5})(?=(?:\+66|0[689]))", r"\1 ", full_text))
     if phone_matches:
         phone = normalize_thai_phone(phone_matches[-1])
 
-    # 3. Extract raw_address and run recognition for preview/audit
+    # 3. Extract raw_address (supports multi-bubble 4-5 line aggregation & One-Click Repeat Order "ที่อยู่เดิม")
     raw_address = ""
     if latest_summary:
         am = re.search(r"จัดส่ง\s*:\s*(.+)", latest_summary, flags=re.DOTALL)
@@ -2090,16 +2476,53 @@ def extract_order_from_session(psid: str) -> dict[str, Any]:
             raw_address = re.sub(r"#BUY\d+.*$", "", raw_address, flags=re.DOTALL).strip()
             raw_address = re.sub(r"[()（）]", " ", raw_address)
     if not raw_address:
+        # Aggregate up to 5 consecutive/recent user text messages in case the customer sent Name, Address, and Phone on separate lines
+        recent_user_bubbles: list[str] = []
+        addr_trigger_found = False
         for m in reversed(msgs):
             if m["role"] == "user":
-                c = m["content"]
-                if re.search(r"\b\d{5}\b", c) or re.search(r"0[689]\d{8}", re.sub(r"\D", "", c)):
-                    raw_address = c.strip()
+                c = translate_thai_numerals(m["content"] or "").strip()
+                if not c or c.startswith("[IMAGE") or c.startswith("[ลูกค้า"):
+                    continue
+                c_spaced = re.sub(r"(\b\d{5})(?=(?:\+66|0[689]))", r"\1 ", c)
+                has_zip_or_phone = bool(
+                    re.search(r"\b\d{5}\b", c_spaced)
+                    or re.search(r"0[689]\d{8}", re.sub(r"\D", "", c_spaced))
+                )
+                has_addr_word = bool(
+                    re.search(
+                        r"(บ้านเลขที่|หมู่ที่|หมู่บ้าน|ม\.\d|ต\.|อ\.|จ\.|ตำบล|อำเภอ|จังหวัด|แขวง|เขต|กทม|กรุงเทพ|ซอย|ถนน|\d+/\d+)",
+                        c_spaced,
+                    )
+                )
+                if has_zip_or_phone or has_addr_word:
+                    addr_trigger_found = True
+                    recent_user_bubbles.append(c_spaced)
+                elif addr_trigger_found and len(recent_user_bubbles) < 5 and len(c_spaced) <= 60:
+                    # Include preceding short name bubble (e.g. "คุณสมศรี ใจดี") sent right before the address/phone bubble
+                    if not re.search(r"^(สนใจ|ราคา|โปร|โอน|ปลายทาง|เอา|รับ|สั่ง)", c_spaced):
+                        recent_user_bubbles.append(c_spaced)
+                if len(recent_user_bubbles) >= 5:
                     break
+        if addr_trigger_found and recent_user_bubbles:
+            raw_address = " ".join(reversed(recent_user_bubbles)).strip()
+
     if not raw_address:
         rec_m = re.findall(r"ผู้รับ:\s*([^\n]+)\n+•\s*ที่อยู่:\s*([^\n]+)", full_text)
         if rec_m:
             raw_address = f"{rec_m[-1][0]} {rec_m[-1][1]}"
+
+    # One-Click Repeat Order: if customer confirmed "ที่อยู่เดิม / ส่งที่เดิม / ตามที่อยู่เดิม", pull saved address profile
+    if not raw_address and re.search(
+        r"(ที่อยู่เดิม|ส่งที่เดิม|ตามที่อยู่เดิม|ที่เดิมค่ะ|ที่เดิมคะ|ที่เดิมจ้า|เบอร์เดิมที่อยู่เดิม)",
+        user_only_text,
+        re.I,
+    ):
+        saved_prof = get_saved_customer_address_profile(psid)
+        if saved_prof:
+            raw_address = saved_prof["full_address"]
+            if not phone:
+                phone = saved_prof["phone"]
 
     parsed_address: dict[str, str] = {}
     if raw_address:
@@ -2462,23 +2885,28 @@ def sync_session_to_jst(
         return {"status": "error", "message": extracted.get("reason", "ข้อมูลออเดอร์ไม่ครบถ้วนค่ะ"), "audit": audit_res}
 
     data = {**extracted, **(overrides or {})}
-    res = create_order_in_jst(
-        raw_address=data.get("raw_address", ""),
-        sku_id=data.get("sku_id", "BSJ1KG1"),
-        qty=int(data.get("qty") or 1),
-        custom_unit_price=data.get("unit_price"),
-        freight=float(data.get("freight") or 0.0),
-        is_cod=bool(data.get("is_cod")),
-        slip_image_url=data.get("slip_image_url", ""),
-        explicit_name=data.get("explicit_name", ""),
-        explicit_phone=data.get("phone", ""),
-        explicit_address_fields=data.get("explicit_address_fields"),
-        seller_remark=data.get("seller_remark", f"FB: {data.get('customer_name', '')}"),
-        force_create=force_create,
-        extra_items=data.get("extra_items"),
-    )
+    try:
+        res = create_order_in_jst(
+            raw_address=data.get("raw_address", ""),
+            sku_id=data.get("sku_id", "BSJ1KG1"),
+            qty=int(data.get("qty") or 1),
+            custom_unit_price=data.get("unit_price"),
+            freight=float(data.get("freight") or 0.0),
+            is_cod=bool(data.get("is_cod")),
+            slip_image_url=data.get("slip_image_url", ""),
+            explicit_name=data.get("explicit_name", ""),
+            explicit_phone=data.get("phone", ""),
+            explicit_address_fields=data.get("explicit_address_fields"),
+            seller_remark=data.get("seller_remark", f"FB: {data.get('customer_name', '')}"),
+            force_create=force_create,
+            extra_items=data.get("extra_items"),
+        )
+    except Exception as exc:
+        enqueue_pending_jst_retry(psid, f"คีย์เข้า JST ล้มเหลวชั่วคราว (คุกกี้หมดอายุหรือเครือข่าย): {exc}")
+        raise
 
     if res.get("status") == "created":
+        dequeue_pending_jst_retry(psid)
         oid = (res.get("created_order") or {}).get("order_id") or (res.get("save_response", {}).get("data") or {}).get("orderId") or ""
         _append_session_note(
             psid,
@@ -2487,6 +2915,7 @@ def sync_session_to_jst(
         from . import database as _db_mod
         _db_mod.update_session_meta(psid, state="completed", is_starred=True)
     elif res.get("status") == "duplicate_skipped":
+        dequeue_pending_jst_retry(psid)
         existing = (res.get("existing_orders") or [{}])[0]
         oid = existing.get("order_id", "")
         with SessionLocal() as db:
@@ -2498,12 +2927,14 @@ def sync_session_to_jst(
                 )
         from . import database as _db_mod
         _db_mod.update_session_meta(psid, state="completed", is_starred=True)
+    else:
+        enqueue_pending_jst_retry(psid, str(res.get("message") or res.get("status") or "รอคีย์ซ้ำเมื่อคุกกี้พร้อม"))
 
     return res
 
 
 def sync_all_confirmed_orders_to_jst(days_lookback: int = 2, mark_daily_batch: bool = False) -> dict[str, Any]:
-    """Scan all completed orders from the last `days_lookback` days (yesterday's confirmed orders),
+    """Scan all completed orders from the last `days_lookback` days PLUS any orders queued in `pending_jst_retry_queue`,
     run Layer-1 Pre-Keying Chat Audit & duplicate check against JST ERP, push missing ones,
     and run Layer-2 Post-Keying JST Reconciliation Audit.
     """
@@ -2517,10 +2948,18 @@ def sync_all_confirmed_orders_to_jst(days_lookback: int = 2, mark_daily_batch: b
             .order_by(UserSession.last_interaction_time.desc())
             .all()
         )
-        psids = [s.psid for s in sessions]
+        recent_psids = [s.psid for s in sessions]
+
+    # Always prepend any orders waiting in the persistent Retry Queue (from when JST cookie was expired)
+    retry_queue = get_pending_jst_retry_queue()
+    psids: list[str] = list(retry_queue.keys())
+    for p in recent_psids:
+        if p not in psids:
+            psids.append(p)
 
     results = {
         "scanned": len(psids),
+        "retry_queue_before": len(retry_queue),
         "batch_time_bkk": now_bkk.strftime("%Y-%m-%d %H:%M:%S"),
         "created": [],
         "duplicate_skipped": [],
@@ -2548,10 +2987,13 @@ def sync_all_confirmed_orders_to_jst(days_lookback: int = 2, mark_daily_batch: b
             elif st == "duplicate_skipped":
                 results["duplicate_skipped"].append(item_summary)
             else:
+                enqueue_pending_jst_retry(psid, str(res.get("message") or st))
                 results["errors"].append(item_summary)
         except Exception as exc:
             logger.error("Error syncing session %s to JST: %s", psid, exc)
+            enqueue_pending_jst_retry(psid, str(exc))
             results["errors"].append({"psid": psid, "error": str(exc)})
+    results["retry_queue_after"] = len(get_pending_jst_retry_queue())
 
     try:
         from . import audit as _audit_mod

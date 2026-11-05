@@ -1502,33 +1502,37 @@ _RECENT_ESCALATION_CACHE: dict[str, float] = {}
 
 
 def send_jst_cookie_expired_alert_to_line_groups(error_detail: str = "") -> dict[str, Any]:
-    """Send an immediate alert to the LINE Summary Work Group(s) when `JST_ERP_COOKIE` expires,
-    with a 6-hour cooldown so the group is not spammed.
+    """Send an alert to the LINE Summary Work Group(s) when `JST_ERP_COOKIE` expires.
+    - Quiet Hours: NEVER alert at night (22:00–06:59 BKK) so admins are never woken up.
+    - Once-Per-Day Lock: Alert at most 1 time per calendar day in the morning (`last_jst_cookie_alert_date`).
     """
+    from . import jst_erp
     from .messenger import LINE_PUSH_URL, _get_channel_token
 
     now_bkk = datetime.now(BKK_TZ)
+    # ห้ามแจ้งเตือนตอนกลางคืน (22:00 น. – 06:59 น.) รอแจ้งเตือนรอบเช้าวันละ 1 ครั้งเท่านั้นค่ะ
+    if now_bkk.hour < 7 or now_bkk.hour >= 22:
+        return {"status": "quiet_hours_skipped", "hour_bkk": now_bkk.hour}
+
+    today_str = now_bkk.strftime("%Y-%m-%d")
     cfg = load_line_group_config()
-    last_alert_str = str(cfg.get("last_jst_cookie_alert_at") or "").strip()
-    if last_alert_str:
-        try:
-            last_dt = datetime.fromisoformat(last_alert_str)
-            if (now_bkk - last_dt).total_seconds() < 6 * 3600:
-                return {"status": "cooldown_skipped", "last_alert_at": last_alert_str}
-        except Exception:
-            pass
+    if str(cfg.get("last_jst_cookie_alert_date") or "").strip() == today_str:
+        return {"status": "once_per_day_skipped", "date": today_str}
 
     token = _get_channel_token("workbot", "line")
     if not token:
         return {"status": "error", "reason": "missing_line_channel_access_token"}
 
+    retry_q = jst_erp.get_pending_jst_retry_queue()
+    queued_cnt = len(retry_q)
+
     alert_text = (
-        "⚠️ แจ้งเตือนระบบคลังสินค้า JST ERP (Cookie หมดอายุค่ะ)\n"
+        "⚠️ แจ้งเตือนระบบคลังสินค้า JST ERP (Cookie หมดอายุ — แจ้งเตือนวันละ 1 ครั้งตอนเช้าค่ะ)\n"
         "━━━━━━━━━━━━━━━\n"
-        "ขณะนี้เซสชันล็อกอิน (`JST_ERP_COOKIE`) ของเว็บ asia-web.jsterp.com หมดอายุหรือถูกตัดการเชื่อมต่อค่ะ\n"
+        "ขณะนี้เซสชันล็อกอิน (`JST_ERP_COOKIE`) ของเว็บ asia-web.jsterp.com หมดอายุค่ะ\n"
         f"• สาเหตุ: {error_detail[:140] or 'Unauthorized / Session Expired'}\n"
-        "• ผลกระทบ: ระบบดึงสต็อก, คีย์ออเดอร์อัตโนมัติ และดึงยอดขายจากคลังจะพักชั่วคราวจนกว่าจะต่ออายุ Cookie\n\n"
-        "🔧 รบกวนล็อกอินเว็บ JST ERP แล้วส่ง Cookie ใหม่มาอัปเดตในระบบ เพื่อให้รอบสรุปยอด 01:00 น. และ 07:00 น. ทำงานได้ต่อเนื่องนะคะ 🙏"
+        f"• ตะกร้ารอคีย์ซ้ำอัตโนมัติ (Retry Queue): เก็บออเดอร์รอคีย์ไว้ปลอดภัยแล้ว {queued_cnt} รายการค่ะ (ออเดอร์ไม่ตกหล่นแน่นอนค่ะ)\n\n"
+        "🔧 รบกวนล็อกอินเว็บ JST ERP แล้วอัปเดต Cookie ใหม่ ระบบจะกวาดออเดอร์ในตะกร้าส่งเข้าคลัง JST ย้อนหลังให้ครบทุกบิลอัตโนมัติทันทีค่ะ 🙏💚"
     )
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     groups_to_send = list(cfg.get("groups") or [])
@@ -1547,7 +1551,117 @@ def send_jst_cookie_expired_alert_to_line_groups(error_detail: str = "") -> dict
 
     if sent_groups:
         cfg["last_jst_cookie_alert_at"] = now_bkk.isoformat()
+        cfg["last_jst_cookie_alert_date"] = today_str
         save_line_group_config(cfg)
+    return {"status": "ok" if sent_groups else "error", "sent_groups": sent_groups}
+
+
+def check_and_alert_fb_page_token_health(brand_id: str = "buksukjai") -> dict[str, Any]:
+    """Verify Facebook Page Access Token health (`GET /me?fields=id,name`).
+    If expired/invalid, send at most 1 alert per day in the morning (never at night).
+    """
+    from .config_loader import get_page_by_brand_id
+    from .messenger import LINE_PUSH_URL, _get_channel_token
+
+    now_bkk = datetime.now(BKK_TZ)
+    if now_bkk.hour < 7 or now_bkk.hour >= 22:
+        return {"status": "quiet_hours_skipped"}
+
+    page = get_page_by_brand_id(brand_id) or {}
+    fb_token = (page.get("channels") or {}).get("fb_page_access_token") or os.getenv("PAGE_ACCESS_TOKEN", "")
+    if not fb_token:
+        return {"status": "no_fb_token"}
+
+    try:
+        r = httpx.get(
+            "https://graph.facebook.com/v21.0/me",
+            params={"fields": "id,name", "access_token": fb_token},
+            timeout=10.0,
+        )
+        data = r.json() if r.content else {}
+        if r.status_code == 200 and data.get("id"):
+            return {"status": "ok", "page_id": data.get("id"), "page_name": data.get("name")}
+        err_msg = str((data.get("error") or {}).get("message") or f"HTTP {r.status_code}")
+    except Exception as exc:
+        return {"status": "network_warning", "reason": str(exc)}
+
+    today_str = now_bkk.strftime("%Y-%m-%d")
+    cfg = load_line_group_config()
+    if str(cfg.get("last_fb_token_alert_date") or "").strip() == today_str:
+        return {"status": "once_per_day_skipped", "reason": err_msg}
+
+    line_token = _get_channel_token("workbot", "line")
+    if not line_token:
+        return {"status": "error", "reason": "missing_line_token"}
+
+    alert_text = (
+        "🚨 แจ้งเตือน Token เพจ Facebook หลุดหรือหมดอายุค่ะ (แจ้งเตือนวันละ 1 ครั้ง)\n"
+        "━━━━━━━━━━━━━━━\n"
+        f"• เพจ: ข้าวบุกสุขใจ ({brand_id})\n"
+        f"• สาเหตุจาก Meta API: {err_msg[:160]}\n\n"
+        "🔧 รบกวนต่ออายุ Facebook Page Access Token ในระบบ เพื่อให้น้องบุกตอบแชท Facebook ได้ต่อเนื่องนะคะ 🙏💚"
+    )
+    headers = {"Authorization": f"Bearer {line_token}", "Content-Type": "application/json"}
+    sent_groups: list[str] = []
+    with httpx.Client(timeout=15.0) as client:
+        for gid in list(cfg.get("groups") or []):
+            if not gid:
+                continue
+            resp = client.post(
+                LINE_PUSH_URL,
+                headers=headers,
+                json={"to": gid, "messages": [{"type": "text", "text": alert_text}]},
+            )
+            if resp.status_code == 200:
+                sent_groups.append(gid)
+    if sent_groups:
+        cfg["last_fb_token_alert_date"] = today_str
+        save_line_group_config(cfg)
+    return {"status": "alerted", "sent_groups": sent_groups, "reason": err_msg}
+
+
+def send_slip_issue_alert_to_line_groups(rejected_slips: list[dict[str, Any]]) -> dict[str, Any]:
+    """Send an immediate notification to the LINE Work Group when a bank transfer slip fails
+    any of the 4 verification conditions (missing QR Ref, wrong recipient account, mismatched amount, or duplicate Ref).
+    """
+    from .messenger import LINE_PUSH_URL, _get_channel_token
+
+    if not rejected_slips:
+        return {"status": "skipped_empty"}
+    token = _get_channel_token("workbot", "line")
+    if not token:
+        return {"status": "error", "reason": "missing_line_channel_access_token"}
+
+    now_str = datetime.now(BKK_TZ).strftime("%d/%m/%Y %H:%M น.")
+    lines = [
+        f"🚨 แจ้งเตือนตรวจสอบสลิปโอนเงินไม่ผ่านเกณฑ์ 4 ข้อ ({len(rejected_slips)} รายการค่ะ)",
+        f"({now_str})",
+        "━━━━━━━━━━━━━━━",
+    ]
+    for idx, item in enumerate(rejected_slips[:8], 1):
+        oid = item.get("order_id") or "-"
+        r_name = item.get("receiver_name") or "ลูกค้า"
+        r_ph = item.get("receiver_phone") or "-"
+        reason = item.get("reason") or "สลิปไม่ผ่านเกณฑ์ตรวจสอบ"
+        lines.append(f"{idx}. ออเดอร์ #{oid} — คุณ{r_name} ({r_ph})\n   ⚠️ สาเหตุ: {reason}")
+    lines.append("━━━━━━━━━━━━━━━")
+    lines.append("🔒 ระบบยังไม่กดอนุมัติสลิปให้อัตโนมัติ รบกวนพี่แอดมินตรวจสอบสลิปใน JST ERP อีกครั้งนะคะ 🙏💚")
+    alert_text = "\n".join(lines)
+
+    cfg = load_line_group_config()
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    sent_groups: list[str] = []
+    with httpx.Client(timeout=15.0) as client:
+        for gid in list(cfg.get("groups") or []):
+            if not gid:
+                continue
+            resp = client.post(
+                LINE_PUSH_URL,
+                headers=headers,
+                json={"to": gid, "messages": [{"type": "text", "text": alert_text}]},
+            )
+            if resp.status_code == 200:
+                sent_groups.append(gid)
     return {"status": "ok" if sent_groups else "error", "sent_groups": sent_groups}
 
 

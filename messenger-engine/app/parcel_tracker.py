@@ -592,3 +592,90 @@ async def check_and_send_parcel_tracking_updates(
         "sent_stage2": sent_stage2,
         "checked_orders": checked_orders,
     }
+
+
+def lookup_customer_tracking_for_chat(psid: str, user_text: str = "") -> dict[str, Any] | None:
+    """Look up live J&T Express tracking status for a customer asking in chat (e.g. 'ขอเลขพัสดุ', 'เช็คในระบบไม่พบข้อมูลพัสดุ').
+    Returns a ready-to-send polite Thai reply bubble and structured status, or None if no matching order is found.
+    """
+    try:
+        user_obj = database.get_or_create_session(psid)
+        notes = user_obj.notes or ""
+        cust_name = (user_obj.customer_name or "").strip()
+
+        clean_txt = jst_erp.translate_thai_numerals(user_text or "")
+        explicit_tno_m = re.search(r"\b(8\d{11}|6\d{11}|TH\w{9,14})\b", clean_txt, re.I)
+        explicit_tno = explicit_tno_m.group(1).strip() if explicit_tno_m else ""
+
+        oid_matches = re.findall(r"#(\d{6,10})", notes)
+        saved_prof = jst_erp.get_saved_customer_address_profile(psid)
+        target_phone = saved_prof["phone"] if saved_prof else ""
+
+        rows = query_recent_shipped_jst_orders(days_back=10, page_size=120)
+        matched_row: dict[str, Any] | None = None
+
+        for r in rows:
+            tno = str(r.get("ExpressOrderId") or "").strip()
+            oid = str(r.get("OrderId") or "").strip()
+            r_ph = jst_erp.normalize_thai_phone(str(r.get("ReceiverMobileEn") or r.get("ReceiverPhoneEn") or ""))
+            r_name = str(r.get("ReceiverName") or "").strip()
+            remark = str(r.get("SellerRemark") or "").strip()
+
+            if explicit_tno and tno == explicit_tno:
+                matched_row = r
+                break
+            if oid and oid in oid_matches:
+                matched_row = r
+                break
+            if target_phone and r_ph == target_phone:
+                matched_row = r
+                break
+            if cust_name and len(cust_name) >= 3 and (cust_name.lower() in r_name.lower() or cust_name.lower() in remark.lower()):
+                matched_row = r
+                break
+
+        if not matched_row:
+            return None
+
+        info = inspect_order_tracking_status(matched_row)
+        tracking_no = info["tracking_no"]
+        courier_name = info["courier_name"]
+        events = info.get("events") or []
+
+        if info["is_delivered"]:
+            hhmm_txt = f" เวลา {info['delivered_hhmm']}" if info.get("delivered_hhmm") else ""
+            reply_msg = (
+                f"น้องบุกตรวจสอบสถานะพัสดุให้เรียบร้อยแล้วค่ะ 🚚💚\n"
+                f"• ขนส่ง: {courier_name}\n"
+                f"• เลขพัสดุ: {tracking_no}\n"
+                f"• สถานะล่าสุด: จัดส่งสำเร็จเรียบร้อยแล้วค่ะ{hhmm_txt} 🙏✨"
+            )
+        elif info["is_picked_up"] and events:
+            latest_ev = events[0]
+            ev_time = str(latest_ev.get("OperationTime") or "")[:16]
+            ev_desc = str(latest_ev.get("Description") or "อยู่ระหว่างการจัดส่ง").strip()
+            reply_msg = (
+                f"น้องบุกตรวจสอบสถานะพัสดุให้เรียบร้อยแล้วค่ะ 🚚💚\n"
+                f"• ขนส่ง: {courier_name}\n"
+                f"• เลขพัสดุ: {tracking_no}\n"
+                f"• สถานะล่าสุด ({ev_time}): {ev_desc}\n\n"
+                f"คุณลูกค้าสามารถนำเลขพัสดุ {tracking_no} ไปเช็กสถานะแบบเรียลไทม์ผ่านแอปหรือเว็บไซต์ {courier_name} ได้เลยนะคะ 😊🙏"
+            )
+        else:
+            reply_msg = (
+                f"น้องบุกตรวจสอบเลขพัสดุ {tracking_no} ({courier_name}) ให้เรียบร้อยแล้วค่ะ 📦💚\n"
+                f"ตอนนี้ทางคลังสินค้าแพ็กพัสดุและออกเลขใบปะหน้าเรียบร้อยแล้ว อยู่ระหว่างรอรถขนส่ง {courier_name} ยิงสแกนรับพัสดุเข้าระบบช่วงเย็นวันนี้ค่ะ "
+                f"(ช่วงก่อนรถขนส่งสแกนบาร์โค้ด เวลาค้นหาในเว็บจะขึ้นว่ายังไม่พบข้อมูลชั่วคราวค่ะ) พอรถขนส่งสแกนรับพัสดุแล้ว สถานะจะอัปเดตในระบบทันทีเลยนะคะ 😊🙏"
+            )
+
+        return {
+            "found": True,
+            "tracking_no": tracking_no,
+            "courier_name": courier_name,
+            "is_picked_up": info["is_picked_up"],
+            "is_delivered": info["is_delivered"],
+            "reply_message": reply_msg,
+        }
+    except Exception as exc:
+        logger.warning("lookup_customer_tracking_for_chat failed for %s: %s", psid, exc)
+        return None

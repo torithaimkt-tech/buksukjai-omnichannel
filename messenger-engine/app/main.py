@@ -335,6 +335,8 @@ async def receive_meta_webhook(request: Request, background_tasks: BackgroundTas
                 continue
 
             if attachments:
+                from . import jst_erp as _jst_img_mod
+
                 for att in attachments:
                     att_type = str(att.get("type") or "").lower()
                     payload_obj = att.get("payload", {}) or {}
@@ -346,15 +348,31 @@ async def receive_meta_webhook(request: Request, background_tasks: BackgroundTas
                             continue
                         if img_url and sender_id:
                             session_key = database.make_session_key(brand_id, platform, sender_id)
-                            database.get_or_create_session(
+                            sess_obj = database.get_or_create_session(
                                 psid=session_key,
                                 brand_id=brand_id,
                                 platform=platform,
                                 external_user_id=sender_id,
                             )
-                            database.log_message(session_key, "user", f"[IMAGE:{img_url}]")
-                        if not text:
-                            text = "[ลูกค้าแนบสลิปเข้ามาในแชทค่ะ]"
+                            recent_u_txt = text or ""
+                            if not recent_u_txt:
+                                recent_hist = database.get_history(session_key, limit=4)
+                                recent_u_txt = " ".join(
+                                    str(m.get("content") or "") for m in recent_hist if m.get("role") == "user"
+                                )
+                            img_cls = _jst_img_mod.classify_incoming_chat_image(
+                                image_url=img_url,
+                                accompanying_text=recent_u_txt,
+                                is_completed_order=(sess_obj.state == "completed"),
+                            )
+                            if img_cls.get("is_slip"):
+                                database.log_message(session_key, "user", f"[IMAGE:{img_url}]")
+                            elif img_cls.get("category") == "parcel_or_claim":
+                                database.log_message(session_key, "user", f"[IMAGE_PARCEL:{img_url}]")
+                            else:
+                                database.log_message(session_key, "user", f"[IMAGE_PROMO:{img_url}]")
+                            if not text:
+                                text = str(img_cls.get("placeholder_text") or "[ลูกค้าแนบสลิปเข้ามาในแชทค่ะ]")
                     elif att_type in ("template", "fallback") and not text:
                         # Customer clicked Facebook's "คำขอโอนเงิน (Transfer Request)" button which hides the slip image from Graph API
                         text = "[ลูกค้ากดแนบสลิปผ่านปุ่มคำขอโอนเงิน Facebook]"
@@ -376,12 +394,12 @@ async def receive_meta_webhook(request: Request, background_tasks: BackgroundTas
             _RECENT_MSG_CACHE[dedup_key] = now_ts
             _RECENT_MSG_CACHE[text_key] = now_ts
 
-            background_tasks.add_task(
-                process_omnichannel_message,
+            enqueue_debounced_omnichannel_message(
                 brand_id=brand_id,
                 platform=platform,
                 external_user_id=sender_id,
                 text=text,
+                reply_token=None,
             )
 
     return {"status": "ok"}
@@ -474,8 +492,7 @@ async def receive_line_webhook(
             msg_type = msg_obj.get("type")
             if msg_type == "text":
                 text = msg_obj.get("text", "")
-                background_tasks.add_task(
-                    process_omnichannel_message,
+                enqueue_debounced_omnichannel_message(
                     brand_id=brand_id,
                     platform="line",
                     external_user_id=user_id,
@@ -483,12 +500,12 @@ async def receive_line_webhook(
                     reply_token=reply_token,
                 )
             elif msg_type == "image":
+                msg_id = str(msg_obj.get("id") or "").strip()
                 background_tasks.add_task(
-                    process_omnichannel_message,
+                    _handle_line_user_image_message,
                     brand_id=brand_id,
-                    platform="line",
-                    external_user_id=user_id,
-                    text="[ลูกค้าแนบสลิปเข้ามาในแชทค่ะ]",
+                    user_id=user_id,
+                    msg_id=msg_id,
                     reply_token=reply_token,
                 )
 
@@ -788,6 +805,163 @@ async def _handle_line_group_event(
                 return
 
 
+# --- 3.5-Second Per-Customer Debounce & Image Type Classifier (LINE & Meta) -----
+
+DEBOUNCE_WAIT_SECONDS: float = 3.5
+_DEBOUNCE_BUFFERS: dict[str, dict] = {}
+
+
+def enqueue_debounced_omnichannel_message(
+    brand_id: str,
+    platform: str,
+    external_user_id: str,
+    text: str,
+    customer_name: str = "",
+    reply_token: str | None = None,
+    wait_seconds: float = DEBOUNCE_WAIT_SECONDS,
+) -> None:
+    """Buffer rapid consecutive customer messages/images for `wait_seconds` (3.5s) per customer:
+    - Immediately logs each incoming bubble to DB in arrival order.
+    - Always keeps the LATEST `reply_token` so LINE OA replies once for free without using Push Message quota.
+    - Prevents the bot from replying 'รบกวนส่งสลิปนะคะ' while the customer is attaching the slip 2 seconds later.
+    """
+    import asyncio
+
+    clean_t = (text or "").strip()
+    if not clean_t or not external_user_id:
+        return
+
+    session_key = database.make_session_key(brand_id, platform, external_user_id)
+    database.get_or_create_session(
+        psid=session_key,
+        brand_id=brand_id,
+        platform=platform,
+        external_user_id=external_user_id,
+        customer_name=customer_name,
+    )
+    database.log_message(session_key, "user", clean_t)
+
+    buf = _DEBOUNCE_BUFFERS.get(session_key)
+    if buf is None:
+        buf = {
+            "brand_id": brand_id,
+            "platform": platform,
+            "external_user_id": external_user_id,
+            "customer_name": customer_name,
+            "texts": [],
+            "reply_token": None,
+            "timer_task": None,
+        }
+        _DEBOUNCE_BUFFERS[session_key] = buf
+
+    buf["texts"].append(clean_t)
+    if customer_name:
+        buf["customer_name"] = customer_name
+    # Always overwrite with the LAST message's reply_token so LINE Reply API succeeds for free
+    if reply_token:
+        buf["reply_token"] = reply_token
+
+    old_task = buf.get("timer_task")
+    if old_task and not old_task.done():
+        old_task.cancel()
+
+    async def _flush_after_delay() -> None:
+        try:
+            await asyncio.sleep(wait_seconds)
+        except asyncio.CancelledError:
+            return
+        entry = _DEBOUNCE_BUFFERS.pop(session_key, None)
+        if not entry or not entry.get("texts"):
+            return
+        combined_text = "\n".join(entry["texts"])
+        latest_token = entry.get("reply_token")
+        await process_omnichannel_message(
+            brand_id=entry["brand_id"],
+            platform=entry["platform"],
+            external_user_id=entry["external_user_id"],
+            text=combined_text,
+            customer_name=entry.get("customer_name") or "",
+            reply_token=latest_token,
+            skip_user_log=True,
+        )
+
+    buf["timer_task"] = asyncio.create_task(_flush_after_delay())
+
+
+async def _handle_line_user_image_message(
+    brand_id: str,
+    user_id: str,
+    msg_id: str,
+    reply_token: str | None = None,
+) -> None:
+    """Download customer image from LINE Content API ($0 cost), classify whether it is:
+    1) Payment slip, 2) Promo/product photo, or 3) Parcel/damage photo,
+    and feed into the 3.5s per-customer debounce buffer with the latest `reply_token`.
+    """
+    import asyncio
+    import httpx
+    from . import jst_erp
+
+    session_key = database.make_session_key(brand_id, "line", user_id)
+    sess_obj = database.get_or_create_session(
+        psid=session_key,
+        brand_id=brand_id,
+        platform="line",
+        external_user_id=user_id,
+    )
+
+    img_bytes: bytes | None = None
+    rel_url = ""
+    token = messenger._get_channel_token(brand_id, "line")
+    if token and msg_id:
+        try:
+            async with httpx.AsyncClient(timeout=12.0) as client:
+                r = await client.get(
+                    f"https://api-data.line.me/v2/bot/message/{msg_id}/content",
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+                if r.status_code == 200 and r.content:
+                    img_bytes = r.content
+                    media_generator.MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+                    fname = f"line_img_{msg_id}.jpg"
+                    (media_generator.MEDIA_DIR / fname).write_bytes(img_bytes)
+                    rel_url = f"/static/media/{fname}"
+        except Exception as exc:
+            logger.warning("Failed to download LINE user image %s: %s", msg_id, exc)
+
+    recent_hist = database.get_history(session_key, limit=4)
+    recent_u_txt = " ".join(str(m.get("content") or "") for m in recent_hist if m.get("role") == "user")
+    buf_now = _DEBOUNCE_BUFFERS.get(session_key)
+    if buf_now and buf_now.get("texts"):
+        recent_u_txt = f"{recent_u_txt} {' '.join(buf_now['texts'])}".strip()
+
+    img_cls = await asyncio.to_thread(
+        jst_erp.classify_incoming_chat_image,
+        rel_url,
+        img_bytes,
+        0,
+        0,
+        recent_u_txt,
+        sess_obj.state == "completed",
+    )
+    if rel_url:
+        if img_cls.get("is_slip"):
+            database.log_message(session_key, "user", f"[IMAGE:{rel_url}]")
+        elif img_cls.get("category") == "parcel_or_claim":
+            database.log_message(session_key, "user", f"[IMAGE_PARCEL:{rel_url}]")
+        else:
+            database.log_message(session_key, "user", f"[IMAGE_PROMO:{rel_url}]")
+
+    placeholder = str(img_cls.get("placeholder_text") or "[ลูกค้าแนบสลิปเข้ามาในแชทค่ะ]")
+    enqueue_debounced_omnichannel_message(
+        brand_id=brand_id,
+        platform="line",
+        external_user_id=user_id,
+        text=placeholder,
+        reply_token=reply_token,
+    )
+
+
 # --- Unified Message Processor (AI + Human Handover) ----------------------------
 
 async def process_omnichannel_message(
@@ -803,7 +977,7 @@ async def process_omnichannel_message(
     try:
         # Real-time Facebook Graph API verification BEFORE replying:
         # Checks if customer already ordered/paid in past Facebook history or if human admin is handling the chat!
-        if platform == "facebook" and not skip_user_log:
+        if platform == "facebook" and not str(external_user_id).startswith(("FB_", "sim_", "test_")):
             await messenger.sync_facebook_user_thread(external_user_id, brand_id=brand_id)
 
         user = database.get_or_create_session(

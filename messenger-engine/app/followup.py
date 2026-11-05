@@ -737,17 +737,18 @@ async def run_auto_reengage_scan(public_base_url: str = "") -> dict:
 
 
 _AUTO_REPLIED_FB_SIGS: set[str] = set()
+_ACTIVE_REPLY_PSIDS: set[str] = set()
 
 
 async def auto_reply_unanswered_facebook_chats(
     max_age_minutes: float = 60.0,
-    min_wait_seconds: float = 35.0,
+    min_wait_seconds: float = 20.0,
 ) -> list[dict]:
     """Fallback active auto-responder for Facebook Page conversations via Graph API polling.
 
     Ensures that even if Meta Webhooks do not fire (or when the user's PC is turned off overnight),
     any customer who messages the Facebook Page or triggers a comment-to-messenger stub
-    receives an AI response automatically within ~35–60 seconds.
+    receives an AI response automatically within ~20–35 seconds.
     """
     main_mod = sys.modules.get("app.main")
     if not main_mod or not hasattr(main_mod, "process_omnichannel_message"):
@@ -767,6 +768,8 @@ async def auto_reply_unanswered_facebook_chats(
             continue
 
         psid = s["psid"]
+        if psid in _ACTIVE_REPLY_PSIDS:
+            continue
         msgs = database.get_full_messages(psid, limit=30)
         if not msgs:
             continue
@@ -824,6 +827,7 @@ async def auto_reply_unanswered_facebook_chats(
             continue
 
         _AUTO_REPLIED_FB_SIGS.add(sig)
+        _ACTIVE_REPLY_PSIDS.add(psid)
         logger.info(
             "Graph API Active Auto-Responder replying to unanswered Facebook chat %s (%s): %s",
             psid,
@@ -849,8 +853,24 @@ async def auto_reply_unanswered_facebook_chats(
             )
         except Exception as exc:
             logger.warning("Auto-reply failed for %s: %s", psid, exc)
+        finally:
+            _ACTIVE_REPLY_PSIDS.discard(psid)
 
     return replied_list
+
+
+async def _fast_facebook_chat_responder_loop() -> None:
+    """Dedicated high-priority loop that polls Facebook conversations every 20 seconds,
+    completely decoupled from the heavy 10-minute JST ERP / slip / tracking tasks.
+    """
+    fast_poll = float(os.getenv("FAST_FB_POLL_SECONDS", "20"))
+    while True:
+        try:
+            await messenger.sync_recent_facebook_conversations("buksukjai", limit=20)
+            await auto_reply_unanswered_facebook_chats(max_age_minutes=60.0, min_wait_seconds=20.0)
+        except Exception as exc:
+            logger.warning("Fast Facebook responder loop warning: %s", exc)
+        await asyncio.sleep(fast_poll)
 
 
 async def followup_loop(config: dict, public_base_url_getter=None) -> None:
@@ -862,9 +882,10 @@ async def followup_loop(config: dict, public_base_url_getter=None) -> None:
     render_health_url = os.getenv("RENDER_EXTERNAL_URL", "https://buksukjai-omnichannel.onrender.com") + "/health"
 
     logger.info(
-        "24/7 Cloud Scheduler & Graph API Auto-Responder running: polling every %s sec",
+        "24/7 Cloud Scheduler & Graph API Auto-Responder running: polling every %s sec (with 20s Fast FB Responder)",
         poll_seconds,
     )
+    asyncio.create_task(_fast_facebook_chat_responder_loop())
     cycle_idx = 0
     while True:
         try:
@@ -881,7 +902,7 @@ async def followup_loop(config: dict, public_base_url_getter=None) -> None:
 
             # 0.1 Sync latest Facebook conversations & auto-reply to any unanswered customer messages!
             await messenger.sync_recent_facebook_conversations("buksukjai", limit=25)
-            await auto_reply_unanswered_facebook_chats(max_age_minutes=60.0, min_wait_seconds=35.0)
+            await auto_reply_unanswered_facebook_chats(max_age_minutes=60.0, min_wait_seconds=20.0)
 
             # 0.2 Daily 01:00 AM Sales & Stock Reconciliation Summary (สรุปยอดขายของเมื่อวานทุกวันเวลา 01:00 น.)
             from . import daily_sheet_report
@@ -916,6 +937,13 @@ async def followup_loop(config: dict, public_base_url_getter=None) -> None:
 
             # Heavy background scans run every 10 cycles (~10 minutes)
             if cycle_idx % 10 == 0:
+                # 0.52 Morning Once-a-Day Health Check for JST ERP Cookie & Facebook Page Token (never wakes at night)
+                try:
+                    await asyncio.to_thread(jst_erp.check_jst_cookie_health, True)
+                    await asyncio.to_thread(daily_sheet_report.check_and_alert_fb_page_token_health, "buksukjai")
+                except Exception as exc:
+                    logger.warning("Periodic token/cookie health check warning: %s", exc)
+
                 # 0.55 100% Autonomous Cloud Order Keying (ตรวจสอบซ้ำก่อนคีย์ + คีย์ออเดอร์ที่ยืนยันครบแล้วลง JST อัตโนมัติทุก 10 นาที แม้ปิดคอมพิวเตอร์)
                 if jst_erp.is_auto_sync_enabled():
                     try:
