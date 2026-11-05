@@ -827,18 +827,6 @@ def verify_and_auto_confirm_jst_slips(limit: int = 50) -> dict[str, Any]:
         if not oid or oid in cancelled_oids or d.get("IsCod"):
             continue
 
-        # ขอออเดอร์จากแพลตฟอร์ม Marketplace (Shopee / TikTok / Lazada) ที่ลูกค้าจ่ายผ่านระบบแพลตฟอร์มโดยตรง (ชื่อติดดอกจัน ป******ล)
-        # จะไม่ใช้สลิปโอนเงินจากแชท จึงต้องข้ามไม่นำมาตรวจสลิปธนาคารค่ะ
-        shop_id_str = str(d.get("ShopId") or "").strip()
-        platform_from = str(d.get("PlatformId") or d.get("OrderFrom") or d.get("ShopType") or "").lower()
-        payment_method_row = str(d.get("Payment") or d.get("SettlementMethodDisplay") or "").lower()
-        if (
-            shop_id_str == str(JST_SHOP_ID_SHOPEE)
-            or any(mp in platform_from for mp in ("shopee", "tiktok", "lazada"))
-            or any(pm in payment_method_row for pm in ("credit card", "debit card", "shopeepay", "spaylater", "truemoney"))
-        ):
-            continue
-
         status_disp = str(d.get("StatusDisplay") or "")
         mach_status = str(d.get("MachineAuditStatus") or "")
         mach_msg = str(d.get("MachineAuditMessage") or "")
@@ -858,15 +846,40 @@ def verify_and_auto_confirm_jst_slips(limit: int = 50) -> dict[str, Any]:
             timeout=15.0,
         )
         det = (r_det.json() or {}).get("data") or {}
+        pays = det.get("pays") or []
+        latest_pay = pays[0] if pays else {}
 
-        # Double-check inside GetOrderDetail to skip Shopee/TikTok/Platform orders (where name is masked with ***)
-        det_from = str(det.get("orderFrom") or det.get("platformId") or "").lower()
-        det_shop_id = str(det.get("shopId") or "").strip()
-        if (
-            det.get("isPlatformDownload")
-            or det_shop_id == str(JST_SHOP_ID_SHOPEE)
-            or any(mp in det_from for mp in ("shopee", "tiktok", "lazada"))
-        ):
+        # สำหรับออเดอร์จาก Shopee / TikTok / Lazada หรือบัตรเครดิต ที่แพลตฟอร์มตรวจสอบการชำระเงินผ่านแล้ว (auditStatus == 'Pass' / status == 'Success')
+        # ให้กดยืนยัน (ConfirmOrder) ใน JST ERP อัตโนมัติทันที และไม่นำมาแจ้งเตือนเป็นสลิปมีปัญหาค่ะ
+        shop_id_str = str(d.get("ShopId") or det.get("shopId") or "").strip()
+        platform_from = str(
+            d.get("PlatformId") or d.get("OrderFrom") or det.get("orderFrom") or det.get("platformId") or ""
+        ).lower()
+        pay_service = str(
+            latest_pay.get("serviceProviderId") or latest_pay.get("payment") or d.get("Payment") or ""
+        ).lower()
+        is_marketplace_or_card = (
+            bool(det.get("isPlatformDownload"))
+            or shop_id_str == str(JST_SHOP_ID_SHOPEE)
+            or any(mp in platform_from for mp in ("shopee", "tiktok", "lazada"))
+            or any(pm in pay_service for pm in ("shopee", "tiktok", "lazada", "credit card", "debit card", "shopeepay", "spaylater"))
+        )
+        if is_marketplace_or_card:
+            if (
+                str(latest_pay.get("status") or "") == "Success"
+                or str(latest_pay.get("auditStatus") or "") == "Pass"
+                or float(det.get("fPaidAmount") or 0.0) > 0
+            ):
+                try:
+                    confirm_orders_in_jst([oid])
+                    auto_confirmed.append({
+                        "order_id": oid,
+                        "amount": float(det.get("paidAmount") or latest_pay.get("amount") or 0.0),
+                        "platform": platform_from or pay_service or "marketplace",
+                        "note": "อนุมัติอัตโนมัติ (ผ่านการตรวจสอบชำระเงินจากระบบ Shopee/TikTok/บัตรเครดิตแล้วค่ะ)",
+                    })
+                except Exception as exc:
+                    logger.warning("Auto-confirm marketplace order %s warning: %s", oid, exc)
             continue
 
         det_remark = str(det.get("sellerRemark") or seller_remark_row or "").strip()
@@ -878,7 +891,6 @@ def verify_and_auto_confirm_jst_slips(limit: int = 50) -> dict[str, Any]:
         )
         origin_trace = det_remark or (f"ลูกค้าแชท: {det_cust_name}" if det_cust_name else "ออเดอร์คีย์ผ่านระบบแชทเพจ")
 
-        pays = det.get("pays") or []
         if not pays:
             rejected.append({
                 "order_id": oid,
@@ -889,13 +901,6 @@ def verify_and_auto_confirm_jst_slips(limit: int = 50) -> dict[str, Any]:
                 "sku_desc": sku_desc,
                 "reason": "ไม่มีข้อมูลสลิปในระบบ (pays ว่าง หรือยังไม่ได้แนบสลิปค่ะ)",
             })
-            continue
-
-        latest_pay = pays[0]
-        pay_service = str(latest_pay.get("serviceProviderId") or latest_pay.get("payment") or "").lower()
-        if any(mp in pay_service for mp in ("shopee", "tiktok", "lazada", "credit card", "debit card")):
-            continue
-        if str(latest_pay.get("auditStatus") or "") == "Pass" and mach_status != "Fail":
             continue
 
         ref_id = str(latest_pay.get("platformPayId") or "").strip()
