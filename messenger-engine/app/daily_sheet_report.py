@@ -1111,7 +1111,7 @@ def format_line_group_daily_summary(report: dict[str, Any]) -> str:
     jst_status_line = (
         "🟢 คลัง JST ERP : เชื่อมต่อปกติ (Cookie ใช้งานได้ปกติค่ะ)"
         if jst_ok
-        else "⚠️ คลัง JST ERP : Cookie หมดอายุ (ระบบดึงยอดจากแชทเพจและ Google Sheets แทนให้อัตโนมัติแล้วค่ะ บอทหน้าร้านยังตอบแชทปกติ 100%)"
+        else "⚠️ คลัง JST ERP : Cookie หมดอายุ (ระบบดึงยอดจากแชทเพจแทนให้อัตโนมัติแล้วค่ะ บอทหน้าร้านยังตอบแชทปกติ 100%)"
     )
 
     lines.extend(
@@ -1120,10 +1120,6 @@ def format_line_group_daily_summary(report: dict[str, Any]) -> str:
             "🩺 เช็กสุขภาพระบบเช้านี้ (System Health Check)",
             "🟢 บอทตอบแชทออนไลน์ : ทำงานปกติ 100%",
             jst_status_line,
-            "🟢 ด่านกั้นข้อมูลข้ามบริษัท/แบรนด์ : ล็อกปกติ 100%",
-            "━━━━━━━━━━━━━━━",
-            "🔗 ดูตารางรายชื่อและรายละเอียดใน Google Sheets:",
-            GOOGLE_SHEET_URL,
         ]
     )
     return "\n".join(lines)
