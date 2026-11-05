@@ -683,8 +683,9 @@
 
       <div class="crm-card" style="background:#f0fdf4; border-color:#86efac;">
         <h3>🚀 ส่งออเดอร์เข้าคลัง JST ERP อัตโนมัติ & ROAS</h3>
-        <p style="font-size:11.5px; color:#166534; margin-bottom:8px;">
-          เช็กซ้ำจากเบอร์โทรใน JST ERP อัตโนมัติก่อนบันทึกทุกครั้ง พร้อมอัปโหลดสลิปโอนเงินเข้า SCB 304-407545-5 ทันทีค่ะ
+        <p style="font-size:11.5px; color:#166534; margin-bottom:8px; line-height:1.5;">
+          • <b>เช็กซ้ำ 100%:</b> ตรวจสอบเบอร์โทรใน JST ERP ก่อนบันทึกทุกครั้ง<br/>
+          • <b>ดึงสลิปจากถาดอัตโนมัติ (MBS Bank Slips):</b> กู้คืนสลิปที่ถูกซ่อนจากปุ่มโอนเงิน Messenger (<code>Is App Switch</code>) เข้า SCB <code>304-407545-5</code> + ตรวจ QR สลิป &amp; ตั้งขนส่ง J&amp;T อัตโนมัติค่ะ
         </p>
         <button id="btnPushSingleJst" class="btn-save-crm" style="background:#ea580c; font-size:13px; padding:9px; margin-bottom:6px;" onclick="pushSingleOrderToJst()">
           🚀 ส่งออเดอร์นี้เข้า JST อัตโนมัติทันที (เช็กซ้ำก่อนบันทึก)
@@ -693,7 +694,7 @@
           🔍 ตรวจสอบข้อมูล & เช็กซ้ำใน JST ERP
         </button>
         <button class="btn-save-crm" style="background:#0284c7; margin-bottom:8px;" onclick="runSessionAudit()">
-          🛡️ Audit ตรวจสอบความถูกต้อง 5 จุด (สลิป/COD/ที่อยู่/ติดดาว)
+          🛡️ Audit ตรวจสอบความถูกต้อง 6 จุด (สลิปถาด MBS/COD/ที่อยู่/ติดดาว)
         </button>
         <div id="sessionAuditBox" style="display:none; font-size:11.5px; background:#f0f9ff; border:1px solid #bae6fd; border-radius:8px; padding:8px; margin-bottom:6px;"></div>
 
@@ -890,13 +891,14 @@
             </ul>
           </div>
           <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:10px; padding:12px;">
-            <h4 style="font-size:13.5px; color:#15803d; margin-bottom:6px;">✅ ชั้นที่ 2: ตรวจสอบออเดอร์ก่อนส่งเข้า JST ERP (5 ข้อ)</h4>
+            <h4 style="font-size:13.5px; color:#15803d; margin-bottom:6px;">✅ ชั้นที่ 2: โฟลว์ตรวจสอบออเดอร์ &amp; ดึงสลิปเข้า JST ERP อัตโนมัติ (6 ข้อ)</h4>
             <ul style="font-size:12px; color:#334155; padding-left:18px; line-height:1.6;">
-              <li><b>1. สลิปโอนเงินจริงฝั่งลูกค้า:</b> ต้องมาจากฝั่งลูกค้าเท่านั้น ห้ามเอารูปโปรของเพจมาใส่ช่องสลิปเด็ดขาด</li>
-              <li><b>2. แยกโอน vs COD ชัดเจน:</b> โอนต้องมีสลิป / COD ต้องมีข้อความคอนเฟิร์มจากลูกค้า</li>
-              <li><b>3. เบอร์โทรมือถือ 10 หลัก:</b> ตรวจสอบรูปแบบเบอร์ไทย 06/08/09 ครบ 10 หลัก</li>
-              <li><b>4. ที่อยู่จัดส่งครบ 4 ส่วน:</b> ตำบล/แขวง, อำเภอ/เขต, จังหวัด และรหัสไปรษณีย์</li>
-              <li><b>5. ติดดาว ⭐ อัตโนมัติ:</b> ลูกค้าที่โอนเงินหรือยืนยัน COD แล้วจะถูกติดดาวทันที</li>
+              <li><b>1. ดึงสลิปจากถาดสลิปธนาคารอัตโนมัติ (MBS Bank Slips):</b> กู้คืนรูปสลิปที่ถูกซ่อนจากปุ่มโอนเงิน Messenger (<code>Is App Switch: Yes</code>) มาแนบเข้าใบสั่งซื้ออัตโนมัติ 100%</li>
+              <li><b>2. สลิปโอนเงินจริง + ตรวจ QR ธนาคาร:</b> ตรวจสอบสัดส่วนภาพสลิปและเช็กรหัสอ้างอิง QR ยอดโอนตรงกับใบสั่งซื้อก่อนอนุมัติ</li>
+              <li><b>3. แยกโอน vs COD &amp; รองรับหลาย SKU:</b> โอนต้องมีสลิปจริง / COD ต้องคอนเฟิร์มแล้ว และแยกรายการสินค้าหลายชิ้นในบิลเดียว</li>
+              <li><b>4. เบอร์โทรมือถือ 10 หลัก &amp; เช็กซ้ำก่อนคีย์:</b> ตรวจสอบเบอร์ไทย 10 หลักเทียบกับ JST ERP ป้องกันการคีย์ออเดอร์ซ้ำ 100%</li>
+              <li><b>5. ที่อยู่จัดส่งครบ 4 ส่วน + ตั้งขนส่ง J&amp;T:</b> แยกตำบล/อำเภอ/จังหวัด/รหัสไปรษณีย์ และผูกขนส่ง J&amp;T Express ส่งเข้าคลังอัตโนมัติ</li>
+              <li><b>6. ติดดาว ⭐ &amp; ทวนสอบ 2 รอบ:</b> ติดดาวลูกค้าที่ปิดการขายและรัน Post-Keying Audit เทียบแชทกับ JST ERP ทุกวัน</li>
             </ul>
           </div>
         </div>

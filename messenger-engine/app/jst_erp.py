@@ -1356,6 +1356,7 @@ def create_order_in_jst(
     seller_remark: str = "",
     within_days_Check: int = 7,
     force_create: bool = False,
+    extra_items: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Check JST ERP for duplicates and create the manual order in JST ERP."""
     addr = recognize_and_clean_address(raw_address, explicit_name=explicit_name, explicit_phone=explicit_phone)
@@ -1405,7 +1406,81 @@ def create_order_in_jst(
     unit_price = float(custom_unit_price if custom_unit_price is not None else sku_meta["price"])
     origin_price = float(sku_meta.get("originPrice", unit_price))
     is_manual_modify_price = abs(unit_price - origin_price) > 0.01
-    goods_amount = round(unit_price * int(qty), 2)
+    primary_item_amount = round(unit_price * int(qty), 2)
+
+    ts_ms = int(time.time() * 1000)
+    order_item = [
+        {
+            "innerOrderItemId": "",
+            "orderItemId": "",
+            "skuId": sku_meta["skuId"],
+            "itemId": sku_meta["itemId"],
+            "pic": sku_meta["pic"],
+            "name": sku_meta["name"],
+            "propertiesValue": sku_meta["propertyShortName"],
+            "qty": int(qty),
+            "price": unit_price,
+            "basePrice": origin_price,
+            "amount": primary_item_amount,
+            "isGift": False,
+            "weight": 0,
+            "size": 0,
+            "isDeleted": False,
+            "skuType": sku_meta["skuType"],
+            "keyword": "",
+            "isOversold": False,
+            "liveLimitQty": 0,
+            "isNotNeedDelivery": False,
+            "itemType": "",
+            "isUpsell": False,
+            "isCombined": bool(sku_meta["isCombined"]),
+            "isManualModifyPrice": is_manual_modify_price,
+            "platformOrderItemId": f"{sku_meta['skuId']}_{ts_ms}",
+            "remark": "",
+        }
+    ]
+    goods_amount = primary_item_amount
+    for idx_ex, ex in enumerate(extra_items or [], start=1):
+        ex_sku_id = str(ex.get("sku_id") or "").strip()
+        ex_meta = KNOWN_SKUS.get(ex_sku_id)
+        if not ex_meta:
+            continue
+        ex_qty = int(ex.get("qty") or 1)
+        ex_unit = float(ex.get("unit_price") if ex.get("unit_price") is not None else ex_meta["price"])
+        ex_orig = float(ex_meta.get("originPrice", ex_unit))
+        ex_amt = round(ex_unit * ex_qty, 2)
+        goods_amount = round(goods_amount + ex_amt, 2)
+        order_item.append(
+            {
+                "innerOrderItemId": "",
+                "orderItemId": "",
+                "skuId": ex_meta["skuId"],
+                "itemId": ex_meta["itemId"],
+                "pic": ex_meta["pic"],
+                "name": ex_meta["name"],
+                "propertiesValue": ex_meta["propertyShortName"],
+                "qty": ex_qty,
+                "price": ex_unit,
+                "basePrice": ex_orig,
+                "amount": ex_amt,
+                "isGift": False,
+                "weight": 0,
+                "size": 0,
+                "isDeleted": False,
+                "skuType": ex_meta["skuType"],
+                "keyword": "",
+                "isOversold": False,
+                "liveLimitQty": 0,
+                "isNotNeedDelivery": False,
+                "itemType": "",
+                "isUpsell": False,
+                "isCombined": bool(ex_meta["isCombined"]),
+                "isManualModifyPrice": abs(ex_unit - ex_orig) > 0.01,
+                "platformOrderItemId": f"{ex_meta['skuId']}_{ts_ms + idx_ex}",
+                "remark": "",
+            }
+        )
+
     freight_val = round(float(freight), 2)
     total_pay = round(goods_amount + freight_val, 2)
 
@@ -1438,38 +1513,6 @@ def create_order_in_jst(
             "status": "error",
             "message": "ออเดอร์แบบโอนเงินต้องมีรูปสลิปโอนเงินจริงที่ตรวจสอบแล้วเท่านั้นค่ะ (ห้ามส่งเข้า JST ERP หากยังไม่มีสลิปโอนเงิน)",
         }
-
-    ts_ms = int(time.time() * 1000)
-    order_item = [
-        {
-            "innerOrderItemId": "",
-            "orderItemId": "",
-            "skuId": sku_meta["skuId"],
-            "itemId": sku_meta["itemId"],
-            "pic": sku_meta["pic"],
-            "name": sku_meta["name"],
-            "propertiesValue": sku_meta["propertyShortName"],
-            "qty": int(qty),
-            "price": unit_price,
-            "basePrice": origin_price,
-            "amount": goods_amount,
-            "isGift": False,
-            "weight": 0,
-            "size": 0,
-            "isDeleted": False,
-            "skuType": sku_meta["skuType"],
-            "keyword": "",
-            "isOversold": False,
-            "liveLimitQty": 0,
-            "isNotNeedDelivery": False,
-            "itemType": "",
-            "isUpsell": False,
-            "isCombined": bool(sku_meta["isCombined"]),
-            "isManualModifyPrice": is_manual_modify_price,
-            "platformOrderItemId": f"{sku_meta['skuId']}_{ts_ms}",
-            "remark": "",
-        }
-    ]
 
     order_payload = {
         "Order": {
@@ -1681,8 +1724,118 @@ def _slice_to_current_inquiry_fb(raw_messages: list[dict[str, Any]]) -> list[dic
     return raw_messages[current_start_idx:]
 
 
-def _fetch_fb_thread_messages_and_slip(external_user_id: str, brand_id: str = "buksukjai") -> tuple[list[dict[str, str]], str]:
-    """Query Facebook Graph API for a specific customer's CURRENT inquiry messages and verified slip image URL."""
+MBS_SLIPS_CACHE_PATH: str = os.path.join(os.path.dirname(os.path.dirname(__file__)), "mbs_bank_slips_cache.json")
+
+
+def fetch_mbs_bank_slip_for_customer(customer_name: str, page_id: str = "806129109240845") -> str:
+    """Retrieve hidden Facebook Transfer Request (`SELLER_BANK_ACCOUNT_VERIFIED_APP_SWITCH` / `Is App Switch: Yes`)
+    bank slip image URL from Meta Business Suite `สลิปธนาคาร` (`BizWebCometBankSlipTableContainerQuery`
+    doc_id=24173238945617358 + `BizWebCometBankSlipDetailsViewContainerQuery` doc_id=30122875277303462)
+    or synced `mbs_bank_slips_cache.json`.
+    """
+    import json
+
+    clean_target = (customer_name or "").strip().lower()
+    if not clean_target:
+        return ""
+
+    # 1. Live MBS GraphQL query if MBS_COOKIE and MBS_FB_DTSG are configured
+    mbs_cookie = os.getenv("MBS_COOKIE", "").strip()
+    mbs_dtsg = os.getenv("MBS_FB_DTSG", "").strip()
+    if mbs_cookie and mbs_dtsg:
+        try:
+            now_ts = int(time.time())
+            vars_table = {
+                "endTime": now_ts + 3600,
+                "first": 50,
+                "pageID": page_id,
+                "searchTerm": customer_name.strip(),
+                "selectedFilter": "ALL",
+                "sortDirection": "DESC",
+                "sortField": "CREATION_TIME",
+                "startTime": now_ts - 14 * 86400,
+                "after": None,
+            }
+            r_tab = httpx.post(
+                "https://business.facebook.com/api/graphql/",
+                headers={
+                    "Cookie": mbs_cookie,
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Origin": "https://business.facebook.com",
+                    "Referer": f"https://business.facebook.com/latest/orders/bank_slips?asset_id={page_id}",
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                },
+                data={
+                    "fb_dtsg": mbs_dtsg,
+                    "fb_api_req_friendly_name": "BizWebCometBankSlipTableContainerQuery",
+                    "variables": json.dumps(vars_table),
+                    "doc_id": "24173238945617358",
+                },
+                timeout=12.0,
+            )
+            edges = (
+                ((r_tab.json() or {}).get("data") or {})
+                .get("page", {})
+                .get("payment_hub_items", {})
+                .get("edges")
+                or []
+            )
+            for edge in edges:
+                node = edge.get("node") or {}
+                c_name = str((node.get("customer") or {}).get("name") or "").strip()
+                item_id = str(node.get("id") or "").strip()
+                if item_id and c_name.lower() == clean_target:
+                    r_det = httpx.post(
+                        "https://business.facebook.com/api/graphql/",
+                        headers={
+                            "Cookie": mbs_cookie,
+                            "Content-Type": "application/x-www-form-urlencoded",
+                            "Origin": "https://business.facebook.com",
+                        },
+                        data={
+                            "fb_dtsg": mbs_dtsg,
+                            "fb_api_req_friendly_name": "BizWebCometBankSlipDetailsViewContainerQuery",
+                            "variables": json.dumps({"pageID": page_id, "paymentHubItemID": item_id}),
+                            "doc_id": "30122875277303462",
+                        },
+                        timeout=12.0,
+                    )
+                    det_item = (((r_det.json() or {}).get("data") or {}).get("page") or {}).get("payment_hub_item") or {}
+                    slip_url = str(det_item.get("bank_slip_image_url") or "").strip()
+                    if slip_url:
+                        ok, _ = verify_image_is_payment_slip(image_url=slip_url)
+                        if ok:
+                            return slip_url
+        except Exception as exc:
+            logger.warning("Live MBS bank_slips GraphQL lookup warning for %s: %s", customer_name, exc)
+
+    # 2. Check synced MBS bank_slips cache (`mbs_bank_slips_cache.json`)
+    if os.path.exists(MBS_SLIPS_CACHE_PATH):
+        try:
+            with open(MBS_SLIPS_CACHE_PATH, "r", encoding="utf-8") as f:
+                cache_data = json.load(f)
+            items = cache_data.get("items") or []
+            for item in items:
+                c_name = str(item.get("customer_name") or "").strip().lower()
+                slip_url = str(item.get("bank_slip_image_url") or "").strip()
+                if c_name == clean_target and slip_url:
+                    ok, _ = verify_image_is_payment_slip(image_url=slip_url)
+                    if ok:
+                        return slip_url
+        except Exception as exc:
+            logger.warning("Failed reading MBS slips cache for %s: %s", customer_name, exc)
+
+    return ""
+
+
+def _fetch_fb_thread_messages_and_slip(
+    external_user_id: str,
+    brand_id: str = "buksukjai",
+    customer_name: str = "",
+) -> tuple[list[dict[str, str]], str]:
+    """Query Facebook Graph API for a specific customer's CURRENT inquiry messages and verified slip image URL,
+    with automatic fallback to Meta Business Suite `สลิปธนาคาร` (`bank_slips`) when Facebook hides Transfer Request slips.
+    """
     fb_msgs: list[dict[str, str]] = []
     latest_slip = ""
     try:
@@ -1705,10 +1858,19 @@ def _fetch_fb_thread_messages_and_slip(external_user_id: str, brand_id: str = "b
         data = (r.json() or {}).get("data") or []
         if not data:
             return fb_msgs, latest_slip
+        if not customer_name:
+            for p in (data[0].get("participants") or {}).get("data") or []:
+                if str(p.get("id") or "") == str(external_user_id):
+                    customer_name = str(p.get("name") or "").strip()
+                    break
         all_chron_messages = list(reversed(data[0].get("messages", {}).get("data", [])))
         raw_messages = _slice_to_current_inquiry_fb(all_chron_messages)
         seen_payment_context = any(
-            re.search(r"(#BUY|ชำระเงิน\s*:\s*โอน|โอนเงิน|โอนแล้ว|แจ้งสลิป|304-407545-5|3044075455)", str(m.get("message") or ""))
+            re.search(
+                r"(#BUY|ชำระเงิน\s*:\s*โอน|โอนเงิน|โอนแล้ว|แจ้งสลิป|304-407545-5|3044075455|transfer request|ส่งการชำระเงิน)",
+                str(m.get("message") or ""),
+                re.I,
+            )
             for m in raw_messages
         )
         total_msgs = len(raw_messages)
@@ -1719,8 +1881,9 @@ def _fetch_fb_thread_messages_and_slip(external_user_id: str, brand_id: str = "b
             if txt:
                 fb_msgs.append({"role": role, "content": txt})
                 if re.search(
-                    r"(304-407545-5|3044075455|ดิจิสท์|เลขบัญชี|ยอดชำระ|ยอดรวมทั้งหมด|โอนแล้วแจ้งสลิป|ยอดโอน|โอนเงิน)",
+                    r"(304-407545-5|3044075455|ดิจิสท์|เลขบัญชี|ยอดชำระ|ยอดรวมทั้งหมด|โอนแล้วแจ้งสลิป|ยอดโอน|โอนเงิน|transfer request)",
                     txt,
+                    re.I,
                 ):
                     seen_payment_context = True
             if role == "user":
@@ -1737,6 +1900,12 @@ def _fetch_fb_thread_messages_and_slip(external_user_id: str, brand_id: str = "b
                         if ok:
                             latest_slip = url
                             fb_msgs.append({"role": "user", "content": f"[IMAGE:{url}]"})
+        # Auto-recover hidden slip from MBS `สลิปธนาคาร` (`bank_slips`) when attached via Messenger Transfer Request
+        if not latest_slip and seen_payment_context and customer_name:
+            mbs_slip = fetch_mbs_bank_slip_for_customer(customer_name, page_id=page_id)
+            if mbs_slip:
+                latest_slip = mbs_slip
+                fb_msgs.append({"role": "user", "content": f"[IMAGE:{mbs_slip}]"})
     except Exception as exc:
         logger.warning("Failed to fetch FB thread for %s: %s", external_user_id, exc)
     return fb_msgs, latest_slip
@@ -1859,7 +2028,11 @@ def extract_order_from_session(psid: str) -> dict[str, Any]:
     msgs: list[dict[str, str]] = []
 
     if platform == "facebook" and external_user_id and not external_user_id.startswith("FB_"):
-        fb_msgs, fb_slip_url = _fetch_fb_thread_messages_and_slip(external_user_id, brand_id=brand_id)
+        fb_msgs, fb_slip_url = _fetch_fb_thread_messages_and_slip(
+            external_user_id,
+            brand_id=brand_id,
+            customer_name=customer_name,
+        )
         if fb_msgs:
             # Use the current-inquiry-sliced FB thread as authoritative so old orders from weeks ago never leak in
             msgs = list(fb_msgs)
@@ -2028,11 +2201,12 @@ def extract_order_from_session(psid: str) -> dict[str, Any]:
             ):
                 cod_confirmed = True
 
-    # 7. Determine SKU, qty, unit_price, freight from current inquiry ONLY (never default to old session SKU)
+    # 7. Determine SKU, qty, unit_price, freight, extra_items from current inquiry ONLY (never default to old session SKU)
     sku_id = ""
     qty = 1
     unit_price: float | None = None
     freight = 0.0
+    extra_items: list[dict[str, Any]] = []
 
     buy_tags = re.findall(r"#\s*BUY\s*(\d+)", full_text, re.I)
     total_hint = int(buy_tags[-1]) if buy_tags else 0
@@ -2045,49 +2219,55 @@ def extract_order_from_session(psid: str) -> dict[str, Any]:
         if ym:
             total_hint = int(ym[-1])
 
-    # Parse explicit size from latest_summary if available
+    def _parse_single_size_token(token_str: str) -> tuple[str, int, float]:
+        s = re.sub(r"\s+", "", token_str.lower())
+        if "3kg" in s or "3แถม3" in s:
+            return "BSJ1KG3_60G3", 1, 1299.0
+        if "2kg" in s or "2แถม2" in s:
+            return "BSJ1KG2_60G2", 1, 899.0
+        m60 = re.search(r"60g(?:\*|x|×)?(\d+)(?:ถุง|ซอง|ชอง|ชุด)?", s)
+        if m60:
+            nb = int(m60.group(1))
+            if nb == 20:
+                return "BSJ60G20", 1, 720.0
+            if nb == 15:
+                return "BSJ60G15", 1, 555.0
+            if nb == 10:
+                return "BSJ60G10", 1, 390.0
+            if nb == 30:
+                return "BSJ60G10", 3, 370.0
+            if nb == 5:
+                return "BSJ60G5", 1, (195.0 if total_hint in (195, 225, 265) else 199.0)
+            if nb == 3:
+                return "BSJ60G3", 1, float(total_hint or 140)
+            return "BSJ60G1", nb, 39.0
+        if "1kg" in s:
+            m1k = re.search(r"1kg(?:\*|x|×)?(\d+)(?:ถุง|ซอง|ชุด)?", s)
+            n1k = int(m1k.group(1)) if m1k else 1
+            return "BSJ1KG1", n1k, 459.0
+        if "500g" in s:
+            m500 = re.search(r"500g(?:\*|x|×)?(\d+)(?:ถุง|ซอง|ชุด)?", s)
+            n500 = int(m500.group(1)) if m500 else 1
+            return "BSJ500G1", n500, 239.0
+        return "", 1, 0.0
+
+    # Parse explicit size from latest_summary if available (supports multi-SKU comma-separated sizes like '1kg,60g20ถุง')
     if latest_summary:
         size_m = re.search(r"ขนาด\s*:\s*([^\n|]+)", latest_summary, re.I)
         if size_m:
-            sz = re.sub(r"\s+", "", size_m.group(1).lower())
-            if "3kg" in sz or "3แถม3" in sz:
-                sku_id, qty, unit_price = "BSJ1KG3_60G3", 1, 1299.0
-                freight = float(max(0, total_hint - 1299)) if total_hint >= 1299 else 0.0
-            elif "2kg" in sz or "2แถม2" in sz:
-                sku_id, qty, unit_price = "BSJ1KG2_60G2", 1, 899.0
-                freight = float(max(0, total_hint - 899)) if total_hint >= 899 else 0.0
-            elif re.search(r"60g(?:\*|x|×)?(\d+)(?:ถุง|ซอง|ชอง|ชุด)?", sz):
-                n_bags = int(re.search(r"60g(?:\*|x|×)?(\d+)(?:ถุง|ซอง|ชอง|ชุด)?", sz).group(1))
-                if n_bags == 20:
-                    sku_id, qty, unit_price = "BSJ60G20", 1, 720.0
-                    freight = float(max(0, total_hint - 720)) if total_hint >= 720 else 0.0
-                elif n_bags == 15:
-                    sku_id, qty, unit_price = "BSJ60G15", 1, 555.0
-                    freight = float(max(0, total_hint - 555)) if total_hint >= 555 else 0.0
-                elif n_bags == 10:
-                    sku_id, qty, unit_price = "BSJ60G10", 1, 390.0
-                    freight = float(max(0, total_hint - 390)) if total_hint >= 390 else 0.0
-                elif n_bags == 30:
-                    sku_id, qty, unit_price = "BSJ60G10", 3, 370.0
-                    freight = float(max(0, total_hint - 1110)) if total_hint >= 1110 else 0.0
-                elif n_bags == 5:
-                    sku_id, qty, unit_price = "BSJ60G5", 1, (195.0 if total_hint in (195, 225, 265) else 199.0)
-                    freight = float(max(0, total_hint - unit_price)) if total_hint > unit_price else 0.0
-                elif n_bags == 3:
-                    sku_id, qty, unit_price, freight = "BSJ60G3", 1, float(total_hint or 140), 0.0
-                else:
-                    sku_id, qty, unit_price = "BSJ60G1", n_bags, 39.0
-                    freight = float(max(0, total_hint - 39 * n_bags)) if total_hint >= 39 * n_bags else 0.0
-            elif "1kg" in sz:
-                m1k = re.search(r"1kg(?:\*|x|×)?(\d+)(?:ถุง|ซอง|ชุด)?", sz)
-                n1k = int(m1k.group(1)) if m1k else 1
-                sku_id, qty, unit_price = "BSJ1KG1", n1k, 459.0
-                freight = float(max(0, total_hint - 459 * n1k)) if total_hint >= 459 * n1k else 0.0
-            elif "500g" in sz:
-                m500 = re.search(r"500g(?:\*|x|×)?(\d+)(?:ถุง|ซอง|ชุด)?", sz)
-                n500 = int(m500.group(1)) if m500 else 1
-                sku_id, qty, unit_price = "BSJ500G1", n500, 239.0
-                freight = float(max(0, total_hint - 239 * n500)) if total_hint >= 239 * n500 else 0.0
+            raw_size_line = size_m.group(1).strip()
+            parts = [p.strip() for p in re.split(r"[,+]", raw_size_line) if p.strip()]
+            parsed_parts: list[tuple[str, int, float]] = []
+            for pt in parts:
+                p_sku, p_qty, p_unit = _parse_single_size_token(pt)
+                if p_sku:
+                    parsed_parts.append((p_sku, p_qty, p_unit))
+            if parsed_parts:
+                sku_id, qty, unit_price = parsed_parts[0]
+                for ex_sku, ex_qty, ex_unit in parsed_parts[1:]:
+                    extra_items.append({"sku_id": ex_sku, "qty": ex_qty, "unit_price": ex_unit})
+                items_sum = sum(q * u for _, q, u in parsed_parts)
+                freight = float(max(0.0, total_hint - items_sum)) if total_hint >= items_sum else 0.0
 
     if not sku_id and total_hint:
         if total_hint == 225:
@@ -2181,8 +2361,18 @@ def extract_order_from_session(psid: str) -> dict[str, Any]:
 
     sku_meta = KNOWN_SKUS.get(sku_id, {})
     effective_unit_price = float(unit_price if unit_price is not None else sku_meta.get("price", 0.0))
-    total_amount = round(effective_unit_price * int(qty) + float(freight), 2) if sku_id else 0.0
+    extra_amount = sum(
+        float(ex.get("unit_price") or KNOWN_SKUS.get(ex.get("sku_id", ""), {}).get("price", 0.0)) * int(ex.get("qty") or 1)
+        for ex in extra_items
+    )
+    total_amount = round(effective_unit_price * int(qty) + extra_amount + float(freight), 2) if sku_id else 0.0
     item_name = sku_meta.get("propertyShortName") or sku_meta.get("name") or sku_id or "ยังไม่ระบุสินค้า"
+    if extra_items:
+        ex_labels = [
+            KNOWN_SKUS.get(ex.get("sku_id", ""), {}).get("propertyShortName") or str(ex.get("sku_id"))
+            for ex in extra_items
+        ]
+        item_name = f"{item_name} + {' + '.join(ex_labels)}"
     transfer_bank_label = "โอนเงิน (กสิกรไทย 989-2-13624-3)" if brand_id == "mrbuk" else "โอนเงิน (SCB 304-407545-5)"
     payment_label = (
         "เก็บเงินปลายทาง (COD)"
@@ -2201,6 +2391,7 @@ def extract_order_from_session(psid: str) -> dict[str, Any]:
         "item_name": item_name,
         "qty": qty,
         "unit_price": unit_price,
+        "extra_items": extra_items,
         "freight": freight,
         "total_amount": total_amount,
         "is_cod": bool(is_cod),
@@ -2284,6 +2475,7 @@ def sync_session_to_jst(
         explicit_address_fields=data.get("explicit_address_fields"),
         seller_remark=data.get("seller_remark", f"FB: {data.get('customer_name', '')}"),
         force_create=force_create,
+        extra_items=data.get("extra_items"),
     )
 
     if res.get("status") == "created":
