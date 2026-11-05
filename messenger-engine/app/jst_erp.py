@@ -826,11 +826,26 @@ def verify_and_auto_confirm_jst_slips(limit: int = 50) -> dict[str, Any]:
         oid = str(d.get("OrderId") or "").strip()
         if not oid or oid in cancelled_oids or d.get("IsCod"):
             continue
+
+        # ขอออเดอร์จากแพลตฟอร์ม Marketplace (Shopee / TikTok / Lazada) ที่ลูกค้าจ่ายผ่านระบบแพลตฟอร์มโดยตรง (ชื่อติดดอกจัน ป******ล)
+        # จะไม่ใช้สลิปโอนเงินจากแชท จึงต้องข้ามไม่นำมาตรวจสลิปธนาคารค่ะ
+        shop_id_str = str(d.get("ShopId") or "").strip()
+        platform_from = str(d.get("PlatformId") or d.get("OrderFrom") or d.get("ShopType") or "").lower()
+        payment_method_row = str(d.get("Payment") or d.get("SettlementMethodDisplay") or "").lower()
+        if (
+            shop_id_str == str(JST_SHOP_ID_SHOPEE)
+            or any(mp in platform_from for mp in ("shopee", "tiktok", "lazada"))
+            or any(pm in payment_method_row for pm in ("credit card", "debit card", "shopeepay", "spaylater", "truemoney"))
+        ):
+            continue
+
         status_disp = str(d.get("StatusDisplay") or "")
         mach_status = str(d.get("MachineAuditStatus") or "")
         mach_msg = str(d.get("MachineAuditMessage") or "")
         rec_name = str(d.get("ReceiverName") or "ลูกค้า").strip()
         rec_phone = normalize_thai_phone(str(d.get("ReceiverMobileEn") or d.get("ReceiverPhoneEn") or ""))
+        order_time_str = str(d.get("OrderTime") or "").strip()
+        seller_remark_row = str(d.get("SellerRemark") or "").strip()
 
         # Check orders that failed MachineAudit or are waiting for payment confirmation
         if mach_status != "Fail" and "รอตรวจสอบ" not in status_disp and "WaitConfirm" not in str(d.get("StatusCode") or ""):
@@ -843,17 +858,46 @@ def verify_and_auto_confirm_jst_slips(limit: int = 50) -> dict[str, Any]:
             timeout=15.0,
         )
         det = (r_det.json() or {}).get("data") or {}
+
+        # Double-check inside GetOrderDetail to skip Shopee/TikTok/Platform orders (where name is masked with ***)
+        det_from = str(det.get("orderFrom") or det.get("platformId") or "").lower()
+        det_shop_id = str(det.get("shopId") or "").strip()
+        if (
+            det.get("isPlatformDownload")
+            or det_shop_id == str(JST_SHOP_ID_SHOPEE)
+            or any(mp in det_from for mp in ("shopee", "tiktok", "lazada"))
+        ):
+            continue
+
+        det_remark = str(det.get("sellerRemark") or seller_remark_row or "").strip()
+        det_cust_name = str(det.get("customerName") or "").strip()
+        det_order_time = str(det.get("createdDisplay") or det.get("createdTime") or order_time_str).strip()
+        det_items = det.get("orderItems") or []
+        sku_desc = ", ".join(
+            f"{it.get('skuId') or it.get('name')} x{it.get('totalQty') or 1}" for it in det_items if isinstance(it, dict)
+        )
+        origin_trace = det_remark or (f"ลูกค้าแชท: {det_cust_name}" if det_cust_name else "ออเดอร์คีย์ผ่านระบบแชทเพจ")
+
         pays = det.get("pays") or []
         if not pays:
             rejected.append({
                 "order_id": oid,
                 "receiver_name": rec_name,
                 "receiver_phone": rec_phone,
+                "origin_trace": origin_trace,
+                "order_time": det_order_time,
+                "sku_desc": sku_desc,
                 "reason": "ไม่มีข้อมูลสลิปในระบบ (pays ว่าง หรือยังไม่ได้แนบสลิปค่ะ)",
             })
             continue
 
         latest_pay = pays[0]
+        pay_service = str(latest_pay.get("serviceProviderId") or latest_pay.get("payment") or "").lower()
+        if any(mp in pay_service for mp in ("shopee", "tiktok", "lazada", "credit card", "debit card")):
+            continue
+        if str(latest_pay.get("auditStatus") or "") == "Pass" and mach_status != "Fail":
+            continue
+
         ref_id = str(latest_pay.get("platformPayId") or "").strip()
         qr_amt = float(latest_pay.get("qrCodeAmount") or 0.0)
         order_amt = float(d.get("PayAmount") or latest_pay.get("amount") or 0.0)
@@ -872,6 +916,9 @@ def verify_and_auto_confirm_jst_slips(limit: int = 50) -> dict[str, Any]:
                 "order_id": oid,
                 "receiver_name": rec_name,
                 "receiver_phone": rec_phone,
+                "origin_trace": origin_trace,
+                "order_time": det_order_time,
+                "sku_desc": sku_desc,
                 "order_amount": order_amt,
                 "reason": "ไม่พบรหัสอ้างอิง QR Code บนสลิป (อาจเป็นภาพแคปหน้าจอก่อนกดยืนยันโอน หรือไม่ใช่สลิปจริงค่ะ)",
             })
@@ -884,6 +931,9 @@ def verify_and_auto_confirm_jst_slips(limit: int = 50) -> dict[str, Any]:
                 "order_id": oid,
                 "receiver_name": rec_name,
                 "receiver_phone": rec_phone,
+                "origin_trace": origin_trace,
+                "order_time": det_order_time,
+                "sku_desc": sku_desc,
                 "order_amount": order_amt,
                 "platformPayId": ref_id,
                 "reason": f"ชื่อบัญชีหรือเลขบัญชีผู้รับบนสลิปไม่ตรงกับบัญชีบริษัท ({audit_msg})",
@@ -897,6 +947,9 @@ def verify_and_auto_confirm_jst_slips(limit: int = 50) -> dict[str, Any]:
                     "order_id": oid,
                     "receiver_name": rec_name,
                     "receiver_phone": rec_phone,
+                    "origin_trace": origin_trace,
+                    "order_time": det_order_time,
+                    "sku_desc": sku_desc,
                     "order_amount": order_amt,
                     "platformPayId": ref_id,
                     "reason": f"บัญชีผู้รับเงิน ({receive_acc}) ไม่ตรงกับบัญชี บจก. ดิจิสท์ ฮับ (ลงท้าย 7545-5) ค่ะ",
@@ -910,6 +963,9 @@ def verify_and_auto_confirm_jst_slips(limit: int = 50) -> dict[str, Any]:
                     "order_id": oid,
                     "receiver_name": rec_name,
                     "receiver_phone": rec_phone,
+                    "origin_trace": origin_trace,
+                    "order_time": det_order_time,
+                    "sku_desc": sku_desc,
                     "order_amount": order_amt,
                     "qr_amount": qr_amt,
                     "reason": f"ยอดเงินโอนในสลิป ({qr_amt:,.2f} บาท) ไม่ตรงกับยอดออเดอร์ ({order_amt:,.2f} บาท) ค่ะ",
@@ -928,6 +984,9 @@ def verify_and_auto_confirm_jst_slips(limit: int = 50) -> dict[str, Any]:
                         "order_id": oid,
                         "receiver_name": rec_name,
                         "receiver_phone": rec_phone,
+                        "origin_trace": origin_trace,
+                        "order_time": det_order_time,
+                        "sku_desc": sku_desc,
                         "order_amount": order_amt,
                         "qr_amount": qr_amt,
                         "platformPayId": ref_id,

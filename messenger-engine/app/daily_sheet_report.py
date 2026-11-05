@@ -1642,10 +1642,22 @@ def send_slip_issue_alert_to_line_groups(rejected_slips: list[dict[str, Any]]) -
         oid = item.get("order_id") or "-"
         r_name = item.get("receiver_name") or "ลูกค้า"
         r_ph = item.get("receiver_phone") or "-"
+        origin_trace = item.get("origin_trace") or "ออเดอร์แชทเพจ"
+        order_time = item.get("order_time") or "-"
+        sku_desc = item.get("sku_desc") or "-"
+        order_amt = item.get("order_amount")
+        amt_txt = f" | ยอด {float(order_amt):,.0f} บาท" if order_amt else ""
         reason = item.get("reason") or "สลิปไม่ผ่านเกณฑ์ตรวจสอบ"
-        lines.append(f"{idx}. ออเดอร์ #{oid} — คุณ{r_name} ({r_ph})\n   ⚠️ สาเหตุ: {reason}")
+        lines.append(
+            f"{idx}. ใบสั่งซื้อ JST #{oid} — คุณ{r_name} (โทร: {r_ph})\n"
+            f"   📍 ต้นตอแชท: {origin_trace}\n"
+            f"   🕒 เวลาสั่ง: {order_time} | สินค้า: {sku_desc}{amt_txt}\n"
+            f"   ⚠️ สาเหตุ: {reason}"
+        )
     lines.append("━━━━━━━━━━━━━━━")
-    lines.append("🔒 ระบบยังไม่กดอนุมัติสลิปให้อัตโนมัติ รบกวนพี่แอดมินตรวจสอบสลิปใน JST ERP อีกครั้งนะคะ 🙏💚")
+    lines.append(
+        "🔎 วิธีหาต้นตอทันที: ค้นหาเลขใบสั่งซื้อ (#OrderId) ในหน้าคำสั่งซื้อ JST ERP หรือค้นหาชื่อเฟซบุ๊กจากบรรทัด 'ต้นตอแชท' ใน Inbox เพจได้เลยค่ะ 🙏💚"
+    )
     alert_text = "\n".join(lines)
 
     cfg = load_line_group_config()
