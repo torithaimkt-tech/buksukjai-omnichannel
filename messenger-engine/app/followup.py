@@ -951,6 +951,10 @@ async def followup_loop(config: dict, public_base_url_getter=None) -> None:
                 now = datetime.now(timezone.utc)
                 completed_users = database.get_completed_sessions_for_after_sales()
                 for u in completed_users:
+                    # NEVER send "ได้รับพัสดุหรือยังคะ" unless the order is verified in JST ERP / tracking!
+                    notes_str = u.notes or ""
+                    if not any(k in notes_str for k in ("#JST_ORDER:", "JST ERP:", "#TRACK_")):
+                        continue
                     paid_at = u.purchased_at or u.last_interaction_time
                     if not paid_at:
                         continue

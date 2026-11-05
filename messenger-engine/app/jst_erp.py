@@ -342,7 +342,7 @@ def check_jst_cookie_health(alert_line_on_expired: bool = True) -> dict[str, Any
     h["Origin"] = "https://asia.jsterp.com"
     h["Referer"] = "https://asia.jsterp.com/Wms/Inventory/SkuInventory"
     try:
-        # 1. Sliding session keep-alive ping on Account endpoint
+        # 1. Sliding session keep-alive ping on Account endpoint AND asia-web Order endpoint
         try:
             auth_resp = httpx.get(
                 "https://asia.jsterp.com/Account/Shop/GetAuthorizeData",
@@ -352,6 +352,22 @@ def check_jst_cookie_health(alert_line_on_expired: bool = True) -> dict[str, Any
             )
             update_cookie_from_response(auth_resp)
             h["Cookie"] = get_jst_cookie()
+            web_h = _headers(json_body=True)
+            web_resp = httpx.post(
+                "https://asia-web.jsterp.com/MiniShop/Recipient/Address/AddresseeRecognition",
+                headers=web_h,
+                json={"addressTxt": "กรุงเทพ 10110"},
+                timeout=10.0,
+                follow_redirects=False,
+            )
+            update_cookie_from_response(web_resp)
+            h["Cookie"] = get_jst_cookie()
+            if web_resp.status_code in (301, 302, 401, 403):
+                reason = f"HTTP {web_resp.status_code} on asia-web.jsterp.com (u_cid expired)"
+                if alert_line_on_expired:
+                    from . import daily_sheet_report
+                    daily_sheet_report.send_jst_cookie_expired_alert_to_line_groups(reason)
+                return {"status": "expired", "reason": reason}
         except Exception:
             pass
 
@@ -1096,14 +1112,18 @@ def recognize_and_clean_address(
         if not re.search(r"(ตำบล|อำเภอ|จังหวัด|แขวง|เขต|ถนน|ซอย|หมู่)", cand):
             trailing_name_hint = cand
 
-    resp = httpx.post(
-        "https://asia-web.jsterp.com/MiniShop/Recipient/Address/AddresseeRecognition",
-        headers=_headers(json_body=True),
-        json={"addressTxt": cleaned_input},
-        timeout=15.0,
-    )
-    resp.raise_for_status()
-    rec = (resp.json() or {}).get("data") or {}
+    rec: dict[str, Any] = {}
+    try:
+        resp = httpx.post(
+            "https://asia-web.jsterp.com/MiniShop/Recipient/Address/AddresseeRecognition",
+            headers=_headers(json_body=True),
+            json={"addressTxt": cleaned_input},
+            timeout=15.0,
+        )
+        if resp.status_code == 200:
+            rec = (resp.json() or {}).get("data") or {}
+    except Exception as exc:
+        logger.warning("AddresseeRecognition fallback to local regex parser: %s", exc)
 
     province = (rec.get("receiverProvince") or "").strip()
     city = (rec.get("receiverCity") or "").strip()
@@ -1113,6 +1133,15 @@ def recognize_and_clean_address(
 
     rec_name = (rec.get("receiverFirstName") or "").strip()
     rec_detail = (rec.get("receiverAddress") or "").strip()
+    if not rec_name and not rec_detail:
+        lines_in = [ln.strip() for ln in (raw_address or "").splitlines() if ln.strip()]
+        if lines_in and not re.search(r"\d", lines_in[0]):
+            rec_name = lines_in[0]
+            rec_detail = " ".join(lines_in[1:])
+        else:
+            rec_detail = cleaned_input
+    if not province and ("กรุงเทพ" in cleaned_input or "กทม" in cleaned_input):
+        province = "กรุงเทพ"
 
     # Fallback subdistrict/city/province extraction if AddresseeRecognition missed them
     if not district:
@@ -1635,7 +1664,12 @@ def _slice_to_current_inquiry_fb(raw_messages: list[dict[str, Any]]) -> list[dic
             except Exception:
                 msg_dt = None
         if prev_dt and msg_dt and (msg_dt - prev_dt).total_seconds() > 72 * 3600:
-            current_start_idx = idx
+            tail_txt = "\n".join(str(x.get("message") or "") for x in raw_messages[idx:])
+            if (
+                any(k in tail_txt for k in ("จัดส่ง :", "จัดส่ง:", "#BUY", "ตอบกลับโฆษณา"))
+                or re.search(r"0[689]\d{8}", re.sub(r"\D", "", tail_txt))
+            ):
+                current_start_idx = idx
         elif idx > 0 and any(bm in txt for bm in boundary_markers):
             # If the message immediately preceding 'ตอบกลับโฆษณา' was sent within 120 seconds, include it too
             if prev_dt and msg_dt and abs((msg_dt - prev_dt).total_seconds()) <= 120:
