@@ -928,10 +928,32 @@ class LLMEngine:
                 needs_human = bool(data.get("needs_human", False))
                 esc_reason = str(data.get("escalation_reason") or "").strip()
                 out_state = str(data.get("state") or current_state)
-                if active_brand in ("buksukjai", "mrbuk") and is_history_bank_transfer_request(history):
+                last_user_txt = (history[-1].get("content") or "").strip() if history else ""
+                is_address_or_slip_turn = any(
+                    kw in last_user_txt or kw in esc_reason
+                    for kw in (
+                        "ส่งการชำระเงิน",
+                        "ตรวจสอบความถูกต้องของสลิป",
+                        "แนบสลิป",
+                        "สลิป",
+                        "ที่อยู่",
+                        "จ.",
+                        "จังหวัด",
+                        "ต.",
+                        "อ.",
+                        "เขต",
+                        "แขวง",
+                    )
+                ) or bool(re.search(r"\b\d{5}\b|\b0[689]\d[\d\s\-]{7,9}\b", last_user_txt))
+                if active_brand in ("buksukjai", "mrbuk") and (
+                    is_history_bank_transfer_request(history) or is_address_or_slip_turn
+                ):
                     needs_human = False
                     esc_reason = ""
-                    out_state = "pending_payment"
+                    if is_history_bank_transfer_request(history):
+                        out_state = "pending_payment"
+                    if "ขอบพระคุณสำหรับคำถามนะคะ" in str(data.get("reply") or ""):
+                        data["reply"] = "ขอบพระคุณมากค่ะคุณลูกค้า 🍚💚 น้องบุกได้รับข้อมูลและบันทึกที่อยู่จัดส่งเรียบร้อยแล้วนะคะ 🙏✨"
                 self.last_escalation = {
                     "needs_human": needs_human,
                     "escalation_reason": esc_reason or ("คำถามแปลกใหม่ / AI ไม่มั่นใจคำตอบ" if needs_human else ""),

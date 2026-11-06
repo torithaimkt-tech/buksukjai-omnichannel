@@ -802,6 +802,19 @@ async def auto_reply_unanswered_facebook_chats(
         if last_role != "user" and not is_comment_auto_stub:
             continue
 
+        # Do not jump in if a human admin is actively summarizing/closing the order in recent messages
+        recent_admin_texts = [
+            str(m.get("content") or "")
+            for m in msgs[-6:]
+            if m.get("role") in ("assistant", "admin")
+        ]
+        if any(
+            hm in txt
+            for txt in recent_admin_texts
+            for hm in ("น้องแอดมินสรุปยอดให้นะคะ", "แอดมินสรุปยอด", "เพจ : ข้าวบุก", "#BUY")
+        ):
+            continue
+
         sig = f"{psid}:{last_dt_str}:{last_content[:80]}"
         if sig in _AUTO_REPLIED_FB_SIGS:
             continue
