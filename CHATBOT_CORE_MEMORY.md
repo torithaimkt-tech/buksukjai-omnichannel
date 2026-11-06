@@ -1,5 +1,5 @@
 # 🧠 แกนกลางความจำระบบแชทบอท (Chatbot Core Memory & Master Status)
-**อัปเดตล่าสุด:** 2 พฤศจิกายน 2026 (เวลา 10:20 น.)
+**อัปเดตล่าสุด:** 6 พฤศจิกายน 2026 (เวลา 17:50 น.)
 
 เอกสารนี้คือ **แกนกลางความจำหลัก (Single Source of Truth)** ของระบบแชทบอททั้งหมดในโปรเจกต์ `D:\chat bot` (และ [`messenger-engine/CORE_SYSTEM_MEMORY.md`](file:///D:/chat%20bot/messenger-engine/CORE_SYSTEM_MEMORY.md)) เพื่อให้สามารถเปิดแชทใหม่และทำงานต่อได้ทันทีโดยไม่สูญเสียข้อมูลแม้จะลบแชทเดิมทิ้งค่ะ
 
@@ -204,14 +204,45 @@
   3. ตรวจสอบการทำงานของระบบแจ้งเลขพัสดุอัตโนมัติ 2 ระยะ (ตอนจัดส่งออก + ตอนพัสดุถึงมือลูกค้า) และการกด Reply ตอบเคส `[#Q...]` จากในกลุ่มสรุปยอด
 
 ### 🟣 ส่วนที่ 3: งานส่วนอื่นๆ ที่แยกออกมา (ไม่เกี่ยวกับกลุ่มคอมเมนต์ และไม่เกี่ยวกับกลุ่มสรุปยอด)
-* **ขอบเขต:** งานโครงสร้างเซิร์ฟเวอร์ Cloud (Render), ระบบจัดการโฟลว์ n8n, และการขยายบอทไปยังแบรนด์อื่น / ฝั่งเอเจนซี่ Tori Marketing
-* **ไฟล์ที่เกี่ยวข้อง:** `messenger-engine/n8n_workflows/*.json`, `render.yaml`, `pages.json`, `app/database.py`, `.env`
-* **งานที่ยังค้างและต้องทำต่อในส่วนนี้:**
-  1. **งานเซิร์ฟเวอร์ Render & ฐานข้อมูล Cloud:**
-     - กดเชื่อมบัญชี Render ฟรีของอีเมล `buksukjai@gmail.com` (`Bukrice's workspace`) เข้ากับ GitHub `torithaimkt-tech/buksukjai-omnichannel` (หรือซิงก์โค้ดล่าสุดเข้า GitHub ตัวที่เชื่อมกับ Render ปัจจุบัน)
-     - เชื่อมต่อฐานข้อมูลถาวร (เช่น PostgreSQL ฟรี หรือ Persistent Disk) เพื่อไม่ให้ประวัติแชทและกฎที่เพิ่งสอนถูกรีเซ็ตเวลาอัปเดตเซิร์ฟเวอร์ใหม่
-  2. **งานระบบ n8n (ภายใต้อีเมล `Tori Marketing`):**
-     - เปิดหน้ากระดาน n8n Self-Hosted (ฟรีไม่จำกัดโฟลว์) แล้วกด Import ไฟล์แม่แบบทั้ง 4 โฟลว์จากโฟลเดอร์ `D:\chat bot\messenger-engine\n8n_workflows\` ขึ้นกระดานจริง
-  3. **งานบอทตัวที่ 4 (แอดมินประสานงาน `Tori Marketing`) และแบรนด์อื่นๆ (`Mister Buk`, `PADA AI`, `AIFY`):**
-     - ผูก Channel Secret / Access Token และตั้งค่าคำสั่งประสานงานของบอทตัวที่ 4 (`4_torimarketing_admin_bot.json`)
-     - สร้างไฟล์ข้อมูลสินค้าแยกสำหรับ `config_pada.json`, `config_aify.json`, ตรวจทาน `config_mrbuk.json` และนำ Token จริงของทั้ง 3 แบรนด์มาใส่ใน `pages.json` พร้อมเติม `OPENAI_API_KEY` เป็นสมองสำรองเมื่อพร้อมค่ะ
+* **ขอบเขต:** งานโครงสร้างเซิร์ฟเวอร์ Cloud (Render), ระบบจัดการโฟลว์ n8n, และการขยายบอทไปยังแบรนด์อื่นในฝั่งบริษัท ดิจิสท์ ฮับ / เอเจนซี่ Tori Marketing
+* **ไฟล์ที่เกี่ยวข้อง:** `messenger-engine/n8n_workflows/*.json`, `render.yaml`, `pages.json`, `app/database.py`, `db_persistent_snapshot.json`, `.env`
+* **สิ่งที่ทำเสร็จสมบูรณ์แล้วเมื่อวันที่ 4–6 พ.ย. 2026 (Completed 100%):**
+  1. **✅ ผูกบัญชี GitHub `torithaimkt-tech` แยกบริษัทถาวร & ส่งโค้ดทั้ง 77 Commits (`0a20b98`) ขึ้น Render สำเร็จแล้ว:**
+     - ตั้งค่า `git config --global credential.https://github.com.useHttpPath true` และล็อกอินบัญชี `torithaimkt-tech` ใน Git Credential Manager เรียบร้อยแล้ว
+     - ส่งโค้ดชุดล่าสุดขึ้น `https://github.com/torithaimkt-tech/buksukjai-omnichannel.git` และอัปเดตเซิร์ฟเวอร์จริง `https://buksukjai-omnichannel.onrender.com` สำเร็จ 100%
+  2. **✅ ระบบสำรองความจำแชทถาวรครบทุกช่องทาง 0 บาท (`/api/db/status`):**
+     - อัปเกรด `save_persistent_snapshot()` และ `restore_persistent_snapshot_if_needed()` ใน [`app/database.py`](file:///D:/chat%20bot/messenger-engine/app/database.py) ให้จำครบทั้ง Facebook + LINE OA + LINE Group (รวม 183 ห้องแชท, 2,451 ข้อความ, และแต้มสะสม Loyalty) กู้คืนอัตโนมัติทันทีที่เซิร์ฟเวอร์ Render รีสตาร์ท
+  3. **✅ ระบบต่ออายุคุกกี้ JST ERP อัตโนมัติ (`/api/jst/config`) & รายงานตรวจสุขภาพระบบทุกเช้า 07:00 น.:**
+     - เพิ่ม Sliding Cookie Renewal ใน [`app/jst_erp.py`](file:///D:/chat%20bot/messenger-engine/app/jst_erp.py) และเพิ่มบล็อก **`🩺 เช็กสุขภาพระบบเช้านี้ (System Health Check)`** ต่อท้ายรายงานสรุปยอด 07:00 น. ใน [`app/daily_sheet_report.py`](file:///D:/chat%20bot/messenger-engine/app/daily_sheet_report.py)
+  4. **✅ กำแพงกั้นข้อมูลข้ามแบรนด์ 100% (`_resolve_brand_config_path()` & ด่าน `3.0 Hard Cross-Brand Isolation Wall`):**
+     - ล็อกให้แต่ละแบรนด์อ่านเฉพาะไฟล์ตั้งค่าของตัวเองใน [`app/prompt_engine.py`](file:///D:/chat%20bot/messenger-engine/app/prompt_engine.py) และ [`app/audit.py`](file:///D:/chat%20bot/messenger-engine/app/audit.py) ห้ามดึงโปรโมชันหรือเลขบัญชีของข้าวบุกสุขใจไปใช้เมื่อเปิดแบรนด์ใหม่เด็ดขาด
+  5. **✅ ย้ายไฟล์ประวัติแชทดิบ 3 เพจมาเก็บในโฟลเดอร์ของฝั่งดิจิสท์ ฮับเรียบร้อยแล้ว:**
+     - เก็บไว้ที่ `D:\buksukjai\chatbot-data\commentandmessage_3pages_raw` และ `D:\buksukjai\chatbot-data\customer_database_output_3pages`
+
+---
+
+## 6. เช็กลิสต์งานที่ยังค้างคาต้องทำต่อเนื่อง (Master Pending Checklist) & แม่แบบเปิดแบรนด์ใหม่ 6 ข้อ
+
+### 📋 เช็กลิสต์งานที่ต้องทำต่อเนื่อง (เรียงตามลำดับความสำคัญ)
+- [ ] **1. เปิดใช้งานบอทแบรนด์ที่ 2 — มิสเตอร์บุก (`mrbuk`):**
+  - นำ `MRBUK_LINE_CHANNEL_SECRET`, `MRBUK_LINE_CHANNEL_ACCESS_TOKEN` (`@305lhvvt`), `MRBUK_FB_PAGE_ID`, และ `MRBUK_FB_PAGE_ACCESS_TOKEN` มาใส่ใน `pages.json` / `.env` และเปลี่ยน `"active": true`
+  - อัปโหลดรูปตารางโปรโมชันจริงทั้ง 4 เซ็ตของมิสเตอร์บุกเข้าคลังรูปภาพบอท
+- [ ] **2. เชื่อมบอทแบรนด์ลูกค้าของ Tori Marketing คิวถัดไป:**
+  - **`LULUNA Almond Slice (luluna)`:** สร้าง `config_luluna.json` จากข้อมูลใน Skill `luluna-brand-specialist` และผูก Page Token / LINE Token
+  - **`PADA Group (pada)`:** ตรวจทาน `config_pada.json` (ครอบคลุม `PADA Academy`, `PADA GOLF`, `GAVY Marketing`) และผูก Token จริง (`@506xhsrj`)
+  - **`โซเพียว / โซมัส (sopure)` + `น้ำหนึ่ง หลานตาเพิ่ม`:** สร้าง `config_sopure.json` จากคลังความรู้ใน `D:\โซเพียว` เมื่อทีมงานพร้อมเปิดรับแชทอัตโนมัติ
+- [ ] **3. เปลี่ยนชื่อและรูปโปรไฟล์บอทส่งรีพอร์ต (`@934ndvfs`) และบอทโค้ช (`@346zyzej`) ใน `manager.line.biz`:**
+  - เปลี่ยนจากชื่อเดิม (`GENIUS POINT` / `Muzart พามู`) เป็นชื่อเฉพาะของระบบ เช่น `Daily Report Bot` / `AI Coach Bot` พร้อมอัปโหลดรูปโปรไฟล์ 1:1 ที่เตรียมคำสั่งไว้ในหมวดที่ 5.2
+- [ ] **4. ตรวจสอบยอดสรุป 07:00 น. และสลับ `AUTO_SYNC_ENABLED = True` เต็มรูปแบบเมื่อแอดมินคนหยุดคีย์มือ:**
+  - เช็กผลบล็อก `🩺 เช็กสุขภาพระบบเช้านี้` ในกลุ่ม LINE ทุกเช้า 07:00 น.
+- [ ] **5. (ทางเลือกเสริมบนหน้าเว็บควบคุม) เพิ่มปุ่ม `"🔀 ดูผัง Flow แบบโหนด"` บนแถบด้านบนของ `index.html`:**
+  - เพื่อให้กดดูผังเชื่อมโหนดและไฟล์เวิร์กโฟลว์ n8n ทั้ง 4 ตัวได้จากหน้าเว็บ `https://buksukjai-omnichannel.onrender.com/` โดยตรง
+
+### 📝 แม่แบบ 6 ข้อสำหรับสั่งเปิดแบรนด์ใหม่ครั้งต่อไป (Brand Onboarding Template)
+เมื่อคุณนัดต้องการเพิ่มแบรนด์ใหม่เข้าสู่ระบบ Flow ที่เสถียรแล้ว เพียงแจ้งข้อมูล 6 ข้อนี้ในแชทใหม่ได้เลยค่ะ:
+1. **ชื่อแบรนด์และรหัสแบรนด์ (`brand_id`):** เช่น `luluna`, `sopure`, `mrbuk`
+2. **รายการสินค้า ราคา โปรโมชัน และค่าจัดส่ง:** โอนส่งฟรีที่ยอดเท่าไหร่ / เก็บปลายทางบวกเพิ่มเท่าไหร่
+3. **เลขบัญชีธนาคารรับโอนของแบรนด์นั้น:** ชื่อธนาคาร เลขบัญชี และชื่อบัญชี (ระบบจะล็อกด่านตรวจห้ามหลุดเลขบัญชีอื่น 100%)
+4. **คำถามที่พบบ่อย (FAQ) 5–10 ข้อ:** เช่น วิธีทาน อายุการเก็บรักษา เลข อย. ลิงก์ Shopee/TikTok
+5. **รูปตารางโปรโมชันของแบรนด์นั้น:** สำหรับให้บอทส่งรูปอัตโนมัติเมื่อลูกค้าถามราคา
+6. **รหัสเพจและกุญแจเชื่อมต่อ (Page ID & Access Token):** ของ Facebook Page และ/หรือ LINE OA ของแบรนด์นั้นค่ะ
