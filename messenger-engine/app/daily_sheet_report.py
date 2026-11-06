@@ -516,6 +516,9 @@ def load_line_group_config() -> dict[str, Any]:
                     merged_rep.update(cfg.get("custom_replacements") or {})
                     merged_rep.update(db_coach["custom_replacements"])
                     cfg["custom_replacements"] = merged_rep
+                if db_coach.get("last_7am_report_date") and str(db_coach["last_7am_report_date"]) > str(cfg.get("last_7am_report_date") or ""):
+                    cfg["last_7am_report_date"] = db_coach["last_7am_report_date"]
+                    cfg["last_7am_sent_at"] = db_coach.get("last_7am_sent_at") or cfg.get("last_7am_sent_at")
     except Exception:
         pass
 
@@ -588,6 +591,8 @@ def save_line_group_config(cfg: dict[str, Any]) -> None:
             "learned_rules": cfg.get("learned_rules") or [],
             "learned_faq": cfg.get("learned_faq") or [],
             "custom_replacements": cfg.get("custom_replacements") or {},
+            "last_7am_report_date": cfg.get("last_7am_report_date") or "",
+            "last_7am_sent_at": cfg.get("last_7am_sent_at") or "",
         }
         database.update_session_meta(
             psid="system:ai_coach:config",
@@ -1167,12 +1172,13 @@ def format_line_group_daily_summary(report: dict[str, Any]) -> str:
 
 
 def should_run_daily_7am_line_report() -> tuple[bool, str]:
-    """Return `(True, yesterday_str)` if current Bangkok hour is >= 07:00, groups are registered,
-    and yesterday's 07:00 AM LINE group report hasn't been sent yet.
+    """Return `(True, yesterday_str)` ONLY during the 07:00–07:14 AM Bangkok window,
+    when groups are registered and yesterday's 07:00 AM LINE group report hasn't been sent yet.
+    Never fires at other hours when the server restarts or deploys.
     """
     now_bkk = datetime.now(BKK_TZ)
     yesterday_str = (now_bkk - timedelta(days=1)).strftime("%Y-%m-%d")
-    if now_bkk.hour < DAILY_LINE_GROUP_HOUR_BKK:
+    if now_bkk.hour != DAILY_LINE_GROUP_HOUR_BKK or now_bkk.minute >= 15:
         return False, yesterday_str
     cfg = load_line_group_config()
     if not cfg.get("groups"):
