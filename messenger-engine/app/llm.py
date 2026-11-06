@@ -954,6 +954,17 @@ class LLMEngine:
                         out_state = "pending_payment"
                     if "ขอบพระคุณสำหรับคำถามนะคะ" in str(data.get("reply") or ""):
                         data["reply"] = "ขอบพระคุณมากค่ะคุณลูกค้า 🍚💚 น้องบุกได้รับข้อมูลและบันทึกที่อยู่จัดส่งเรียบร้อยแล้วนะคะ 🙏✨"
+                elif active_brand in ("buksukjai", "mrbuk") and any(
+                    mk in last_user_txt or mk in esc_reason
+                    for mk in ("โรคประจำตัว", "ไตเสื่อม", "โรคไต")
+                ):
+                    needs_human = False
+                    esc_reason = ""
+                    if "ขอบพระคุณสำหรับคำถามนะคะ" in str(data.get("reply") or ""):
+                        data["reply"] = (
+                            "ข้าวบุกสุขใจทำจากบุกธรรมชาติ 59% ผสมข้าวหอมมะลิ 29% และน้ำ 12% ไม่ใส่สารกันบูดค่ะ "
+                            "แต่สำหรับผู้ที่มีภาวะไตเสื่อมหรือโรคประจำตัวเฉพาะทาง แนะนำปรึกษาแพทย์เพิ่มเติมก่อนทานนะคะ 🙏💚"
+                        )
                 self.last_escalation = {
                     "needs_human": needs_human,
                     "escalation_reason": esc_reason or ("คำถามแปลกใหม่ / AI ไม่มั่นใจคำตอบ" if needs_human else ""),

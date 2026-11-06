@@ -821,7 +821,10 @@ async def auto_reply_unanswered_facebook_chats(
 
         # Collect trailing consecutive user messages if customer sent multiple lines
         if is_comment_auto_stub:
-            trigger_text = "สนใจ ขอรายละเอียดโปรโมชั่นค่ะ"
+            import re as _re
+            m_q = _re.search(r"[“\"]([^”\"]+)[”\"]", last_content)
+            extracted_comment = m_q.group(1).strip() if m_q else ""
+            trigger_text = extracted_comment if extracted_comment else "สนใจ ขอรายละเอียดโปรโมชั่นค่ะ"
         else:
             trailing_user_lines: list[str] = []
             for m in reversed(msgs):
