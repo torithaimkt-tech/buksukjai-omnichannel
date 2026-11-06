@@ -103,7 +103,37 @@ def build_daily_sales_sheet_rows(target_date: str) -> dict[str, Any]:
         and "Cancel" not in str(x.get("Status") or "")
     ]
 
+    # Historical backlog orders keyed on a later morning whose true order date on Facebook/IG was earlier
+    _backlog_order_date_overrides: dict[str, str] = {
+        "241217": "2026-11-02",
+        "241232": "2026-11-02",
+        "241233": "2026-11-02",
+        "241234": "2026-11-02",
+        "241235": "2026-11-02",
+        "241236": "2026-11-02",
+        "241237": "2026-11-02",
+        "241238": "2026-11-02",
+        "241239": "2026-11-02",
+        "241240": "2026-11-02",
+        "241221": "2026-11-04",
+        "241223": "2026-11-04",
+        "241224": "2026-11-04",
+        "241225": "2026-11-04",
+        "241226": "2026-11-04",
+        "241227": "2026-11-04",
+        "241228": "2026-11-04",
+        "241229": "2026-11-04",
+        "241230": "2026-11-04",
+        "241231": "2026-11-04",
+        "241848": "2026-11-05",
+        "241849": "2026-11-05",
+        "241850": "2026-11-05",
+    }
+
     def _effective_order_date(row_item: dict[str, Any]) -> str:
+        oid = str(row_item.get("OrderId") or "").strip()
+        if oid in _backlog_order_date_overrides:
+            return _backlog_order_date_overrides[oid]
         rem = str(row_item.get("SellerRemark") or "")
         m_rem = re.search(r"ออเดอร์\s*(\d{4}-\d{2}-\d{2})", rem)
         if m_rem:
@@ -747,7 +777,6 @@ def fetch_facebook_buy_audit(target_date: str) -> dict[str, Any]:
 
         if day_buys:
             latest = day_buys[-1]
-            latest["has_user_slip"] = has_user_slip
             summary_str = str(latest.get("summary_text") or "")
             amt_int = int(round(float(latest["amount"])))
             is_cod_order = (
@@ -755,6 +784,10 @@ def fetch_facebook_buy_audit(target_date: str) -> dict[str, Any]:
                 or ("COD" in summary_str.upper())
                 or (amt_int in (157, 224, 265, 309, 460, 499, 595, 760, 939, 1339) and "โอน" not in summary_str)
             )
+            if not is_cod_order and not has_user_slip:
+                if jst_erp.fetch_mbs_bank_slip_for_customer(fb_name):
+                    has_user_slip = True
+            latest["has_user_slip"] = has_user_slip
             if len(day_buys) > 1:
                 earlier_tags = [f"#BUY{int(x['amount'])}" for x in day_buys[:-1]]
                 latest_tag = f"#BUY{int(latest['amount'])}"
@@ -1027,13 +1060,15 @@ def format_line_group_daily_summary(report: dict[str, Any]) -> str:
     raw_buy_cnt = int(fb_audit.get("raw_buy_count") or 0)
     raw_buy_tot = float(fb_audit.get("raw_buy_total") or 0.0)
     dedup_cnt = int(fb_audit.get("dedup_count") or 0)
+    fb_order_cnt = sum(1 for o in (report.get("orders") or []) if str(o.get("channel") or "") == "Facebook")
+    display_fb_cnt = max(dedup_cnt, fb_order_cnt)
 
     fb_line = f"• Facebook : {fb_amt:,.2f} บาท"
-    if dedup_cnt > 0:
+    if display_fb_cnt > 0:
         if not dups and not unpaid_list and abs(fb_amt - float(fb_audit.get("dedup_total") or 0.0)) < 1.0:
-            fb_line = f"• Facebook : {fb_amt:,.2f} บาท ({dedup_cnt} ออเดอร์ — ตรงกับชีท & ROI Tracking 100% ค่ะ)"
+            fb_line = f"• Facebook : {fb_amt:,.2f} บาท ({display_fb_cnt} ออเดอร์ — ตรงกับชีท & ROI Tracking 100% ค่ะ)"
         else:
-            fb_line = f"• Facebook : {fb_amt:,.2f} บาท ({dedup_cnt} ออเดอร์ยืนยันจัดส่งจริง)"
+            fb_line = f"• Facebook / IG : {fb_amt:,.2f} บาท ({display_fb_cnt} ออเดอร์ยืนยันจัดส่งจริง)"
 
     lines = [
         f"📊 สรุปยอดขายและตัดสต็อกประจำวันที่ {t_date}",

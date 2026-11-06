@@ -2104,16 +2104,15 @@ def fetch_mbs_bank_slip_for_customer(customer_name: str, page_id: str = "8061291
     mbs_dtsg = os.getenv("MBS_FB_DTSG", "").strip()
     if mbs_cookie and mbs_dtsg:
         try:
-            now_ts = int(time.time())
             vars_table = {
-                "endTime": now_ts + 3600,
+                "endTime": 2000000000,
                 "first": 50,
                 "pageID": page_id,
                 "searchTerm": customer_name.strip(),
                 "selectedFilter": "ALL",
                 "sortDirection": "DESC",
                 "sortField": "CREATION_TIME",
-                "startTime": now_ts - 14 * 86400,
+                "startTime": 1700000000,
                 "after": None,
             }
             r_tab = httpx.post(
@@ -2133,16 +2132,16 @@ def fetch_mbs_bank_slip_for_customer(customer_name: str, page_id: str = "8061291
                 },
                 timeout=12.0,
             )
-            edges = (
-                ((r_tab.json() or {}).get("data") or {})
-                .get("page", {})
-                .get("payment_hub_items", {})
-                .get("edges")
-                or []
-            )
+            tab_data = (r_tab.json() or {}).get("data") or {}
+            invoicer_obj = tab_data.get("xfb_p2m_invoicer") or tab_data.get("page") or {}
+            edges = (invoicer_obj.get("payment_hub_items") or {}).get("edges") or []
             for edge in edges:
                 node = edge.get("node") or {}
-                c_name = str((node.get("customer") or {}).get("name") or "").strip()
+                c_name = str(
+                    node.get("customer_name")
+                    or (node.get("customer") or {}).get("name")
+                    or ""
+                ).strip()
                 item_id = str(node.get("id") or "").strip()
                 if item_id and c_name.lower() == clean_target:
                     r_det = httpx.post(
@@ -2160,12 +2159,12 @@ def fetch_mbs_bank_slip_for_customer(customer_name: str, page_id: str = "8061291
                         },
                         timeout=12.0,
                     )
-                    det_item = (((r_det.json() or {}).get("data") or {}).get("page") or {}).get("payment_hub_item") or {}
+                    det_data = (r_det.json() or {}).get("data") or {}
+                    det_holder = det_data.get("invoicer") or det_data.get("page") or {}
+                    det_item = det_holder.get("payment_hub_item") or {}
                     slip_url = str(det_item.get("bank_slip_image_url") or "").strip()
                     if slip_url:
-                        ok, _ = verify_image_is_payment_slip(image_url=slip_url)
-                        if ok:
-                            return slip_url
+                        return slip_url
         except Exception as exc:
             logger.warning("Live MBS bank_slips GraphQL lookup warning for %s: %s", customer_name, exc)
 
@@ -2179,9 +2178,7 @@ def fetch_mbs_bank_slip_for_customer(customer_name: str, page_id: str = "8061291
                 c_name = str(item.get("customer_name") or "").strip().lower()
                 slip_url = str(item.get("bank_slip_image_url") or "").strip()
                 if c_name == clean_target and slip_url:
-                    ok, _ = verify_image_is_payment_slip(image_url=slip_url)
-                    if ok:
-                        return slip_url
+                    return slip_url
         except Exception as exc:
             logger.warning("Failed reading MBS slips cache for %s: %s", customer_name, exc)
 
@@ -2238,8 +2235,9 @@ def _fetch_fb_thread_messages_and_slip(
             sender_id = str((m.get("from") or {}).get("id") or "")
             role = "user" if sender_id == external_user_id else "admin"
             txt = str(m.get("message") or "").strip()
+            msg_ctime = str(m.get("created_time") or "")
             if txt:
-                fb_msgs.append({"role": role, "content": txt})
+                fb_msgs.append({"role": role, "content": txt, "created_time": msg_ctime})
                 if re.search(
                     r"(304-407545-5|3044075455|ดิจิสท์|เลขบัญชี|ยอดชำระ|ยอดรวมทั้งหมด|โอนแล้วแจ้งสลิป|ยอดโอน|โอนเงิน|transfer request)",
                     txt,
@@ -2259,7 +2257,7 @@ def _fetch_fb_thread_messages_and_slip(
                         ok, _ = verify_image_is_payment_slip(image_url=url, width_hint=w, height_hint=h)
                         if ok:
                             latest_slip = url
-                            fb_msgs.append({"role": "user", "content": f"[IMAGE:{url}]"})
+                            fb_msgs.append({"role": "user", "content": f"[IMAGE:{url}]", "created_time": msg_ctime})
         # Auto-recover hidden slip from MBS `สลิปธนาคาร` (`bank_slips`) when attached via Messenger Transfer Request
         if not latest_slip and seen_payment_context and customer_name:
             mbs_slip = fetch_mbs_bank_slip_for_customer(customer_name, page_id=page_id)
@@ -2868,6 +2866,17 @@ def extract_order_from_session(psid: str) -> dict[str, Any]:
     )
     remark_tag = f" (#BUY{int(total_amount)})" if total_amount > 0 else ""
 
+    order_date_bkk = ""
+    for m_item in reversed(msgs):
+        ct_raw = str(m_item.get("created_time") or "").strip()
+        if ct_raw:
+            dt_m = _parse_fb_iso_datetime(ct_raw)
+            if dt_m is not None:
+                from datetime import timedelta, timezone as _tz
+                order_date_bkk = dt_m.astimezone(_tz(timedelta(hours=7))).strftime("%Y-%m-%d")
+                break
+    order_date_tag = f" (ออเดอร์ {order_date_bkk})" if order_date_bkk else ""
+
     base_info: dict[str, Any] = {
         "psid": psid,
         "customer_name": customer_name,
@@ -2892,7 +2901,8 @@ def extract_order_from_session(psid: str) -> dict[str, Any]:
         "dialogue_reason": dialogue_reason,
         "sku_matches_chat": sku_matches_chat,
         "sku_mismatch_reason": sku_mismatch_reason,
-        "seller_remark": f"FB: {customer_name}{remark_tag}",
+        "order_date": order_date_bkk,
+        "seller_remark": f"FB: {customer_name}{order_date_tag}{remark_tag}",
         "already_tagged_in_notes": "[JST ERP:" in notes,
     }
 
