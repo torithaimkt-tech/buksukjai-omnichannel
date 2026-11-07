@@ -1142,16 +1142,19 @@ def assign_express_and_audit_orders(
         logger.debug("ChangeNormal info for %s: %s", clean_ids, exc)
 
     if run_audit:
-        try:
-            r_aud = httpx.post(
-                "https://asia.jsterp.com/OMS/Order/Audit",
-                headers=h,
-                json={"AuditType": "manual", "OrderIds": clean_ids},
-                timeout=20.0,
-            )
-            aud_res = r_aud.json()
-        except Exception as exc:
-            logger.warning("Order Audit warning for %s: %s", clean_ids, exc)
+        for idx_a, single_oid in enumerate(clean_ids):
+            if idx_a > 0:
+                time.sleep(1.2)
+            try:
+                r_aud = httpx.post(
+                    "https://asia.jsterp.com/OMS/Order/Audit",
+                    headers=h,
+                    json={"AuditType": "manual", "OrderIds": [single_oid]},
+                    timeout=20.0,
+                )
+                aud_res = r_aud.json()
+            except Exception as exc:
+                logger.warning("Order Audit warning for %s: %s", single_oid, exc)
 
     return {
         "status": "ok",
@@ -1341,10 +1344,10 @@ def recognize_and_clean_address(
         if "กรุงเทพ" not in cleaned_input:
             cleaned_input = f"{cleaned_input} กรุงเทพมหานคร"
 
-    # Extract trailing recipient name after phone number if present (e.g., "... 12130 0909187907 วรรณา")
+    # Extract trailing recipient name after phone number if present (e.g., "... 12130 0909187907 วรรณา" or "089 533 3555ดุษณี มักเจริญลาภ")
     trailing_name_hint = ""
     m_trail = re.search(
-        r"(?:\+66\s*0?|0)[689]\d[\s\-]?\d{3}[\s\-]?\d{4}\s+([ก-๙a-zA-Z][ก-๙a-zA-Z\s\.]{1,35})$",
+        r"(?:\+66\s*0?|0)[689]\d[\s\-]?\d{3}[\s\-]?\d{4}\s*([ก-๙a-zA-Z][ก-๙a-zA-Z\s\.]{1,35})$",
         cleaned_input.strip(),
     )
     if m_trail:
@@ -1391,17 +1394,17 @@ def recognize_and_clean_address(
 
     # Fallback subdistrict/city/province extraction if AddresseeRecognition missed them
     if not district:
-        m_sub = re.search(r"(?:ตำบล|ต\.|แขวง)\s*([ก-๙]{2,25})", cleaned_input)
+        m_sub = re.search(r"(?:ตำบล|ต\.|แขวง|(?:^|\s)ต\s+)\s*([ก-๙]{2,25})", cleaned_input)
         if m_sub:
             district = m_sub.group(1).strip()
         elif "คูบางหลวง" in cleaned_input:
             district = "คูบางหลวง"
     if not city:
-        m_city = re.search(r"(?:อำเภอ|อ\.|เขต)\s*([ก-๙]{2,25})", cleaned_input)
+        m_city = re.search(r"(?:อำเภอ|อ\.|เขต|(?:^|\s)อ\s+)\s*([ก-๙]{2,25})", cleaned_input)
         if m_city:
             city = m_city.group(1).strip()
     if not province:
-        m_prov = re.search(r"(?:จังหวัด|จ\.)\s*([ก-๙]{2,25})", cleaned_input)
+        m_prov = re.search(r"(?:จังหวัด|จ\.|(?:^|\s)จ\s+)\s*([ก-๙]{2,25})", cleaned_input)
         if m_prov:
             province = m_prov.group(1).strip()
 
@@ -1500,9 +1503,9 @@ def verify_image_is_payment_slip(
 
     if w > 0 and h > 0:
         ratio = h / float(w)
-        # All brand promotion posters are square 1:1 (ratio ~1.00) or 4:5 (<=1.10) or landscape (<1.0).
-        # All Thai mobile banking slips (K+, SCB, ttb, Krungthai, BBL, MyMo) are portrait rectangles (ratio >= 1.12).
-        if ratio < 1.12:
+        # All brand promotion posters are square 1:1 (ratio ~1.00) or landscape (<1.0).
+        # Thai mobile banking slips (including cropped vertical slips like 1224x1320, ratio ~1.08) are portrait rectangles (ratio >= 1.05).
+        if ratio < 1.05:
             return (
                 False,
                 f"รูปภาพมีสัดส่วน {w}x{h} (h/w={ratio:.2f}) ซึ่งเป็นรูปโปรโมชั่นสินค้าหรือภาพจัตุรัส/แนวนอน ไม่ใช่สลิปโอนเงินค่ะ",
@@ -2706,34 +2709,36 @@ def extract_order_from_session(psid: str) -> dict[str, Any]:
 
     def _parse_single_size_token(token_str: str) -> tuple[str, int, float]:
         s = re.sub(r"\s+", "", token_str.lower())
+        set_m = re.search(r"(?:ถุง|ซอง|ชอง)?(?:\*|x|×)(\d+)ชุด", s)
+        set_mult = int(set_m.group(1)) if set_m else 1
         if "3kg" in s or "3แถม3" in s:
-            return "BSJ1KG3_60G3", 1, 1299.0
+            return "BSJ1KG3_60G3", set_mult, 1299.0
         if "2kg" in s or "2แถม2" in s:
-            return "BSJ1KG2_60G2", 1, 899.0
+            return "BSJ1KG2_60G2", set_mult, 899.0
         m60 = re.search(r"60g(?:\*|x|×)?(\d+)(?:ถุง|ซอง|ชอง|ชุด)?", s)
         if m60:
             nb = int(m60.group(1))
             if nb == 20:
-                return "BSJ60G20", 1, 720.0
+                return "BSJ60G20", set_mult, 720.0
             if nb == 15:
-                return "BSJ60G15", 1, 555.0
+                return "BSJ60G15", set_mult, 555.0
             if nb == 10:
-                return "BSJ60G10", 1, 390.0
+                return "BSJ60G10", set_mult, 390.0
             if nb == 30:
-                return "BSJ60G10", 3, 370.0
+                return "BSJ60G10", 3 * set_mult, 370.0
             if nb == 5:
-                return "BSJ60G5", 1, (195.0 if total_hint in (195, 225, 265) else 199.0)
+                return "BSJ60G5", set_mult, (195.0 if total_hint in (195, 225, 265) else 199.0)
             if nb == 3:
-                return "BSJ60G3", 1, float(total_hint or 140)
-            return "BSJ60G1", nb, 39.0
+                return "BSJ60G3", set_mult, float(total_hint or 140)
+            return "BSJ60G1", nb * set_mult, 39.0
         if "1kg" in s:
             m1k = re.search(r"1kg(?:\*|x|×)?(\d+)(?:ถุง|ซอง|ชุด)?", s)
             n1k = int(m1k.group(1)) if m1k else 1
-            return "BSJ1KG1", n1k, 459.0
+            return "BSJ1KG1", n1k * set_mult, 459.0
         if "500g" in s:
             m500 = re.search(r"500g(?:\*|x|×)?(\d+)(?:ถุง|ซอง|ชุด)?", s)
             n500 = int(m500.group(1)) if m500 else 1
-            return "BSJ500G1", n500, 239.0
+            return "BSJ500G1", n500 * set_mult, 239.0
         return "", 1, 0.0
 
     # Parse explicit size from latest_summary if available (supports multi-SKU comma-separated sizes like '1kg,60g20ถุง')
@@ -2870,11 +2875,15 @@ def extract_order_from_session(psid: str) -> dict[str, Any]:
     for m_item in reversed(msgs):
         ct_raw = str(m_item.get("created_time") or "").strip()
         if ct_raw:
-            dt_m = _parse_fb_iso_datetime(ct_raw)
-            if dt_m is not None:
+            try:
                 from datetime import timedelta, timezone as _tz
+                dt_m = datetime.fromisoformat(ct_raw.replace("+0000", "+00:00").replace("Z", "+00:00"))
+                if dt_m.tzinfo is None:
+                    dt_m = dt_m.replace(tzinfo=_tz.utc)
                 order_date_bkk = dt_m.astimezone(_tz(timedelta(hours=7))).strftime("%Y-%m-%d")
                 break
+            except Exception:
+                pass
     order_date_tag = f" (ออเดอร์ {order_date_bkk})" if order_date_bkk else ""
 
     base_info: dict[str, Any] = {

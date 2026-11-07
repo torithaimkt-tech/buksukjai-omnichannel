@@ -276,8 +276,9 @@ def _extract_verified_orders_from_chatbot_db(
     phone: str = "",
     customer_name: str = "",
     brand_id: str = "mrbuk",
+    line_user_id: str = "",
 ) -> tuple[list[dict[str, Any]], str, str]:
-    """Search `chatbot.db` (`user_sessions` & `message_log`) for confirmed orders matching `phone` or `customer_name`.
+    """Search `chatbot.db` (`user_sessions` & `message_log`) for confirmed orders matching `line_user_id`, `phone`, or `customer_name`.
 
     Returns:
         (orders_list, resolved_phone, resolved_customer_name)
@@ -285,6 +286,7 @@ def _extract_verified_orders_from_chatbot_db(
     clean_phone = jst_erp.normalize_thai_phone(phone) if phone else ""
     clean_name = re.sub(r"^(?:คุณ|นาย|นาง|นางสาว|น\.ส\.|พี่|น้อง)\s*", "", (customer_name or "").strip()).strip()
     name_parts = [p.lower() for p in clean_name.split() if len(p) >= 2]
+    clean_line_uid = (line_user_id or "").strip()
 
     found_orders: list[dict[str, Any]] = []
     resolved_phone = clean_phone
@@ -295,7 +297,7 @@ def _extract_verified_orders_from_chatbot_db(
             select(UserSession).where(UserSession.brand_id.in_([brand_id, "buksukjai"]))
         ).scalars().all()
 
-        # Prioritize matching brand_id first, then fallback to any session in chatbot.db with matching phone/name
+        # Prioritize matching brand_id first, then fallback to any session in chatbot.db with matching line_user_id/phone/name
         sessions_sorted = sorted(sessions, key=lambda s: (0 if s.brand_id == brand_id else 1))
 
         for sess in sessions_sorted:
@@ -317,14 +319,22 @@ def _extract_verified_orders_from_chatbot_db(
             raw_phones = re.findall(r"(?:\+66\s*0?|\b0)[689]\d[\s\-]?\d{3}[\s\-]?\d{4}", combined_text)
             sess_phones = [jst_erp.normalize_thai_phone(p) for p in raw_phones if jst_erp.normalize_thai_phone(p)]
 
+            line_matched = bool(
+                clean_line_uid
+                and (
+                    (sess.external_user_id or "").strip() == clean_line_uid
+                    or sess.psid == f"{brand_id}:line:{clean_line_uid}"
+                    or sess.psid.endswith(f":{clean_line_uid}")
+                )
+            )
             phone_matched = bool(clean_phone and clean_phone in sess_phones)
             name_matched = False
-            if clean_name and not phone_matched:
+            if clean_name and not phone_matched and not line_matched:
                 target_low = combined_text.lower()
                 if clean_name.lower() in target_low or (name_parts and all(p in target_low for p in name_parts)):
                     name_matched = True
 
-            if not phone_matched and not name_matched:
+            if not line_matched and not phone_matched and not name_matched:
                 continue
 
             if not resolved_phone and sess_phones:
@@ -426,14 +436,16 @@ def find_verifiable_orders(
     phone: str = "",
     customer_name: str = "",
     brand_id: str = "mrbuk",
+    line_user_id: str = "",
 ) -> dict[str, Any]:
-    """Query both `chatbot.db` (Facebook/LINE chats) and `jst_erp.check_duplicate_order` (JST ERP)
-    and merge/de-duplicate orders by phone number or recipient name.
+    """Query `chatbot.db` (by `line_user_id`, `phone`, or `customer_name`) and `jst_erp.check_duplicate_order` (JST ERP)
+    and merge/de-duplicate orders.
     """
     chat_orders, resolved_phone, resolved_name = _extract_verified_orders_from_chatbot_db(
         phone=phone,
         customer_name=customer_name,
         brand_id=brand_id,
+        line_user_id=line_user_id,
     )
 
     jst_orders_raw: list[dict[str, Any]] = []
@@ -623,7 +635,12 @@ def claim_points_for_customer(
     and return QR Code media items (`1pt`, `2pt`, `4pt`) + Thai reply bubbles.
     """
     database.init_db()
-    lookup = find_verifiable_orders(phone=phone, customer_name=customer_name, brand_id=brand_id)
+    lookup = find_verifiable_orders(
+        phone=phone,
+        customer_name=customer_name,
+        brand_id=brand_id,
+        line_user_id=line_user_id,
+    )
     resolved_phone = lookup["phone"]
     resolved_name = lookup["customer_name"]
     all_orders = lookup["orders"]
@@ -636,12 +653,12 @@ def claim_points_for_customer(
             reward_status = _format_reward_eligibility_line(pts, existing_mem.get("pending_reward", ""))
             carry_line = _format_carryover_line(carry)
             bubbles = [
-                f"ข้อมูลบัตรสะสมแต้ม มิสเตอร์บุก VIP ของ{_polite_name(existing_mem['customer_name'])} (เบอร์ {existing_mem['phone']}) ค่ะ 🍚💚\n\n"
+                f"ข้อมูลบัตรสะสมแต้ม มิสเตอร์บุก VIP ของ{_polite_name(existing_mem['customer_name'])} ค่ะ 🍚💚\n\n"
                 f"• แต้มสะสมคงเหลือปัจจุบัน: {pts} แต้ม\n"
                 f"• {carry_line}\n"
                 f"• ยอดค่าสินค้าสะสมรวมทั้งหมด: {existing_mem['lifetime_spend_thb']:,} บาท (รับแต้มสะสมรวม {existing_mem['lifetime_points']} แต้ม)\n\n"
                 f"{reward_status}",
-                f"สามารถเปิดดูบัตรสะสมแต้มใน LINE ได้ที่ {REWARD_CARD_URL} เลยนะคะ 😊🙏",
+                f"สามารถเปิดดูบัตรสะสมแต้มและคูปองใน LINE ได้ที่ {REWARD_CARD_URL} เลยนะคะ 😊🙏",
             ]
             return {
                 "status": "existing_member_no_new_orders",
@@ -656,10 +673,11 @@ def claim_points_for_customer(
                 "bubbles": bubbles,
             }
 
-        target_label = f"เบอร์โทร {resolved_phone}" if resolved_phone else f"ชื่อผู้รับ \"{resolved_name}\""
+        target_label = f"เบอร์โทร {resolved_phone}" if resolved_phone else (f"ชื่อผู้รับ \"{resolved_name}\"" if resolved_name else "บัญชี LINE นี้")
         bubbles = [
-            f"น้องบุกตรวจสอบในระบบจาก{target_label}แล้ว ยังไม่พบรายการคำสั่งซื้อที่ยืนยันแล้วในระบบเลยค่ะ 🙏💚",
-            "หากคุณลูกค้าเพิ่งสั่งซื้อผ่านหน้าเพจ Facebook สามารถแจ้ง เบอร์โทรศัพท์ 10 หลัก หรือ ชื่อ-นามสกุลผู้รับ ที่ใช้สั่งซื้อให้น้องบุกตรวจสอบอีกครั้งได้เลยนะคะ 😊🍚",
+            f"น้องบุกตรวจสอบในระบบจาก{target_label}แล้ว ยังไม่พบรายการคำสั่งซื้อใน LINE OA ที่ยืนยันแล้วเลยค่ะ 🙏💚",
+            f"สำหรับการสะสมแต้มและรับคูปองของแถม จะคำนวณจากยอดสั่งซื้อผ่าน LINE OA (@misterbuk) เท่านั้นนะคะ "
+            f"(เพื่อนใน LINE รับสิทธิ์คูปองส่วนลด 5% รหัส {VIP_COUPON_CODE} ได้ทันทีค่ะ) สนใจรับโปรโมชั่นเซ็ตไหนแจ้งน้องบุกในแชทนี้ได้เลยนะคะ 😊🍚",
         ]
         return {
             "status": "not_found",
@@ -677,7 +695,7 @@ def claim_points_for_customer(
     newly_claimed: list[dict[str, Any]] = []
     already_claimed: list[dict[str, Any]] = []
 
-    member_phone_key = resolved_phone or f"NAME:{resolved_name[:12]}"
+    member_phone_key = resolved_phone or (f"LINE:{line_user_id[:20]}" if line_user_id else f"NAME:{resolved_name[:12]}")
 
     with SessionLocal() as db:
         # Upsert LoyaltyMember first so we have their current `carryover_thb` before processing new orders
@@ -1201,37 +1219,37 @@ def handle_line_loyalty_message(
             "details": res,
         }
 
-    # Otherwise, customer just typed "สะสมแต้ม" / "รับแต้ม" / "เช็กแต้ม" without phone or name yet.
-    # Check if this `line_user_id` is already linked to a phone number in `LoyaltyMember`!
+    # Otherwise, customer just typed "สะสมแต้ม" / "รับแต้ม" / "เช็กแต้ม" in LINE OA.
+    # Look up their LINE OA orders and member record directly by `line_user_id` (NO phone number required!)
     existing = get_member_summary(line_user_id=line_user_id, brand_id=brand_id)
-    if existing:
-        # Automatically check if they have any newly completed orders on that phone number!
-        res = claim_points_for_customer(
-            phone=existing["phone"],
-            customer_name=existing["customer_name"],
-            line_user_id=line_user_id,
-            brand_id=brand_id,
-        )
+    direct_res = claim_points_for_customer(
+        phone=existing["phone"] if existing else "",
+        customer_name=existing["customer_name"] if existing else "",
+        line_user_id=line_user_id,
+        brand_id=brand_id,
+    )
+    if direct_res["status"] != "not_found":
         return {
-            "status": res["status"],
-            "bubbles": res["bubbles"],
-            "media_items": res.get("qr_media_items") or [],
-            "details": res,
+            "status": direct_res["status"],
+            "bubbles": direct_res["bubbles"],
+            "media_items": direct_res.get("qr_media_items") or [],
+            "details": direct_res,
         }
 
-    # Prompt customer to enter their 10-digit phone number or recipient name
+    # Customer has not placed an order in LINE OA yet -> Show LINE OA-only VIP Loyalty Card & 5% Coupon guide
     bubbles = [
-        "ยินดีต้อนรับสู่ระบบสะสมแต้ม มิสเตอร์บุก VIP ค่า 🍚🎁💚\n\n"
-        "📌 กติกาการสะสมแต้มและแลกของแถมฟรี:\n"
-        "• คิดจากยอดค่าสินค้าสุทธิ (ไม่รวมค่าจัดส่ง) ทุก 500 บาท = รับ 1 แต้ม\n"
-        "• เศษยอดเงินที่เกิน 500 บาท (เช่น สั่งเซ็ตคู่ 950.- รับทันที 1 แต้ม + เก็บเศษ 450.-) หรือยอดที่ยังไม่ถึง 500 บาท (เช่น ถุง 1 กก. 490.-) ระบบของน้องบุกจะบันทึกเก็บสะสมไว้ทบกับออเดอร์ถัดไปให้อัตโนมัติค่ะ\n"
-        "• สะสมครบ 5 แต้ม: แลกรับฟรี! ซองเล็ก 60 กรัม จำนวน 3 ซอง (มูลค่า 132.-) รับพร้อมออเดอร์ถัดไป\n"
-        "• สะสมครบ 10 แต้ม: แลกรับฟรี! ถุงกลาง 500 กรัม จำนวน 1 ถุง (มูลค่า 249.-) รับพร้อมออเดอร์ถัดไปค่ะ",
-        "📲 รบกวนคุณลูกค้าพิมพ์แจ้ง เบอร์โทรศัพท์ 10 หลัก (หรือชื่อ-นามสกุลผู้รับที่ใช้สั่งซื้อ) ในแชทนี้ได้เลยนะคะ "
-        "น้องบุกจะตรวจสอบยอดออเดอร์ บันทึกยอดเงินสะสม และส่งรูป QR Code แต้มให้ทันทีเลยค่า 😊🙏",
+        "ยินดีต้อนรับสู่บัตรสะสมแต้มและคูปอง มิสเตอร์บุก VIP (เฉพาะสมาชิกใน LINE OA) ค่า 🍚🎁💚\n\n"
+        "📌 กติกาการรับแต้มและคูปองของแถมใน LINE OA:\n"
+        "• สมาชิกใน LINE รับสิทธิ์คูปองส่วนลดพิเศษ 5% (รหัส MRBUKVIP5)\n"
+        "• สะสมแต้มเฉพาะยอดที่สั่งซื้อผ่านแชท LINE OA นี้เท่านั้นค่ะ (ทุกยอดค่าสินค้าสุทธิ 500 บาท ไม่รวมค่าส่ง = รับ 1 แต้ม)\n"
+        "• เศษยอดเงินที่เกิน 500 บาท (เช่น สั่งเซ็ตคู่ 950.- รับทันที 1 แต้ม + เก็บเศษ 450.-) หรือถุง 1 กก. (490.-) ระบบบอทจะบันทึกผูกกับบัญชี LINE ของคุณลูกค้าไว้ทบกับบิลถัดไปให้อัตโนมัติค่ะ\n"
+        "• สะสมครบ 5 แต้ม: รับคูปองแลกฟรี! ซองเล็ก 60 กรัม จำนวน 3 ซอง (มูลค่า 132.-)\n"
+        "• สะสมครบ 10 แต้ม: รับคูปองแลกฟรี! ถุงกลาง 500 กรัม จำนวน 1 ถุง (มูลค่า 249.-) จัดส่งพร้อมออเดอร์ถัดไปค่ะ",
+        f"📲 สามารถกดเปิดดูบัตรสะสมแต้มและคูปองใน LINE ของคุณลูกค้าได้ที่ {REWARD_CARD_URL} "
+        f"หรือหากต้องการสั่งซื้อสินค้าใน LINE เพื่อเริ่มสะสมแต้มและใช้สิทธิ์ลด 5% ทักบอกน้องบุกในแชทนี้ได้เลยนะคะ 😊🙏",
     ]
     return {
-        "status": "awaiting_phone_or_name",
+        "status": "line_only_loyalty_guide",
         "bubbles": bubbles,
         "media_items": [],
         "details": {},

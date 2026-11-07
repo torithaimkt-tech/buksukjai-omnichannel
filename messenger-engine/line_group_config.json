@@ -82,46 +82,46 @@
   },
   "last_warehouse_stock": {
     "status": "ok",
-    "available_60g": 440,
-    "physical_60g": 533,
-    "lock_60g": 93,
+    "available_60g": 371,
+    "physical_60g": 453,
+    "lock_60g": 82,
     "days_60g": 5,
-    "available_500g": 103,
-    "physical_500g": 105,
-    "lock_500g": 2,
+    "available_500g": 100,
+    "physical_500g": 103,
+    "lock_500g": 3,
     "days_500g": 24,
-    "available_1kg": 48,
-    "physical_1kg": 57,
-    "lock_1kg": 9,
-    "days_1kg": 5,
+    "available_1kg": 36,
+    "physical_1kg": 48,
+    "lock_1kg": 12,
+    "days_1kg": 4,
     "warnings": [
-      "ขนาด 60 กรัม เหลือพร้อมขาย 440 ซอง (พอขายได้อีกประมาณ 5 วัน)",
-      "ขนาด 1 กิโลกรัม เหลือพร้อมขาย 48 ถุง (พอขายได้อีกประมาณ 5 วัน)"
+      "ขนาด 60 กรัม เหลือพร้อมขาย 371 ซอง (พอขายได้อีกประมาณ 5 วัน)",
+      "ขนาด 1 กิโลกรัม เหลือพร้อมขาย 36 ถุง (พอขายได้อีกประมาณ 4 วัน)"
     ],
     "skus": {
       "BSJ60G1": {
         "sku_id": "BSJ60G1",
-        "physical_qty": 533,
-        "order_lock": 93,
-        "available_qty": 440,
+        "physical_qty": 453,
+        "order_lock": 82,
+        "available_qty": 371,
         "can_sell_days": 5,
-        "modified": "2026-11-06 09:10:48"
+        "modified": "2026-11-07 07:55:31"
       },
       "BSJ500G1": {
         "sku_id": "BSJ500G1",
-        "physical_qty": 105,
-        "order_lock": 2,
-        "available_qty": 103,
+        "physical_qty": 103,
+        "order_lock": 3,
+        "available_qty": 100,
         "can_sell_days": 24,
-        "modified": "2026-11-06 09:14:41"
+        "modified": "2026-11-07 07:54:53"
       },
       "BSJ1KG1": {
         "sku_id": "BSJ1KG1",
-        "physical_qty": 57,
-        "order_lock": 9,
-        "available_qty": 48,
-        "can_sell_days": 5,
-        "modified": "2026-11-06 08:53:57"
+        "physical_qty": 48,
+        "order_lock": 12,
+        "available_qty": 36,
+        "can_sell_days": 4,
+        "modified": "2026-11-07 07:55:09"
       }
     }
   },

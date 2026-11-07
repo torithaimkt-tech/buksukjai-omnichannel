@@ -1012,21 +1012,31 @@ async def sync_recent_facebook_conversations(brand_id: str = "buksukjai", limit:
     page_id = str(page.get("channels", {}).get("fb_page_id") or "806129109240845")
     results: list[dict] = []
     try:
-        async with httpx.AsyncClient(timeout=20) as client:
-            resp = await client.get(
-                "https://graph.facebook.com/v21.0/me/conversations",
-                params={
-                    "access_token": token,
-                    "limit": limit,
-                    "fields": "participants,updated_time,messages.limit(30){id,message,from,created_time,attachments{image_data,mime_type,file_url}}",
-                },
-            )
-            if resp.status_code != 200:
-                return []
-            for conv in resp.json().get("data", []):
-                info = analyze_facebook_conversation_dict(conv, page_id=page_id)
-                if info:
-                    results.append(_apply_facebook_sync_to_db(info, brand_id=brand_id))
+        async with httpx.AsyncClient(timeout=25) as client:
+            url: str | None = "https://graph.facebook.com/v21.0/me/conversations"
+            params: dict | None = {
+                "access_token": token,
+                "limit": min(limit, 50),
+                "fields": "participants,updated_time,messages.limit(30){id,message,from,created_time,attachments{image_data,mime_type,file_url}}",
+            }
+            fetched = 0
+            while url and fetched < limit:
+                resp = await client.get(url, params=params)
+                params = None
+                if resp.status_code != 200:
+                    break
+                payload = resp.json()
+                convs = payload.get("data", [])
+                if not convs:
+                    break
+                for conv in convs:
+                    info = analyze_facebook_conversation_dict(conv, page_id=page_id)
+                    if info:
+                        results.append(_apply_facebook_sync_to_db(info, brand_id=brand_id))
+                    fetched += 1
+                    if fetched >= limit:
+                        break
+                url = payload.get("paging", {}).get("next")
     except Exception:
         logger.exception("Bulk Facebook conversation sync failed")
     return results
