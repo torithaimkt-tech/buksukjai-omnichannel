@@ -1200,15 +1200,16 @@ async def process_omnichannel_message(
 
         audited_reply_text = "|||".join(bubbles)
         database.update_state(session_key, new_state)
-        await messenger.send_omnichannel_text(
-            platform=platform,
-            external_user_id=external_user_id,
-            text=audited_reply_text,
-            brand_id=brand_id,
-            reply_token=reply_token,
-            media_items=selected_media_items,
-            public_base_url=PUBLIC_BASE_URL,
-        )
+        if audited_reply_text or selected_media_items:
+            await messenger.send_omnichannel_text(
+                platform=platform,
+                external_user_id=external_user_id,
+                text=audited_reply_text,
+                brand_id=brand_id,
+                reply_token=reply_token,
+                media_items=selected_media_items,
+                public_base_url=PUBLIC_BASE_URL,
+            )
         # If AI encountered an unfamiliar/uncertain question, notify the LINE Summary Work Group immediately
         if audit_report.get("escalate_to_line_group"):
             import asyncio
@@ -1255,8 +1256,8 @@ async def process_omnichannel_message(
         )
         return {
             "session_key": session_key,
-            "bot_replied": True,
-            "reply": "\n\n".join(bubbles),
+            "bot_replied": bool(bubbles or selected_media_items),
+            "reply": "\n\n".join(bubbles) if bubbles else None,
             "bubbles": bubbles,
             "image_url": selected_media_items[0]["relative_url"] if selected_media_items else None,
             "images": [it["relative_url"] for it in selected_media_items],

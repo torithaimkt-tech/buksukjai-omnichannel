@@ -1782,6 +1782,16 @@ def send_escalation_alert_to_line_groups(
     clean_q = (customer_question or "").strip()
     clean_a = (ai_holding_reply or "").replace("|||", "\n").strip()
 
+    if clean_a:
+        bot_reply_block = (
+            f"🤖 AI ตอบรับเบื้องต้นไว้ว่า :\n"
+            f"“{clean_a}”\n"
+        )
+    else:
+        bot_reply_block = (
+            "🔇 สถานะบอท : เงียบไว้และพักบอทชั่วคราว (ยังไม่ได้ส่งข้อความตอบลูกค้า เพื่อให้แอดมินตอบเองค่ะ)\n"
+        )
+
     alert_text = (
         f"🔔 แจ้งเตือนคำถามใหม่ / AI ไม่มั่นใจค่ะ [#{case_id}]\n"
         f"({now_bkk})\n"
@@ -1791,8 +1801,7 @@ def send_escalation_alert_to_line_groups(
         f"🏷️ สาเหตุ : {reason}\n\n"
         f"💬 คำถามจากลูกค้า :\n"
         f"“{clean_q}”\n\n"
-        f"🤖 AI ตอบรับเบื้องต้นไว้ว่า :\n"
-        f"“{clean_a}”\n"
+        f"{bot_reply_block}"
         f"━━━━━━━━━━━━━━━\n"
         f"💡 ตอบกลับลูกค้าจากในกลุ่มนี้ได้เลยค่ะ:\n"
         f"• กด Reply ข้อความนี้ หรือพิมพ์คำตอบในกลุ่มได้เลยค่ะ (หรือพิมพ์ {case_id} ตามด้วยคำตอบ)\n"

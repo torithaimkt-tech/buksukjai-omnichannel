@@ -795,22 +795,16 @@ def audit_outgoing_reply(
                 else:
                     escalation_reason = "คำถามแปลกใหม่ / AI ไม่มั่นใจคำตอบ"
             audited_image_key = "none"
-            # If the AI reply still accidentally contains promo price lists or didn't give a clean holding reply, replace with safe holding reply
-            has_sales_clutter = any(
-                p in reply_joined_now for p in ("รวมโปรโมชั่นพิเศษ", "459 บาท", "899 บาท", "1,299 บาท", "สนใจรับโปรไหนดีคะ")
-            )
-            if has_sales_clutter or not ai_admitted_uncertainty:
-                bubbles = [
-                    "ขอบพระคุณสำหรับคำถามนะคะคุณลูกค้า 🙏💚",
-                    "เพื่อให้ได้ข้อมูลที่ถูกต้องและชัดเจนที่สุด น้องบุกขออนุญาตส่งเรื่องให้พี่แอดมินผู้ดูแลช่วยตรวจสอบรายละเอียดและรีบมาตอบกลับให้โดยเร็วที่สุดเลยนะคะ รบกวนรอสักครู่นะคะ 😊",
-                ]
+            # กฎเหล็กจากคุณแอมมี่ & คุณนัด: ถ้าเจอคำถามแปลกใหม่ที่ AI ไม่มั่นใจ ไม่ต้องตอบอะไรลูกค้าเลย (เงียบไว้)
+            # ให้ส่งแจ้งเตือนมาบอกในกลุ่ม LINE เฉยๆ พอ เพื่อไม่ให้บอทตอบข้อความแพตเทิร์นใส่ลูกค้าค่ะ
+            bubbles = []
             try:
                 database.set_bot_enabled(psid, False)
                 updated_tags = database._add_tag_str(getattr(user_session, "broadcast_tags", "") or "", "รอแอดมินตอบ (คำถามใหม่)")
                 database.update_session_meta(psid=psid, broadcast_tags=updated_tags)
             except Exception:
                 pass
-            auto_fixes.append(f"ตรวจพบคำถามที่ AI ไม่มั่นใจ/คำถามพิเศษ ({escalation_reason}) — ตอบรับแบบสุภาพกลางๆ พักบอท และส่งแจ้งเตือนเข้ากลุ่ม LINE สรุปยอด")
+            auto_fixes.append(f"ตรวจพบคำถามที่ AI ไม่มั่นใจ/คำถามพิเศษ ({escalation_reason}) — งดส่งข้อความตอบลูกค้า (เงียบไว้) พักบอท และส่งแจ้งเตือนเข้ากลุ่ม LINE สรุปยอด")
 
     # 6. Order Confirmation Gate, Phone/Address Completeness Guardrail & One-Click Repeat Order
     # Aggregate last 5 user messages (with Thai digits converted & zip-phone separated)
@@ -933,6 +927,7 @@ def audit_outgoing_reply(
         and not is_cancel_request
         and not is_fda_oy_question
         and not is_tracking_complaint
+        and not escalate_to_line_group
     ):
         bubbles = [
             "น้องบุกได้รับข้อมูลที่อยู่จัดส่งแล้วนะคะ 📝💚 ขออนุญาตรบกวนคุณลูกค้าช่วยเช็กเบอร์โทรศัพท์ให้อีกนิดนึงนะคะ "
