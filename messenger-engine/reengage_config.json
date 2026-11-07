@@ -1,0 +1,7 @@
+{
+  "auto_enabled": true,
+  "stage1_hours": 0.5,
+  "stage2_hours": 3.0,
+  "stage3_hours": 10.0,
+  "max_window_hours": 11.75
+}

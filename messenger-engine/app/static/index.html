@@ -610,9 +610,9 @@
           <button type="button" class="snippet-btn" style="font-size:11px; padding:2px 7px;" onclick="addQuickTag('ชำระเงินแล้ว')">+ ชำระเงินแล้ว</button>
           <button type="button" class="snippet-btn" style="font-size:11px; padding:2px 7px; background:#e0f2fe; color:#0369a1; border-color:#7dd3fc;" onclick="addQuickTag('แจ้งเลขพัสดุแล้ว')">+ แจ้งเลขพัสดุแล้ว</button>
           <button type="button" class="snippet-btn" style="font-size:11px; padding:2px 7px; background:#dcfce7; color:#15803d; border-color:#86efac;" onclick="addQuickTag('พัสดุส่งถึงแล้ว')">+ พัสดุส่งถึงแล้ว</button>
-          <button type="button" class="snippet-btn" style="font-size:11px; padding:2px 7px;" onclick="addQuickTag('ขุดแชท_1ชม')">+ ขุดแชท 1 ชม.</button>
-          <button type="button" class="snippet-btn" style="font-size:11px; padding:2px 7px;" onclick="addQuickTag('ขุดแชท_6ชม')">+ ขุดแชท 6 ชม.</button>
-          <button type="button" class="snippet-btn" style="font-size:11px; padding:2px 7px;" onclick="addQuickTag('ขุดแชท_20ชม')">+ ขุดแชท 20 ชม.</button>
+          <button type="button" class="snippet-btn" style="font-size:11px; padding:2px 7px;" onclick="addQuickTag('ขุดแชท_30นาที')">+ ขุดแชท 30 นาที</button>
+          <button type="button" class="snippet-btn" style="font-size:11px; padding:2px 7px;" onclick="addQuickTag('ขุดแชท_3ชม')">+ ขุดแชท 3 ชม.</button>
+          <button type="button" class="snippet-btn" style="font-size:11px; padding:2px 7px;" onclick="addQuickTag('ขุดแชท_10ชม')">+ ขุดแชท 10 ชม.</button>
           <button type="button" class="snippet-btn" style="font-size:11px; padding:2px 7px;" onclick="addQuickTag('เช็กพัสดุ_3วัน')">+ เช็กพัสดุ 3 วัน</button>
           <button type="button" class="snippet-btn" style="font-size:11px; padding:2px 7px;" onclick="addQuickTag('ถามรสชาติ_5วัน')">+ ถามรสชาติ 5 วัน</button>
           <button type="button" class="snippet-btn" style="font-size:11px; padding:2px 7px;" onclick="addQuickTag('ลูกค้าเก่า_VIP')">+ ลูกค้าเก่า VIP</button>
@@ -624,20 +624,20 @@
       <div class="crm-card" style="background:#f5f3ff; border-color:#ddd6fe;">
         <h3>⛏️ บอทขุดสำหรับลูกค้าที่เงียบหายไป (Ghost Re-engagement)</h3>
         <p style="font-size:11.5px; color:#5b21b6; margin-bottom:8px;">
-          ทริกเกอร์ขุดอัตโนมัติ 3 ระยะเมื่อลูกค้าถามแล้วเงียบ หรือค้างที่อยู่/ค้างโอน (ภายในกรอบ 24 ชม. ของ Facebook และเช็กซ้ำว่ายังไม่ซื้อก่อนขุดทุกครั้งค่ะ)
+          ทริกเกอร์ขุดอัตโนมัติ 3 ระยะเมื่อลูกค้าถามแล้วเงียบ หรือค้างที่อยู่/ค้างโอน (ปรับลดเหลือครึ่งหนึ่งจากเดิม: 30 นาที / 3 ชม. / 10 ชม. และเช็กซ้ำว่ายังไม่ซื้อก่อนขุดทุกครั้งค่ะ)
         </p>
         <div id="reengageStatusBox" style="font-size:11.5px; color:#6d28d9; background:#ede9fe; padding:6px 8px; border-radius:6px; margin-bottom:8px; font-weight:600;">
           ⏳ กำลังตรวจสอบสถานะการขุดแชท...
         </div>
         <div style="display:flex; flex-direction:column; gap:5px;">
           <button class="btn-save-crm" style="background:#7c3aed; font-size:12px; padding:6px;" onclick="triggerReengage(1)">
-            ⛏️ ขุดรอบ 1 (เงียบครบ 1 ชม. — ถามไซส์ที่สนใจ / ตามที่อยู่)
+            ⛏️ ขุดรอบ 1 (เงียบครบ 30 นาที — ถามไซส์ที่สนใจ / ตามที่อยู่)
           </button>
           <button class="btn-save-crm" style="background:#6d28d9; font-size:12px; padding:6px;" onclick="triggerReengage(2)">
-            ⛏️ ขุดรอบ 2 (เงียบครบ 6 ชม. — คลายความลังเล / เสนอ COD)
+            ⛏️ ขุดรอบ 2 (เงียบครบ 3 ชม. — คลายความลังเล / เสนอ COD)
           </button>
           <button class="btn-save-crm" style="background:#4c1d95; font-size:12px; padding:6px;" onclick="triggerReengage(3)">
-            ⛏️ ขุดรอบ 3 (เงียบครบ 20 ชม. — โค้งสุดท้ายสิทธิ์ส่งฟรี)
+            ⛏️ ขุดรอบ 3 (เงียบครบ 10 ชม. — โค้งสุดท้ายสิทธิ์ส่งฟรี)
           </button>
         </div>
       </div>

@@ -178,52 +178,36 @@ REENGAGE_CONFIG_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 
 
 DEFAULT_REENGAGE_CONFIG = {
     "auto_enabled": True,
-    "stage1_hours": 1.0,
-    "stage2_hours": 6.0,
-    "stage3_hours": 20.0,
-    "max_window_hours": 23.5,
+    "stage1_hours": 0.5,
+    "stage2_hours": 3.0,
+    "stage3_hours": 10.0,
+    "max_window_hours": 11.75,
 }
 
-# Randomized multi-pattern message pools (Short 1-bubble / Medium 1-bubble / Long 2-bubble `|||`)
+# Randomized multi-pattern message pools (Reduced by 50%: 20 curated patterns across 6 pools)
 # 100% Ad-Safe & feminine polite particles (ค่ะ/คะ/นะคะ/ค่า)
 REENGAGE_STAGE1_BROWSING_POOL: list[str] = [
     # 1. Short 1-bubble (Casual size check-in)
     "แอบแวะมาถามไถ่ค่า 😊 คุณลูกค้าดูข้าวบุกสุขใจไว้ เล็งเป็นขนาดทดลองหรือถุงใหญ่ทานคุ้มดีคะ?",
     # 2. Short 1-bubble (Easy 10-min preparation highlight)
     "เผื่อคุณลูกค้ายังลังเลเรื่องวิธีหุง 🍚 ข้าวบุกสุขใจแค่ตักใส่ถ้วย เติมน้ำร้อน ปิดฝา 10 นาทีก็นุ่มพร้อมทานเลยนะคะ ไม่ต้องซาวน้ำเลยค่า 💚",
-    # 3. Medium 1-bubble (Texture & aroma reassurance)
-    "ทักมาให้ข้อมูลเพิ่มเติมนิดนึงนะคะ 😊 ข้าวบุกสุขใจผสมข้าวหอมมะลิแท้ เนื้อสัมผัสนุ่มหนึบ หอมเหมือนข้าวสวยปกติเลยค่ะ มีทั้งแบบซองพกพา 60g และถุงใหญ่ 500g / 1 กก. เลือกตามมื้อที่ทานได้เลยนะคะ",
-    # 4. Medium 1-bubble (Per-meal value breakdown)
+    # 3. Medium 1-bubble (Per-meal value breakdown)
     "คุณลูกค้าสนใจรับไปลองทานกี่มื้อดีคะ 🍚 ถ้าเน้นทานประจำที่บ้าน ถุงใหญ่ 1 กก. (459.- โอนส่งฟรี) จะเฉลี่ยตกมื้อละประมาณ 25 บาทเองค่ะ ประหยัดและอิ่มอยู่ท้องนานมากเลยนะคะ 💚",
-    # 5. Long 2-bubble (Beginner popular choice)
+    # 4. Long 2-bubble (Beginner popular choice)
     "คุณลูกค้าดูโปรโมชั่นไว้ พอจะมีขนาดไหนที่สนใจเป็นพิเศษไหมคะ 😊🍚|||"
     "ถ้าเพิ่งเริ่มลองทาน ลูกค้าส่วนใหญ่จะนิยม ถุงใหญ่ 1 กก. (459.- โอนส่งฟรี ทานได้ 16–20 มื้อ) "
     "หรือแบบซองพกพา 60g ค่ะ สงสัยตรงไหนถามน้องบุกได้เลยนะคะ 💚",
-    # 6. Long 2-bubble (Everyday carb balance lifestyle)
-    "สำหรับคุณลูกค้าที่อยากจัดสมดุลคาร์บแบบไม่ต้องอดข้าว 🌾 ข้าวบุกสุขใจช่วยให้มื้ออาหารอิ่มสบายท้องขึ้นเยอะเลยค่ะ|||"
-    "ชอบแบบพกไปทานที่ทำงาน (ซอง 60g) หรือแบบตักแบ่งทานที่บ้าน (ถุง 500g / 1 กก.) แจ้งน้องบุกแนะนำโปรที่คุ้มที่สุดให้ได้เลยนะคะ 😊",
-    # 7. Short 1-bubble (Open Q&A helper)
-    "ติดขัดหรืออยากสอบถามรายละเอียดตรงไหนเพิ่มเติม พิมพ์ทิ้งไว้ให้น้องบุกได้เลยนะคะ ยินดีช่วยดูเซ็ตที่เหมาะกับมื้ออาหารให้ค่า 🙏💚",
-    # 8. Medium 1-bubble (Dry storage & convenience)
-    "แวะมาบอกเคล็ดลับความสะดวกค่า ✨ ข้าวบุกสุขใจเป็นแบบแห้ง เก็บในอุณหภูมิห้องได้นาน ไม่ต้องแช่เย็น จะตักชงน้ำร้อนมื้อไหนก็กะปริมาณง่ายมากค่ะ สนใจรับขนาดไหนทักน้องบุกได้ตลอดนะคะ 😊",
 ]
 
 REENGAGE_STAGE1_PENDING_POOL: list[str] = [
     # 1. Short 1-bubble
     "คุณลูกค้าคะ 😊 หากสะดวกแล้ว แจ้งชื่อ-ที่อยู่-เบอร์โทร (หรือแนบสลิป) ให้น้องบุกจัดเตรียมพัสดุไว้ให้ได้เลยนะคะ 🚚💚",
-    # 2. Short 1-bubble
-    "น้องบุกจดรายการที่เลือกไว้ให้เรียบร้อยแล้วค่า 🍚 พิมพ์ชื่อ-ที่อยู่และเบอร์ติดต่อทิ้งไว้ในแชทได้เลยนะคะ",
-    # 3. Medium 1-bubble
+    # 2. Medium 1-bubble
     "สำหรับออเดอร์ข้าวบุกสุขใจที่คุณลูกค้าเลือกไว้ ถ้าสะดวกจัดส่งที่ไหน แจ้งชื่อ ที่อยู่ และเบอร์โทรไว้ได้เลยนะคะ เดี๋ยวน้องบุกล็อกคิวแพ็คของให้เลยค่า 😊📦",
-    # 4. Long 2-bubble
+    # 3. Long 2-bubble
     "คุณลูกค้าคะ 😊 สำหรับออเดอร์ข้าวบุกสุขใจที่เลือกไว้|||"
     "หากสะดวกแล้วสามารถแจ้ง ชื่อ-ที่อยู่-เบอร์โทร (หรือส่งสลิปโอนเงิน) "
     "ให้น้องบุกจัดเตรียมพัสดุได้เลยนะคะ 🍚💚",
-    # 5. Medium 1-bubble
-    "แวะมาเช็กข้อมูลจัดส่งค่า 🚚 คุณลูกค้าสามารถพิมพ์ ชื่อ-ที่อยู่-เบอร์โทร บรรทัดเดียวกันส่งมาได้เลยนะคะ น้องบุกจัดการแยกข้อมูลเข้าระบบให้เองค่ะ 💚",
-    # 6. Long 2-bubble
-    "รายการข้าวบุกสุขใจที่คุณลูกค้าดูไว้พร้อมจัดส่งนะคะ 🌾✨|||"
-    "สะดวกชำระแบบโอนเงินส่งฟรี (เมื่อครบโปร) หรือรับเป็นเก็บเงินปลายทาง แจ้งที่อยู่และเบอร์โทรให้น้องบุกได้เลยค่า 😊",
 ]
 
 REENGAGE_STAGE2_BROWSING_POOL: list[str] = [
@@ -239,15 +223,6 @@ REENGAGE_STAGE2_BROWSING_POOL: list[str] = [
     "แค่ตักเติมน้ำร้อนปิดฝา 10 นาทีก็ทานได้เลยค่ะ|||"
     "มีทั้งแบบโอนเงินส่งฟรี (ตั้งแต่ 1 กก.) และบริการเก็บเงินปลายทาง "
     "สนใจรับขนาดไหนแจ้งน้องบุกได้เลยนะคะ 😊🙏",
-    # 5. Medium 1-bubble (Starter trial suggestion)
-    "ถ้าคุณลูกค้ายังไม่แน่ใจว่าจะเริ่มขนาดไหน ลองเป็นชุดทดลอง 500 กรัม (239.-) หรือเซ็ตซองพกพา 60g ไปชิมความนุ่มก่อนได้นะคะ ทานง่ายมากค่ะ 😊🍚",
-    # 6. Long 2-bubble (Busy day time-saver)
-    "ข้อดีที่ลูกค้าชอบกันมากคือความสะดวกค่ะ ✨ วันไหนรีบๆ แค่กดน้ำร้อนใส่ถ้วยปิดฝาไว้ 10 นาที พอเตรียมกับข้าวเสร็จ ข้าวก็สุกนุ่มพอดีเลยค่ะ|||"
-    "หากอยากลองรับไปทานดู แจ้งขนาดที่สนใจให้น้องบุกสรุปยอดที่คุ้มที่สุดให้ได้เลยนะคะ 💚",
-    # 7. Short 1-bubble (Gentle comparison offer)
-    "คุณลูกค้าพอจะมีเซ็ตที่ถูกใจหรือยังคะ 😊 ถ้าอยากให้น้องบุกช่วยเทียบความคุ้มแต่ละขนาด ทักบอกได้ตลอดเลยนะคะ 🌾",
-    # 8. Medium 1-bubble (Stock-up bundle highlight)
-    "สำหรับบ้านที่หุงทานทุกวัน ชุดตุน 1 กก. 2 แถม 2 (899.- ส่งฟรีทุกช่องทาง) จะเป็นเซ็ตที่คุ้มค่าที่สุดเลยค่ะ เก็บไว้ทานได้นาน สนใจรับโปรไหนแจ้งน้องบุกได้นะคะ 🙏💚",
 ]
 
 REENGAGE_STAGE2_PENDING_POOL: list[str] = [
@@ -259,13 +234,6 @@ REENGAGE_STAGE2_PENDING_POOL: list[str] = [
     "สวัสดีค่ะคุณลูกค้า 🍚 ออเดอร์ข้าวบุกสุขใจยังค้างอยู่ในระบบนะคะ|||"
     "หากยังไม่สะดวกโอนเงิน สามารถแจ้งเปลี่ยนเป็นบริการเก็บเงินปลายทาง (COD) ได้เลยนะคะ "
     "สะดวกแบบไหนแจ้งน้องบุกได้เลยค่า 😊🙏",
-    # 4. Short 1-bubble
-    "แวะมาทวนออเดอร์ให้ค่า 📦 ถ้าคุณลูกค้าพร้อมให้จัดส่งแล้ว ส่งชื่อ-ที่อยู่-เบอร์โทร หรือสลิปโอนเงินไว้ในแชทได้เลยนะคะ 💚",
-    # 5. Medium 1-bubble
-    "เผื่อคุณลูกค้าติดธุระอยู่ ไม่ต้องรีบนะคะ 😊 เมื่อไหร่ที่สะดวก แจ้งชื่อ-ที่อยู่-เบอร์โทรทิ้งไว้ได้เลย เดี๋ยวน้องบุกจัดคิวส่งรอบถัดไปให้ทันทีค่ะ 🚚",
-    # 6. Long 2-bubble
-    "น้องบุกยังล็อกรายการสินค้าตามโปรโมชั่นไว้ให้อยู่นะคะ 🌾✨|||"
-    "เปลี่ยนเป็นเก็บเงินปลายทางหน้าบ้านก็ได้เช่นกันค่ะ แจ้งชื่อ-ที่อยู่-เบอร์โทรไว้ได้เลยนะคะ 🙏💚",
 ]
 
 REENGAGE_STAGE3_BROWSING_POOL: list[str] = [
@@ -274,15 +242,6 @@ REENGAGE_STAGE3_BROWSING_POOL: list[str] = [
     # 2. Medium 1-bubble
     "วันนี้สิทธิ์โปรโมชั่นข้าวบุกสุขใจ (ถุงใหญ่ 1 กก. 459.- โอนส่งฟรี / โปรตุน 2 แถม 2 ราคา 899.-) ยังใช้ได้ตามปกตินะคะ พร้อมรับเมื่อไหร่ทักแจ้งน้องบุกได้เลยค่า 🌾🙏",
     # 3. Long 2-bubble
-    "สวัสดีค่าคุณลูกค้า 🍚💚 วันนี้สิทธิ์โปรโมชั่นส่งฟรีสำหรับถุงใหญ่ 1 กก. (459.-) "
-    "และโปรตุน 2 แถม 2 (899.-) ยังใช้ได้อยู่นะคะ|||"
-    "ถ้าคุณลูกค้าสะดวกสั่งซื้อเมื่อไหร่ ทักแจ้งชื่อ-ที่อยู่-เบอร์โทร "
-    "หรือเลือกเก็บปลายทางกับน้องบุกไว้ได้เลยนะคะ 😊🙏",
-    # 4. Short 1-bubble
-    "น้องบุกเก็บสิทธิ์ราคาโปรโมชั่นไว้ให้ในแชทเรียบร้อยแล้วนะคะ ✨ อยากรับขนาดไหนไปดูแลมื้ออาหาร ทักเรียกน้องบุกได้ทุกเมื่อเลยค่ะ 💚",
-    # 5. Medium 1-bubble
-    "เผื่อคุณลูกค้ากำลังมองหาตัวช่วยลดแป้งที่ทานง่ายและอิ่มนาน ข้าวบุกสุขใจพร้อมส่งทุกขนาดเลยนะคะ สะดวกวันไหนแวะมาสั่งซื้อได้เสมอเลยค่า 😊🍚",
-    # 6. Long 2-bubble
     "แวะมาส่งตารางโปรโมชั่นไว้ให้ดูประกอบการตัดสินใจนะคะ 🌾|||"
     "ไม่ว่าจะรับซองพกพา 60g ถุง 500g หรือถุงใหญ่ 1 กก. ทักแจ้งน้องบุกได้ตลอด 24 ชม. เลยนะคะ ยินดีบริการเสมอค่า 🙏💚",
 ]
@@ -295,13 +254,6 @@ REENGAGE_STAGE3_PENDING_POOL: list[str] = [
     # 3. Long 2-bubble
     "แจ้งเตือนรอบจัดส่งวันนี้ค่า 🚚✨ น้องบุกยังเก็บสิทธิ์โปรโมชั่นข้าวบุกสุขใจไว้ให้คุณลูกค้านะคะ|||"
     "หากต้องการให้จัดส่งรอบวันนี้ แจ้งชื่อ-ที่อยู่-เบอร์โทรคอนเฟิร์มกับน้องบุกได้เลยนะคะ 💚🙏",
-    # 4. Short 1-bubble
-    "ออเดอร์ที่เลือกไว้ยังรับสิทธิ์ราคาเดิมได้อยู่นะคะ ✨ พร้อมให้จัดส่งเมื่อไหร่ พิมพ์ที่อยู่และเบอร์ติดต่อทิ้งไว้ให้น้องบุกได้เลยค่ะ 💚",
-    # 5. Medium 1-bubble
-    "แวะมาแจ้งว่าน้องบุกบันทึกโปรโมชั่นที่คุณลูกค้าเลือกไว้ให้แล้วนะคะ 😊 สะดวกชำระแบบโอนหรือเก็บปลายทาง ทักคอนเฟิร์มที่อยู่ได้ทุกเมื่อเลยค่า 🚚",
-    # 6. Long 2-bubble
-    "รอบจัดส่งวันนี้ยังทันนะคะคุณลูกค้า 📦✨|||"
-    "หากสะดวกแล้ว พิมพ์ชื่อ-ที่อยู่-เบอร์โทรไว้ในแชทได้เลย เดี๋ยวน้องบุกรีบจัดส่งข้าวบุกสุขใจไปให้ค่ะ 🙏💚",
 ]
 
 # Track non-repeating deck order per pool so consecutive customers never receive the same pattern
@@ -439,24 +391,24 @@ def build_reengage_message(stage: int, state: str, psid: str = "") -> tuple[str,
     if stage == 1:
         if is_pending:
             msg = _pick_unique_from_pool("s1_pending", REENGAGE_STAGE1_PENDING_POOL, psid=psid)
-            return msg, "ตามที่อยู่_1ชม", None
+            return msg, "ตามที่อยู่_30นาที", None
         msg = _pick_unique_from_pool("s1_browsing", REENGAGE_STAGE1_BROWSING_POOL, psid=psid)
-        return msg, "ขุดแชท_1ชม", None
+        return msg, "ขุดแชท_30นาที", None
 
     if stage == 2:
         if is_pending:
             msg = _pick_unique_from_pool("s2_pending", REENGAGE_STAGE2_PENDING_POOL, psid=psid)
-            return msg, "ตามที่อยู่_6ชม", None
+            return msg, "ตามที่อยู่_3ชม", None
         msg = _pick_unique_from_pool("s2_browsing", REENGAGE_STAGE2_BROWSING_POOL, psid=psid)
-        return msg, "ขุดแชท_6ชม", None
+        return msg, "ขุดแชท_3ชม", None
 
-    # Stage 3 (20 hours — Final nudge inside Facebook 24h window)
+    # Stage 3 (10 hours — Final nudge reduced by 50% from 20h)
     if is_pending:
         msg = _pick_unique_from_pool("s3_pending", REENGAGE_STAGE3_PENDING_POOL, psid=psid)
-        return msg, "ตามที่อยู่_20ชม", None
+        return msg, "ตามที่อยู่_10ชม", None
     msg = _pick_unique_from_pool("s3_browsing", REENGAGE_STAGE3_BROWSING_POOL, psid=psid)
     img_key = "promo_3sizes" if "ส่งตารางโปรโมชั่น" in msg else None
-    return msg, "ขุดแชท_20ชม", img_key
+    return msg, "ขุดแชท_10ชม", img_key
 
 
 def get_session_reengage_status(psid: str) -> dict:
@@ -576,17 +528,17 @@ def get_session_reengage_status(psid: str) -> dict:
     hours_since_any = round((now - (last_any_dt or last_user_dt)).total_seconds() / 3600.0, 2)
     cfg = get_reengage_config()
 
-    # Determine next stage to trigger automatically with STRICT minimum spacing between stages:
-    # - Stage 1: >= stage1_hours (1h) since user msg AND >= 1.0h since last bot msg
-    # - Stage 2: >= stage2_hours (6h) since user msg AND >= 5.0h since Stage 1 (never 30 mins after Stage 1!)
-    # - Stage 3: >= stage3_hours (20h) since user msg AND >= 12.0h since Stage 2
+    # Determine next stage to trigger automatically with STRICT minimum spacing between stages (reduced by 50%):
+    # - Stage 1: >= stage1_hours (0.5h = 30m) since user msg AND >= 0.5h since last bot msg
+    # - Stage 2: >= stage2_hours (3.0h) since user msg AND >= 2.5h since Stage 1
+    # - Stage 3: >= stage3_hours (10.0h) since user msg AND >= 6.0h since Stage 2
     next_auto_stage = None
     if hours_since_user <= cfg["max_window_hours"]:
-        if current_stage == 0 and hours_since_user >= cfg["stage1_hours"] and hours_since_any >= 1.0:
+        if current_stage == 0 and hours_since_user >= cfg["stage1_hours"] and hours_since_any >= 0.5:
             next_auto_stage = 1
-        elif current_stage == 1 and hours_since_user >= cfg["stage2_hours"] and hours_since_any >= 5.0:
+        elif current_stage == 1 and hours_since_user >= cfg["stage2_hours"] and hours_since_any >= 2.5:
             next_auto_stage = 2
-        elif current_stage == 2 and hours_since_user >= cfg["stage3_hours"] and hours_since_any >= 12.0:
+        elif current_stage == 2 and hours_since_user >= cfg["stage3_hours"] and hours_since_any >= 6.0:
             next_auto_stage = 3
 
     return {
@@ -986,10 +938,11 @@ async def followup_loop(config: dict, public_base_url_getter=None) -> None:
                 importlib.reload(parcel_tracker)
                 await parcel_tracker.check_and_send_parcel_tracking_updates(public_base_url=pub_url)
 
-                # 1. Ghost / Silent Lead Re-engagement Bot (Stage 1: 1h, Stage 2: 6h, Stage 3: 20h)
-                re_cfg = get_reengage_config()
-                if re_cfg.get("auto_enabled", True):
-                    await run_auto_reengage_scan(public_base_url=pub_url)
+                # 1. Ghost / Silent Lead Re-engagement Bot (Reduced by 50%: runs every 20 cycles = ~20 mins; Stage 1: 0.5h, Stage 2: 3h, Stage 3: 10h)
+                if cycle_idx % 20 == 0:
+                    re_cfg = get_reengage_config()
+                    if re_cfg.get("auto_enabled", True):
+                        await run_auto_reengage_scan(public_base_url=pub_url)
 
                 # 2. Post-Purchase After-Sales Care (Day 3, Day 5, Smart Depletion Day)
                 now = datetime.now(timezone.utc)
@@ -1124,7 +1077,7 @@ def _register_jst_routes() -> None:
 
         @fastapi_app.post("/api/reengage/scan-now")
         async def api_reengage_scan_now():
-            await messenger.sync_recent_facebook_conversations("buksukjai", limit=40)
+            await messenger.sync_recent_facebook_conversations("buksukjai", limit=20)
             pub_url = getattr(main_mod, "PUBLIC_BASE_URL", "")
             return await run_auto_reengage_scan(public_base_url=pub_url)
 
