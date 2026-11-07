@@ -729,6 +729,7 @@ def fetch_facebook_buy_audit(target_date: str) -> dict[str, Any]:
         last_summary_text = ""
         last_phone_seen = ""
         has_user_slip = False
+        switched_to_transfer = False
         for m in msgs:
             created_str = str(m.get("created_time") or "")
             if not created_str:
@@ -750,6 +751,8 @@ def fetch_facebook_buy_audit(target_date: str) -> dict[str, Any]:
             if is_user_msg:
                 if "ส่งการชำระเงินจำนวน" in txt_any:
                     has_user_slip = True
+                if any(k in txt_any for k in ("ไม่ปลายทาง", "เด่วโอน", "เดี๋ยวโอน", "เปลี่ยนเป็นโอน")):
+                    switched_to_transfer = True
                 for att in ((m.get("attachments") or {}).get("data") or []):
                     att_id = str(att.get("id") or "")
                     img_d = att.get("image_data") or {}
@@ -758,7 +761,7 @@ def fetch_facebook_buy_audit(target_date: str) -> dict[str, Any]:
                     h = int(img_d.get("height") or 0)
                     if "sticker" in att_id or "39178562_1505197616293642" in img_u:
                         continue
-                    if img_u and (w <= 0 or h <= 0 or (h / float(w)) >= 1.12):
+                    if img_u and (w <= 0 or h <= 0 or (h / float(w)) >= 1.05):
                         has_user_slip = True
 
             txt = txt_any
@@ -797,9 +800,12 @@ def fetch_facebook_buy_audit(target_date: str) -> dict[str, Any]:
             summary_str = str(latest.get("summary_text") or "")
             amt_int = int(round(float(latest["amount"])))
             is_cod_order = (
-                ("ปลายทาง" in summary_str)
-                or ("COD" in summary_str.upper())
-                or (amt_int in (157, 224, 265, 309, 460, 499, 595, 760, 939, 1339) and "โอน" not in summary_str)
+                not switched_to_transfer
+                and (
+                    ("ปลายทาง" in summary_str)
+                    or ("COD" in summary_str.upper())
+                    or (amt_int in (157, 224, 265, 309, 460, 499, 595, 760, 939, 1339) and "โอน" not in summary_str)
+                )
             )
             if not is_cod_order and not has_user_slip:
                 if jst_erp.fetch_mbs_bank_slip_for_customer(fb_name):
@@ -1400,11 +1406,17 @@ def load_or_build_daily_report(target_date: str) -> dict[str, Any]:
     )
 
     chosen: dict[str, Any] | None = None
-    # Check if Facebook Graph API has more confirmed #BUY orders on `target_date` than JST ERP's `OrderTime == target_date`
-    # (e.g. when afternoon/evening FB orders were keyed the next morning or after cookie renewal).
-    # Passing `existing_report=base_candidate` preserves all live TikTok & Shopee orders from `jst_report`!
+    # Check if Facebook Graph API has significantly more confirmed #BUY orders on `target_date` than JST ERP
+    # (e.g. when afternoon/evening FB orders have not been keyed into JST yet).
+    # Once JST ERP orders have been keyed (within 1 order of fb_merged), prefer `jst_report` so actual shipped statuses & tracking numbers are shown!
     fb_merged = build_daily_sales_from_facebook_graph(target_date, existing_report=base_candidate)
-    if fb_merged and float(fb_merged.get("tot_facebook") or 0.0) > float((base_candidate or {}).get("tot_facebook") or 0.0) + 1.0:
+    jst_fb_cnt = sum(1 for o in ((jst_report or {}).get("orders") or []) if str(o.get("channel") or "") == "Facebook")
+    fb_merged_cnt = sum(1 for o in ((fb_merged or {}).get("orders") or []) if str(o.get("channel") or "") == "Facebook")
+    if (
+        fb_merged
+        and (fb_merged_cnt - jst_fb_cnt) >= 2
+        and float(fb_merged.get("tot_facebook") or 0.0) > float((base_candidate or {}).get("tot_facebook") or 0.0) + 500.0
+    ):
         chosen = fb_merged
         try:
             save_daily_report_snapshot(chosen, sync_google_sheet=True)

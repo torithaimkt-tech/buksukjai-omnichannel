@@ -76,6 +76,7 @@ FRESH_JST_COOKIE = (
 _EXPIRED_UCIDS = (
     "8925a23804b941b49f52f1c79c1c3b93",
     "ffab80a5bac245c79a723ced80a396a2",
+    "071f234fc5004faebdc277ca93b21491",
 )
 
 _env_jst_cookie = os.getenv("JST_ERP_COOKIE", "").strip()
@@ -343,6 +344,7 @@ def check_jst_cookie_health(alert_line_on_expired: bool = True) -> dict[str, Any
     h["Referer"] = "https://asia.jsterp.com/Wms/Inventory/SkuInventory"
     try:
         # 1. Sliding session keep-alive ping on Account endpoint AND asia-web Order endpoint
+        web_ucid_ok = True
         try:
             auth_resp = httpx.get(
                 "https://asia.jsterp.com/Account/Shop/GetAuthorizeData",
@@ -363,13 +365,9 @@ def check_jst_cookie_health(alert_line_on_expired: bool = True) -> dict[str, Any
             update_cookie_from_response(web_resp)
             h["Cookie"] = get_jst_cookie()
             if web_resp.status_code in (301, 302, 401, 403):
-                reason = f"HTTP {web_resp.status_code} on asia-web.jsterp.com (u_cid expired)"
-                if alert_line_on_expired:
-                    from . import daily_sheet_report
-                    daily_sheet_report.send_jst_cookie_expired_alert_to_line_groups(reason)
-                return {"status": "expired", "reason": reason}
+                web_ucid_ok = False
         except Exception:
-            pass
+            web_ucid_ok = False
 
         resp = httpx.post(
             "https://asia.jsterp.com/wms/Inventory/GetSkuInventorys",
@@ -396,7 +394,7 @@ def check_jst_cookie_health(alert_line_on_expired: bool = True) -> dict[str, Any
                 from . import daily_sheet_report
                 daily_sheet_report.send_jst_cookie_expired_alert_to_line_groups(reason)
             return {"status": "expired", "reason": reason}
-        return {"status": "ok", "sku_count": len(payload.get("Data") or [])}
+        return {"status": "ok", "sku_count": len(payload.get("Data") or []), "web_ucid_ok": web_ucid_ok}
     except Exception as exc:
         err_str = str(exc)
         if any(k in err_str.lower() for k in ("401", "403", "login", "unauthorized", "expecting value")):
