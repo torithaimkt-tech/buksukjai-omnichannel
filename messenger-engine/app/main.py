@@ -865,9 +865,22 @@ def enqueue_debounced_omnichannel_message(
     if old_task and not old_task.done():
         old_task.cancel()
 
+    # Smart Context Wait (Adaptive Debounce):
+    # If the customer sends a very short 1-2 word fragment (<= 12 chars, e.g. "ไม่คะ", "คือว่า", "เดี๋ยว", "สอบถามค่ะ")
+    # that is not a standalone 'สนใจ'/'ราคา' trigger, wait a bit longer (6.0s on LINE / 8.0s on FB/IG)
+    # in case they are typing a second bubble explaining their context right after!
+    effective_wait = wait_seconds
+    combined_now = "\n".join(buf["texts"]).strip()
+    if (
+        len(combined_now) <= 12
+        and not combined_now.startswith("[ลูกค้า")
+        and combined_now.lower() not in ("สนใจ", "สนใจค่ะ", "สนใจคะ", "ราคา", "ขอราคา", "โอน", "โอนค่ะ", "โอนคะ")
+    ):
+        effective_wait = max(wait_seconds, 6.0 if platform == "line" else 8.0)
+
     async def _flush_after_delay() -> None:
         try:
-            await asyncio.sleep(wait_seconds)
+            await asyncio.sleep(effective_wait)
         except asyncio.CancelledError:
             return
         entry = _DEBOUNCE_BUFFERS.pop(session_key, None)

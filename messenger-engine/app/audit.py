@@ -25,7 +25,7 @@ from collections import deque
 from datetime import datetime, timezone
 from typing import Any
 
-from . import database, media_generator
+from . import database, llm, media_generator
 from .llm import (
     FULL_PROMO_SUMMARY_BUBBLE,
     MRBUK_FULL_PROMO_SUMMARY_BUBBLE,
@@ -415,8 +415,8 @@ def audit_outgoing_reply(
             pass
         auto_fixes.append("ตรวจพบคำถามเรื่อง อย. ของข้าวบุกสุขใจ — ตอบตามสคริปต์มาตรฐานโดยไม่แนบโปรโมชั่นปิดการขาย และสลับให้แอดมินดูแลต่ออัตโนมัติ")
 
-    # B) Post-Summary Cancellation Shield (ลูกค้าพิมพ์ขอยกเลิก / ไม่เอาแล้ว / ยังไม่รับ)
-    is_cancel_request = (
+    # B) Post-Summary Cancellation & Contextual Polite Decline Shield (ลูกค้าพิมพ์ขอยกเลิก / ไม่เอาแล้ว / ยังไม่รับ หรือตอบปฏิเสธสั้นๆ ตามบริบท เช่น "ไม่คะ", "ไม่ค่ะ", "ยังค่ะ")
+    is_explicit_cancel = (
         not is_fda_oy_question
         and "ไม่ยกเลิก" not in u_low
         and any(
@@ -430,27 +430,53 @@ def audit_outgoing_reply(
                 "ยกเลิกนะ",
                 "ไม่เอาแล้ว",
                 "ไม่รับแล้ว",
-                "ยังไม่รับค่ะ",
-                "ยังไม่รับนะคะ",
                 "ถ้าบวกเพิ่มไม่รับ",
                 "แพงไปเรายกเลิก",
                 "แคนเซิล",
             )
         )
     ) or u_low in ("ยกเลิก", "cancel")
-    if is_cancel_request:
+    is_contextual_decline = (
+        not is_fda_oy_question
+        and not is_explicit_cancel
+        and llm.is_polite_decline_or_refusal_in_context(user_text, history)
+    )
+    is_cancel_request = is_explicit_cancel or is_contextual_decline
+    if is_explicit_cancel:
         bubbles = [
             "รับทราบค่ะคุณลูกค้า น้องบุกดำเนินการยกเลิกคำสั่งซื้อในระบบให้เรียบร้อยแล้วนะคะ 🙏💚",
             "หากโอกาสหน้าสนใจให้ดูแลเพิ่มเติม ทักหาน้องบุกได้ตลอดเลยนะคะ ขอบคุณมากค่ะ 😊",
         ]
         audited_image_key = "none"
         audited_state = "browsing"
+        escalate_to_line_group = False
+        escalation_reason = ""
         try:
             updated_tags = database._add_tag_str(getattr(user_session, "broadcast_tags", "") or "", "ยกเลิกออเดอร์")
             database.update_session_meta(psid=psid, state="browsing", is_starred=False, broadcast_tags=updated_tags)
         except Exception:
             pass
         auto_fixes.append("ตรวจพบคำขอยกเลิกจากลูกค้า — ยกเลิกสถานะออเดอร์ในระบบทันทีเพื่อป้องกันการคีย์ส่งคลัง")
+    elif is_contextual_decline:
+        ctx_resolved = llm.resolve_contextual_short_reply(history, audited_state, brand_id=b_id_low)
+        if ctx_resolved is not None:
+            ctx_txt, ctx_state, ctx_img = ctx_resolved
+            bubbles = llm.split_into_bubbles(ctx_txt)
+            audited_state = ctx_state
+            audited_image_key = ctx_img
+        else:
+            bubbles = [
+                "รับทราบค่ะคุณลูกค้า หากโอกาสหน้าเปลี่ยนใจหรือสนใจให้น้องบุกดูแลเพิ่มเติม แจ้งน้องบุกได้ตลอดเลยนะคะ ขอบพระคุณมากค่ะ 🙏💚"
+            ]
+            audited_state = "browsing"
+            audited_image_key = "none"
+        escalate_to_line_group = False
+        escalation_reason = ""
+        try:
+            database.update_session_meta(psid=psid, state=audited_state)
+        except Exception:
+            pass
+        auto_fixes.append("อ่านบริบทคำถามก่อนหน้าคู่กับคำตอบสั้นๆ ของลูกค้า ('ไม่คะ/ยังค่ะ') — ตอบรับอย่างสุภาพตามบริบทโดยไม่แจ้งเตือนเป็นคำถามแปลกใหม่")
 
     # C) Ambiguous Size Guardrail (ลูกค้าบอกแค่ "เอา 1 ถุง / 2 ถุง" โดยยังไม่เคยระบุขนาดหรือราคา ห้ามเดาว่าเป็น 1 กก.!)
     specified_any_size_or_price = any(
@@ -745,7 +771,23 @@ def audit_outgoing_reply(
         and not is_marketplace_inquiry
         and not is_origin_inquiry
     ):
-        if matched_special or escalate_to_line_group or ai_admitted_uncertainty:
+        is_non_question_short = not matched_special and not llm.is_genuine_question_text(user_text)
+        if is_non_question_short:
+            escalate_to_line_group = False
+            escalation_reason = ""
+            if ai_admitted_uncertainty or "ขอบพระคุณสำหรับคำถามนะคะ" in reply_joined_now:
+                ctx_res = llm.resolve_contextual_short_reply(history, audited_state, brand_id=b_id_low)
+                if ctx_res is not None:
+                    bubbles = llm.split_into_bubbles(ctx_res[0])
+                    audited_state = ctx_res[1]
+                    audited_image_key = ctx_res[2]
+                else:
+                    bubbles = [
+                        "รับทราบค่ะคุณลูกค้า หากต้องการให้น้องบุกดูแลหรือสอบถามรายละเอียดเพิ่มเติม แจ้งน้องบุกได้ตลอดเลยนะคะ ขอบพระคุณมากค่ะ 🙏💚"
+                    ]
+                    audited_image_key = "none"
+                auto_fixes.append("ป้องกันการส่งแจ้งเตือนคำถามแปลกใหม่ผิดพลาด เมื่อข้อความของลูกค้าเป็นคำตอบสั้นๆ ไม่ใช่ประโยคคำถาม")
+        elif matched_special or escalate_to_line_group or ai_admitted_uncertainty:
             escalate_to_line_group = True
             if not escalation_reason:
                 if matched_special:

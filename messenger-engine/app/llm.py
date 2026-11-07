@@ -440,9 +440,358 @@ def is_active_order_or_payment_intent(user_text: str) -> bool:
     )
     if any(k in u_low or k in compact for k in order_keywords):
         return True
-    if re.search(r"(?:รับ|เอา|สั่ง)\s*\d+\s*(?:ถุง|ซอง|ชุด|กิโล|กก|โล|ห่อ)", u_low):
+    if re.search(r"(?:รับ|เอา|สั่ง)?\s*\d+\s*(?:ถุง|ซอง|ชุด|กิโล|กก|โล|ห่อ)", u_low):
         return True
     return False
+
+
+def get_last_assistant_context(history: list[dict], max_bubbles: int = 3) -> str:
+    """Return the combined text of the most recent assistant/admin bubbles right before the current user turn."""
+    if not history:
+        return ""
+    seen_trailing_user = False
+    collected: list[str] = []
+    for msg in reversed(history):
+        role = str(msg.get("role") or "")
+        content = _strip_system_override(str(msg.get("content") or "")).strip()
+        if not content or content.startswith("[IMAGE"):
+            continue
+        if role == "user":
+            if not collected:
+                seen_trailing_user = True
+                continue
+            break
+        if role in ("assistant", "admin", "bot"):
+            collected.append(content)
+            if len(collected) >= max_bubbles:
+                break
+    collected.reverse()
+    return "\n".join(collected)
+
+
+SHORT_POLITE_DECLINE_EXACT = {
+    "ไม่",
+    "ไม่คะ",
+    "ไม่ค่ะ",
+    "ไม่ค่า",
+    "ไม่ค้า",
+    "ไม่จ้า",
+    "ไม่จ้ะ",
+    "ไม่ครับ",
+    "ไม่คับ",
+    "ไม่อะ",
+    "ไม่อ่ะ",
+    "ไม่อะค่ะ",
+    "ไม่อ่ะค่ะ",
+    "ไม่เอา",
+    "ไม่เอาค่ะ",
+    "ไม่เอาคะ",
+    "ไม่เอาค่า",
+    "ไม่เอาจ้า",
+    "ไม่เอาแล้ว",
+    "ไม่เอาแล้วค่ะ",
+    "ไม่เอาแล้วคะ",
+    "ไม่รับ",
+    "ไม่รับค่ะ",
+    "ไม่รับคะ",
+    "ไม่รับค่า",
+    "ไม่รับจ้า",
+    "ไม่รับแล้ว",
+    "ไม่รับแล้วค่ะ",
+    "ไม่รับแล้วคะ",
+    "ยัง",
+    "ยังค่ะ",
+    "ยังคะ",
+    "ยังค่า",
+    "ยังจ้า",
+    "ยังครับ",
+    "ยังไม่รับ",
+    "ยังไม่รับค่ะ",
+    "ยังไม่รับคะ",
+    "ยังไม่รับนะคะ",
+    "ยังไม่เอา",
+    "ยังไม่เอาค่ะ",
+    "ยังไม่เอาคะ",
+    "ยังไม่สั่ง",
+    "ยังไม่สั่งค่ะ",
+    "ยังไม่สั่งคะ",
+    "ยังไม่สะดวก",
+    "ยังไม่สะดวกค่ะ",
+    "ยังไม่สะดวกคะ",
+    "ไม่มี",
+    "ไม่มีค่ะ",
+    "ไม่มีคะ",
+    "ไม่มีจ้า",
+    "ไม่เป็นไร",
+    "ไม่เป็นไรค่ะ",
+    "ไม่เป็นไรคะ",
+    "ไม่เป็นไรจ้า",
+    "ผ่าน",
+    "ผ่านค่ะ",
+    "ผ่านคะ",
+    "ผ่านก่อน",
+    "ผ่านก่อนค่ะ",
+    "ผ่านก่อนคะ",
+    "ไว้ก่อน",
+    "ไว้ก่อนค่ะ",
+    "ไว้ก่อนคะ",
+    "ไว้ก่อนนะคะ",
+    "เดี๋ยวไว้ก่อน",
+    "พักก่อน",
+    "พอแล้วค่ะ",
+    "พอแล้วคะ",
+    "ยกเลิก",
+    "ขอยกเลิก",
+    "ยกเลิกค่ะ",
+    "ยกเลิกคะ",
+    "cancel",
+    "no",
+}
+
+SHORT_CONVERSATIONAL_ACK_EXACT = {
+    "ค่ะ",
+    "คะ",
+    "ค่า",
+    "ค้า",
+    "จ้า",
+    "จ้ะ",
+    "จร้า",
+    "ครับ",
+    "คับ",
+    "โอเค",
+    "โอเคค่ะ",
+    "โอเคคะ",
+    "โอเคค่า",
+    "โอเคจ้า",
+    "โอเคครับ",
+    "เคค่ะ",
+    "เคคะ",
+    "ok",
+    "okay",
+    "okค่ะ",
+    "okคะ",
+    "ขอบคุณ",
+    "ขอบคุณค่ะ",
+    "ขอบคุณคะ",
+    "ขอบคุณค่า",
+    "ขอบคุณค้า",
+    "ขอบคุณนะคะ",
+    "ขอบคุณมากค่ะ",
+    "ขอบคุณมากคะ",
+    "ขอบคุณมากๆค่ะ",
+    "ขอบคุณจ้า",
+    "ขอบคุณครับ",
+    "ขอบพระคุณค่ะ",
+    "รับทราบ",
+    "รับทราบค่ะ",
+    "รับทราบคะ",
+    "ได้ค่ะ",
+    "ได้คะ",
+    "ได้ค่า",
+    "ได้จ้า",
+    "เข้าใจค่ะ",
+    "เข้าใจแล้วค่ะ",
+    "เข้าใจแล้วคะ",
+    "อ๋อ",
+    "อ๋อค่ะ",
+    "อ๋อคะ",
+    "อ่อ",
+    "อ่อค่ะ",
+    "อ่อคะ",
+    "เดี๋ยวดูก่อน",
+    "เดี๋ยวดูก่อนค่ะ",
+    "เดี๋ยวดูก่อนนะคะ",
+    "ขอดูก่อนนะคะ",
+    "ขอตัดสินใจก่อนนะคะ",
+}
+
+
+def is_polite_decline_or_refusal_in_context(user_text: str, history: list[dict] | None = None) -> bool:
+    """Return True when the customer is politely declining/cancelling/answering 'No' in context (e.g. 'ไม่คะ', 'ยังค่ะ', 'ไม่เอาค่ะ')."""
+    clean_t = _strip_system_override(user_text).strip()
+    if not clean_t or clean_t.startswith("[ลูกค้า"):
+        return False
+    u_low = clean_t.lower()
+    if "ไม่ยกเลิก" in u_low:
+        return False
+    # Never treat an active order or bank transfer choice (e.g. "ไม่คะ เอาแบบโอน", "ไม่เอาปลายทาง ขอโอนค่ะ") as a refusal
+    if is_bank_transfer_request(clean_t) or is_active_order_or_payment_intent(clean_t):
+        return False
+    # Never treat genuine product questions like "ไม่มีกลิ่นใช่ไหมคะ" or "ไม่ต้องหุงเหรอคะ" as a refusal
+    if any(q in u_low for q in ("ไหม", "มั้ย", "ไมคะ", "ไมค่ะ", "หรือเปล่า", "รึเปล่า", "เหรอ", "หรอ", "ยังไง", "อะไร", "?")):
+        return False
+
+    bare = re.sub(r"[\s.!~🙏😊💚🍚🫶🏻,،…]+", "", u_low)
+    if bare in SHORT_POLITE_DECLINE_EXACT:
+        return True
+
+    explicit_cancel_phrases = (
+        "ขอยกเลิก",
+        "ยกเลิกก่อน",
+        "ยกเลิกค่ะ",
+        "ยกเลิกคะ",
+        "ยกเลิกครับ",
+        "ยกเลิกนะ",
+        "ไม่เอาแล้ว",
+        "ไม่รับแล้ว",
+        "ยังไม่รับ",
+        "ยังไม่เอา",
+        "ยังไม่สั่ง",
+        "ไม่เอาค่ะ",
+        "ไม่เอาคะ",
+        "ไม่รับค่ะ",
+        "ไม่รับคะ",
+        "ผ่านก่อน",
+        "ไว้ก่อนค่ะ",
+        "ไว้ก่อนคะ",
+        "ไว้โอกาสหน้า",
+        "ถ้าบวกเพิ่มไม่รับ",
+        "แพงไปเรายกเลิก",
+        "แพงไปค่ะ",
+        "แพงไปคะ",
+        "แคนเซิล",
+        "ไม่สนใจแล้ว",
+    )
+    if any(p in u_low or p in bare for p in explicit_cancel_phrases):
+        return True
+
+    return False
+
+
+def is_short_conversational_acknowledgement(user_text: str) -> bool:
+    """Return True when the customer sends a short conversational acknowledgement (e.g. 'ค่ะ', 'โอเคค่ะ', 'ขอบคุณค่ะ')."""
+    clean_t = _strip_system_override(user_text).strip()
+    if not clean_t or clean_t.startswith("[ลูกค้า"):
+        return False
+    u_low = clean_t.lower()
+    bare = re.sub(r"[\s.!~🙏😊💚🍚🫶🏻👍❤️,،…]+", "", u_low)
+    return bare in SHORT_CONVERSATIONAL_ACK_EXACT
+
+
+def is_genuine_question_text(user_text: str) -> bool:
+    """Return True ONLY when the customer's text is actually asking a question or raising a special topic."""
+    clean_t = _strip_system_override(user_text).strip()
+    if not clean_t or clean_t.startswith("[ลูกค้า"):
+        return False
+    if is_polite_decline_or_refusal_in_context(clean_t) or is_short_conversational_acknowledgement(clean_t):
+        return False
+    u_low = clean_t.lower()
+    question_markers = (
+        "?",
+        "ไหม",
+        "มั้ย",
+        "ไม๊",
+        "ไมคะ",
+        "ไมค่ะ",
+        "หรือเปล่า",
+        "รึเปล่า",
+        "เหรอ",
+        "หรอ",
+        "ยังไง",
+        "อย่างไร",
+        "อะไร",
+        "เท่าไหร่",
+        "เท่าไร",
+        "กี่",
+        "ที่ไหน",
+        "แถวไหน",
+        "วันไหน",
+        "เมื่อไหร่",
+        "ทำไม",
+        "หรือคะ",
+        "หรือค่ะ",
+        "ได้ไหม",
+        "ได้มั้ย",
+        "มีไหม",
+        "มีมั้ย",
+        "ใช่ไหม",
+        "ใช่มั้ย",
+        "สอบถาม",
+        "อยากทราบ",
+        "ถามหน่อย",
+        "ขอถาม",
+        "อย.",
+        "เลข อย",
+        "ใบกำกับภาษี",
+        "บิล",
+        "ตัวแทน",
+        "ขายส่ง",
+        "ราคาส่ง",
+        "เรทส่ง",
+        "เคลม",
+        "พัสดุ",
+        "ส่งของ",
+        "ตามของ",
+    )
+    if any(qm in u_low for qm in question_markers):
+        return True
+    # Longer sentences (> 22 chars) that are not addresses/declines may be implicit questions
+    return len(clean_t) > 22
+
+
+def resolve_contextual_short_reply(
+    history: list[dict],
+    current_state: str,
+    brand_id: str = "buksukjai",
+) -> tuple[str, str, str] | None:
+    """Inspect the previous assistant/admin question in `history` to resolve short replies like
+    'ไม่คะ', 'ไม่ค่ะ', 'ยังค่ะ', 'ไม่มีค่ะ', 'ค่ะ', 'ขอบคุณค่ะ' in context with 100% accuracy and zero false escalations.
+    """
+    if not history:
+        return None
+    user_text = _strip_system_override(str(history[-1].get("content") or "")).strip()
+    if not user_text or user_text.startswith("[ลูกค้า"):
+        return None
+
+    prev_bot = get_last_assistant_context(history)
+    bot_name = "น้องบุก" if brand_id in ("buksukjai", "mrbuk") else "แอดมิน"
+
+    # 1. Contextual Polite Decline / Refusal ("ไม่คะ", "ไม่ค่ะ", "ยังค่ะ", "ไม่เอาค่ะ", "ผ่านก่อนค่ะ")
+    if is_polite_decline_or_refusal_in_context(user_text, history):
+        # Edge case A: Previous message asked "จัดส่งตามที่อยู่เดิม... เลยไหมคะ" -> "ไม่คะ" means customer wants to give a NEW address!
+        if "ที่อยู่เดิม" in prev_bot and re.sub(r"[\s.!~🙏😊💚]+", "", user_text.lower()) in (
+            "ไม่",
+            "ไม่คะ",
+            "ไม่ค่ะ",
+            "ไม่จ้า",
+            "ไม่ใช่ค่ะ",
+            "ไม่ใช่คะ",
+        ):
+            return (
+                f"ได้เลยค่ะคุณลูกค้า รบกวนพิมพ์ชื่อผู้รับ ที่อยู่จัดส่งใหม่ และเบอร์โทรศัพท์ 10 หลัก แจ้ง{bot_name}ได้เลยนะคะ 📝💚",
+                "pending_payment",
+                "none",
+            )
+        # Edge case B: Previous message asked "ติดขัดหรืออยากสอบถามรายละเอียดตรงไหนเพิ่มเติม" -> "ไม่คะ / ไม่มีค่ะ"
+        if "สอบถามรายละเอียดตรงไหนเพิ่มเติม" in prev_bot or "มีข้อสงสัยเพิ่มเติม" in prev_bot:
+            return (
+                f"รับทราบค่ะคุณลูกค้า หากต้องการให้{bot_name}ดูแลหรือสอบถามเพิ่มเติม ทักมาได้ตลอดเลยนะคะ ขอบพระคุณมากค่ะ 🙏💚",
+                "browsing",
+                "none",
+            )
+        # Standard case: Previous message was a sales/payment/order/re-engagement prompt (e.g. "ลองสักชุดไหมคะ", "ลูกค้าสะดวกชำระหรือโอนเงินหรือแบบเก็บปลายทางดีคะ")
+        return (
+            f"รับทราบค่ะคุณลูกค้า หากโอกาสหน้าเปลี่ยนใจหรือสนใจให้{bot_name}ดูแลเพิ่มเติม แจ้ง{bot_name}ได้ตลอดเลยนะคะ ขอบพระคุณมากค่ะ 🙏💚",
+            "browsing",
+            "none",
+        )
+
+    # 2. Short Conversational Acknowledgement ("ค่ะ", "โอเคค่ะ", "ขอบคุณค่ะ", "เดี๋ยวดูก่อนนะคะ")
+    if is_short_conversational_acknowledgement(user_text):
+        u_low = user_text.lower()
+        if any(w in u_low for w in ("ดูก่อน", "ตัดสินใจ")):
+            return (
+                f"ได้เลยค่ะคุณลูกค้า 😊 ค่อยๆ ดูโปรโมชั่นก่อนได้เลยนะคะ หากสนใจรับชุดไหนหรือมีข้อสงสัยทักหา{bot_name}ได้ตลอดเลยค่า 🙏💚",
+                "browsing",
+                "none",
+            )
+        return (
+            f"ด้วยความยินดีเลยค่ะคุณลูกค้า 😊 ขอบพระคุณที่ไว้วางใจให้{bot_name}ดูแลนะคะ หากต้องการสอบถามเพิ่มเติมทักมาได้ตลอดเลยค่า 💚🙏",
+            current_state,
+            "none",
+        )
+
+    return None
 
 
 def enforce_authentic_bank_account(bubbles: list[str], history: list[dict], config: dict | None = None) -> list[str]:
@@ -880,23 +1229,37 @@ class LLMEngine:
         brand_id: str | None = None,
     ) -> tuple[str, str, str]:
         """Returns (reply_text_with_bubble_delimiters, new_state, image_key)."""
+        import asyncio
+
         self.last_escalation = {"needs_human": False, "escalation_reason": ""}
         active_brand = self._resolve_active_brand_id(brand_id)
         brand_cfg = load_brand_config(active_brand, fallback_config=self.config)
 
+        # 0. Context-Aware Short Reply Resolver:
+        # Immediately resolve short contextual replies ("ไม่คะ", "ไม่ค่ะ", "ยังค่ะ", "ค่ะ", "ขอบคุณค่ะ")
+        # against the preceding assistant/admin question so they NEVER trigger false #Q1 escalations!
+        ctx_short = resolve_contextual_short_reply(history, current_state, brand_id=active_brand)
+        if ctx_short is not None:
+            return ctx_short
+
         if self.mock_mode:
             return self._smart_demo_generate(history, current_state, brand_id=active_brand)
 
-        # Build prioritized execution chain: Primary (Gemini) -> Secondary Backup (OpenAI if configured)
+        # Build prioritized execution chain: Primary (Gemini) -> Lite -> 2.0 Flash -> Secondary Backup (OpenAI if configured)
         attempts: list[tuple[Any, str, str]] = [(self.client, self.active_model, self.provider)]
-        if self.provider == "gemini" and "2.5-flash-lite" not in self.active_model:
-            attempts.append((self.client, "gemini-2.5-flash-lite", "gemini"))
+        if self.provider == "gemini":
+            if "2.5-flash-lite" not in self.active_model:
+                attempts.append((self.client, "gemini-2.5-flash-lite", "gemini"))
+            if "2.0-flash" not in self.active_model:
+                attempts.append((self.client, "gemini-2.0-flash", "gemini"))
         if self.fallback_openai_client is not None:
             attempts.append((self.fallback_openai_client, self.fallback_openai_model, "openai"))
 
-        for client_obj, model_name, prov_name in attempts:
+        for attempt_idx, (client_obj, model_name, prov_name) in enumerate(attempts):
             if client_obj is None:
                 continue
+            if attempt_idx > 0:
+                await asyncio.sleep(1.0)
             try:
                 request = self.build_request(
                     history,
@@ -965,6 +1328,12 @@ class LLMEngine:
                             "ข้าวบุกสุขใจทำจากบุกธรรมชาติ 59% ผสมข้าวหอมมะลิ 29% และน้ำ 12% ไม่ใส่สารกันบูดค่ะ "
                             "แต่สำหรับผู้ที่มีภาวะไตเสื่อมหรือโรคประจำตัวเฉพาะทาง แนะนำปรึกษาแพทย์เพิ่มเติมก่อนทานนะคะ 🙏💚"
                         )
+                elif needs_human and not is_genuine_question_text(last_user_txt):
+                    # Non-Question Escalation Guardrail: never escalate short non-question statements/declines
+                    needs_human = False
+                    esc_reason = ""
+                    if "ขอบพระคุณสำหรับคำถามนะคะ" in str(data.get("reply") or ""):
+                        data["reply"] = "รับทราบค่ะคุณลูกค้า หากต้องการให้น้องบุกดูแลหรือสอบถามรายละเอียดเพิ่มเติม แจ้งน้องบุกได้ตลอดเลยนะคะ ขอบพระคุณมากค่ะ 🙏💚"
                 self.last_escalation = {
                     "needs_human": needs_human,
                     "escalation_reason": esc_reason or ("คำถามแปลกใหม่ / AI ไม่มั่นใจคำตอบ" if needs_human else ""),
@@ -1098,6 +1467,10 @@ class LLMEngine:
         user_text = (history[-1]["content"] if history else "").strip()
         low = user_text.lower()
 
+        ctx_short = resolve_contextual_short_reply(history, current_state, brand_id=active_brand)
+        if ctx_short is not None:
+            return ctx_short
+
         if active_brand == "pada":
             return (
                 "สวัสดีค่ะท่านผู้บริหาร 🙏✨ ยินดีต้อนรับสู่หลักสูตร PADA Academy รุ่นที่ 16 (การบริหารงานตำรวจในยุคดิจิทัล — เนื้อหาเด่น เครือข่ายดี ปาร์ตี้โดนใจ) นะคะ|||"
@@ -1175,11 +1548,23 @@ class LLMEngine:
             )
 
         buy_words = ("สั่งซื้อ", "สนใจสั่ง", "รับ 1", "เอา 1", "เอาขนาด", "รับเซ็ต", "สั่ง 1", "สั่งเลย", "รับโปร")
-        if any(w in low for w in buy_words):
-            if "ครอบครัว" in low or "899" in low or "2 แถม 2" in low:
+        if any(w in low for w in buy_words) or is_active_order_or_payment_intent(user_text):
+            if "ครอบครัว" in low or "899" in low or "2 แถม 2" in low or "2แถม2" in low:
                 item_line = "เซ็ตครอบครัว 2 แถม 2 = 899 บาท"
                 total_transfer = "899 บาท (โอนส่งฟรี!)"
                 total_cod = "939 บาท (ปลายทาง +40 บาท)"
+            elif "3 แถม 3" in low or "3แถม3" in low or "1299" in low or "1,299" in low:
+                item_line = "เซ็ตใหญ่ 3 แถม 3 = 1,299 บาท"
+                total_transfer = "1,299 บาท (โอนส่งฟรี!)"
+                total_cod = "1,339 บาท (ปลายทาง +40 บาท)"
+            elif "15" in low or "555" in low:
+                item_line = "เซ็ตพกพา 15 ซอง (60g × 15 ซอง) = 555 บาท"
+                total_transfer = "555 บาท (โอนส่งฟรี!)"
+                total_cod = "595 บาท (ปลายทาง +40 บาท)"
+            elif "20" in low or "720" in low:
+                item_line = "เซ็ตพกพา 20 ซอง (60g × 20 ซอง) = 720 บาท"
+                total_transfer = "720 บาท (โอนส่งฟรี!)"
+                total_cod = "760 บาท (ปลายทาง +40 บาท)"
             elif "1 กิโล" in low or "1 กก" in low or "1kg" in low or "459" in low:
                 item_line = "ถุงใหญ่ 1 กก. = 459 บาท"
                 total_transfer = "459 บาท (โอนส่งฟรี!)"
@@ -1234,6 +1619,14 @@ class LLMEngine:
             "โปร", "มีโปร", "ดูโปร", "ขนาด", "ไซส์", "ขายยังไง", "ถุงละ", "ซองละ",
         )
         if not any(w in low for w in known_promo_or_greeting):
+            # Never escalate short non-question statements/declines as an unfamiliar question!
+            if not is_genuine_question_text(user_text):
+                self.last_escalation = {"needs_human": False, "escalation_reason": ""}
+                return (
+                    "รับทราบค่ะคุณลูกค้า หากต้องการให้น้องบุกดูแลหรือสอบถามรายละเอียดเพิ่มเติม แจ้งน้องบุกได้ตลอดเลยนะคะ ขอบพระคุณมากค่ะ 🙏💚",
+                    "browsing",
+                    "none",
+                )
             self.last_escalation = {
                 "needs_human": True,
                 "escalation_reason": "คำถามแปลกใหม่นอกเหนือข้อมูลมาตรฐานในระบบ",

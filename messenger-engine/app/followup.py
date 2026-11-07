@@ -767,6 +767,20 @@ async def auto_reply_unanswered_facebook_chats(
         ):
             continue
 
+        # Smart Context Wait:
+        # If the customer sent a very short 1-2 word reply (<= 12 chars, e.g. "ไม่คะ", "เดี๋ยว", "คือว่า")
+        # OR a human admin recently spoke in this thread, wait at least 45s so:
+        # 1) The customer has time to finish typing their second bubble of context.
+        # 2) If a human admin is actively looking at the thread, the bot doesn't jump in after 20s.
+        has_recent_human_admin = any(m.get("role") == "admin" for m in msgs[-5:])
+        is_short_fragment = (
+            not is_comment_auto_stub
+            and len(last_content) <= 12
+            and last_content.lower() not in ("สนใจ", "สนใจค่ะ", "สนใจคะ", "ราคา", "ขอราคา", "โอน", "โอนค่ะ", "โอนคะ")
+        )
+        if (has_recent_human_admin or is_short_fragment) and age_sec < 45.0:
+            continue
+
         sig = f"{psid}:{last_dt_str}:{last_content[:80]}"
         if sig in _AUTO_REPLIED_FB_SIGS:
             continue
