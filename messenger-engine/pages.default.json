@@ -4,7 +4,7 @@
       "brand_id": "buksukjai",
       "slot": 1,
       "name": "ข้าวบุกสุขใจ (@602xbpha)",
-      "active": true,
+      "active": false,
       "config_file": "config.json",
       "channels": {
         "line_channel_secret": "",
@@ -64,7 +64,7 @@
       "brand_id": "workbot",
       "slot": 5,
       "name": "Daily Report Bot (@934ndvfs)",
-      "active": true,
+      "active": false,
       "config_file": "config.json",
       "channels": {
         "line_channel_secret": "31c6946f80249c4ce55213c996d97cf9",
@@ -79,7 +79,7 @@
       "brand_id": "coachbot",
       "slot": 6,
       "name": "Muzart พามู (@346zyzej — AI Coach)",
-      "active": true,
+      "active": false,
       "config_file": "config.json",
       "channels": {
         "line_channel_secret": "cf67d9f2284a6ff9e17cf171608e5840",

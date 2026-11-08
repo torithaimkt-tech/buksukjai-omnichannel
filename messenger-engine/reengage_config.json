@@ -1,5 +1,5 @@
 {
-  "auto_enabled": true,
+  "auto_enabled": false,
   "stage1_hours": 0.5,
   "stage2_hours": 3.0,
   "stage3_hours": 10.0,

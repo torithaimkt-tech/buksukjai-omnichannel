@@ -54,7 +54,7 @@ def load_pages_registry() -> list[dict]:
                 "brand_id": "buksukjai",
                 "slot": 1,
                 "name": "ข้าวบุกสุขใจ (@602xbpha)",
-                "active": True,
+                "active": False,
                 "config_file": "config.json",
                 "channels": {
                     "line_channel_secret": os.getenv("LINE_CHANNEL_SECRET", ""),
@@ -115,7 +115,7 @@ def load_pages_registry() -> list[dict]:
                 "brand_id": "workbot",
                 "slot": len(pages) + 1,
                 "name": "GENIUS POINT (@934ndvfs)",
-                "active": True,
+                "active": False,
                 "config_file": "config.json",
                 "channels": {
                     "line_channel_secret": os.getenv("WORKBOT_LINE_CHANNEL_SECRET", "31c6946f80249c4ce55213c996d97cf9"),
@@ -136,7 +136,7 @@ def load_pages_registry() -> list[dict]:
                 "brand_id": "coachbot",
                 "slot": len(pages) + 1,
                 "name": "Muzart พามู (@346zyzej — AI Coach)",
-                "active": True,
+                "active": False,
                 "config_file": "config.json",
                 "channels": {
                     "line_channel_secret": os.getenv("COACHBOT_LINE_CHANNEL_SECRET", "cf67d9f2284a6ff9e17cf171608e5840"),

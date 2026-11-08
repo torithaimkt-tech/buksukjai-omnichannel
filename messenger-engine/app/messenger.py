@@ -50,6 +50,8 @@ def _chunk(text: str, limit: int = MESSENGER_CHAR_LIMIT) -> list[str]:
 
 def _get_channel_token(brand_id: str, platform: str) -> str:
     page = get_page_by_brand_id(brand_id)
+    if not page.get("active", False):
+        return ""
     channels = page.get("channels", {})
     if platform == "line":
         return channels.get("line_channel_access_token") or os.getenv("LINE_CHANNEL_ACCESS_TOKEN", "")

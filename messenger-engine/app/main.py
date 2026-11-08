@@ -71,6 +71,8 @@ def _sync_line_webhooks(base_url: str) -> None:
 
     time.sleep(4)  # wait for trycloudflare DNS propagation
     for page in load_pages_registry():
+        if not page.get("active", False):
+            continue
         token = page.get("channels", {}).get("line_channel_access_token", "").strip()
         brand_id = page.get("brand_id", "buksukjai")
         if not token:
@@ -227,11 +229,14 @@ async def lifespan(app: FastAPI):
     )
 
     followup_task = None
-    if os.getenv("ENABLE_FOLLOWUP", "true").lower() in ("1", "true", "yes"):
+    buksukjai_active = bool(get_page_by_brand_id("buksukjai").get("active", False))
+    if buksukjai_active and os.getenv("ENABLE_FOLLOWUP", "false").lower() in ("1", "true", "yes"):
         import asyncio
 
         asyncio.create_task(messenger.sync_recent_facebook_conversations("buksukjai", limit=40))
         followup_task = asyncio.create_task(followup.followup_loop(CONFIG, lambda: PUBLIC_BASE_URL))
+    else:
+        logger.info("All chatbots for 'buksukjai' are currently DISABLED (active=False).")
     yield
     if followup_task:
         followup_task.cancel()
@@ -294,6 +299,8 @@ async def receive_meta_webhook(request: Request, background_tasks: BackgroundTas
     for entry in payload.get("entry", []):
         recipient_page_id = entry.get("id", "")
         brand_id = resolve_brand_by_meta_id(recipient_page_id, platform=platform)
+        if not get_page_by_brand_id(brand_id).get("active", False):
+            continue
         for event in entry.get("messaging", []):
             sender_id = event.get("sender", {}).get("id")
             recipient_id = event.get("recipient", {}).get("id")
@@ -433,6 +440,9 @@ async def receive_line_webhook(
         payload = await request.json()
     except Exception:
         return {"status": "ok"}
+
+    if not get_page_by_brand_id(brand_id).get("active", False):
+        return {"status": "disabled"}
 
     for event in payload.get("events", []):
         event_type = event.get("type")
@@ -987,6 +997,8 @@ async def process_omnichannel_message(
     skip_user_log: bool = False,
 ) -> dict:
     session_key = database.make_session_key(brand_id, platform, external_user_id)
+    if not get_page_by_brand_id(brand_id).get("active", False):
+        return {"session_key": session_key, "bot_replied": False, "reply": None, "state": "disabled"}
     try:
         # Real-time Facebook Graph API verification BEFORE replying:
         # Checks if customer already ordered/paid in past Facebook history or if human admin is handling the chat!

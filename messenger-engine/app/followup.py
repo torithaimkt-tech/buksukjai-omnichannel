@@ -177,7 +177,7 @@ def _config_followup_message(config: dict) -> str:
 REENGAGE_CONFIG_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "reengage_config.json")
 
 DEFAULT_REENGAGE_CONFIG = {
-    "auto_enabled": True,
+    "auto_enabled": False,
     "stage1_hours": 0.5,
     "stage2_hours": 3.0,
     "stage3_hours": 10.0,
@@ -845,17 +845,22 @@ async def _fast_facebook_chat_responder_loop() -> None:
     """Dedicated high-priority loop that polls Facebook conversations every 20 seconds,
     completely decoupled from the heavy 10-minute JST ERP / slip / tracking tasks.
     """
+    from .config_loader import get_page_by_brand_id
+
     fast_poll = float(os.getenv("FAST_FB_POLL_SECONDS", "20"))
     while True:
         try:
-            await messenger.sync_recent_facebook_conversations("buksukjai", limit=20)
-            await auto_reply_unanswered_facebook_chats(max_age_minutes=60.0, min_wait_seconds=20.0)
+            if get_page_by_brand_id("buksukjai").get("active", False):
+                await messenger.sync_recent_facebook_conversations("buksukjai", limit=20)
+                await auto_reply_unanswered_facebook_chats(max_age_minutes=60.0, min_wait_seconds=20.0)
         except Exception as exc:
             logger.warning("Fast Facebook responder loop warning: %s", exc)
         await asyncio.sleep(fast_poll)
 
 
 async def followup_loop(config: dict, public_base_url_getter=None) -> None:
+    from .config_loader import get_page_by_brand_id
+
     try:
         _register_jst_routes()
     except Exception as exc:
@@ -871,6 +876,9 @@ async def followup_loop(config: dict, public_base_url_getter=None) -> None:
     cycle_idx = 0
     while True:
         try:
+            if not get_page_by_brand_id("buksukjai").get("active", False):
+                await asyncio.sleep(poll_seconds)
+                continue
             import httpx
 
             pub_url = public_base_url_getter() if public_base_url_getter else os.getenv("PUBLIC_BASE_URL", "")
