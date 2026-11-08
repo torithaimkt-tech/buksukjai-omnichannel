@@ -146,6 +146,7 @@ async def send_after_sales_stage(
         psid=psid,
         broadcast_tags=updated_tags,
         after_sales_stage=max(user.after_sales_stage or 0, stage),
+        after_sales_last_sent_at=datetime.now(timezone.utc),  # Fix 6: Cooldown timer
     )
 
     await messenger.send_omnichannel_text(
@@ -690,6 +691,51 @@ async def run_auto_reengage_scan(public_base_url: str = "") -> dict:
 
 _AUTO_REPLIED_FB_SIGS: set[str] = set()
 _ACTIVE_REPLY_PSIDS: set[str] = set()
+_REPLY_LOCKS: dict[str, asyncio.Lock] = {}  # Fix 5: Per-PSID reply lock to prevent race conditions
+
+
+def _is_sig_already_replied(sig: str) -> bool:
+    """Check in-memory set AND persistent SQLite table for replied signatures (Fix 2)."""
+    if sig in _AUTO_REPLIED_FB_SIGS:
+        return True
+    try:
+        with database.SessionLocal() as db:
+            from sqlalchemy import text as sql_text
+            row = db.execute(sql_text("SELECT 1 FROM replied_signatures WHERE sig = :s"), {"s": sig}).first()
+            if row:
+                _AUTO_REPLIED_FB_SIGS.add(sig)  # cache locally too
+                return True
+    except Exception:
+        pass  # table might not exist yet
+    return False
+
+
+def _mark_sig_replied(sig: str) -> None:
+    """Persist replied signature to both in-memory set and SQLite (Fix 2)."""
+    _AUTO_REPLIED_FB_SIGS.add(sig)
+    try:
+        with database.SessionLocal() as db:
+            from sqlalchemy import text as sql_text
+            db.execute(
+                sql_text("INSERT OR IGNORE INTO replied_signatures (sig, created_at) VALUES (:s, :dt)"),
+                {"s": sig, "dt": datetime.now(timezone.utc).isoformat()},
+            )
+            db.commit()
+    except Exception:
+        pass  # table might not exist yet; in-memory set still works
+
+
+def _cleanup_old_replied_sigs() -> None:
+    """Remove replied signatures older than 3 hours to keep table small."""
+    try:
+        with database.SessionLocal() as db:
+            from sqlalchemy import text as sql_text
+            db.execute(
+                sql_text("DELETE FROM replied_signatures WHERE created_at < datetime('now', '-3 hours')"),
+            )
+            db.commit()
+    except Exception:
+        pass
 
 
 async def auto_reply_unanswered_facebook_chats(
@@ -782,7 +828,12 @@ async def auto_reply_unanswered_facebook_chats(
             continue
 
         sig = f"{psid}:{last_dt_str}:{last_content[:80]}"
-        if sig in _AUTO_REPLIED_FB_SIGS:
+        if _is_sig_already_replied(sig):
+            continue
+
+        # Fix 5: Per-PSID lock — skip if another loop is already replying to this customer
+        lock = _REPLY_LOCKS.setdefault(psid, asyncio.Lock())
+        if lock.locked():
             continue
 
         # Collect trailing consecutive user messages if customer sent multiple lines
@@ -808,7 +859,7 @@ async def auto_reply_unanswered_facebook_chats(
         if not trigger_text:
             continue
 
-        _AUTO_REPLIED_FB_SIGS.add(sig)
+        _mark_sig_replied(sig)
         _ACTIVE_REPLY_PSIDS.add(psid)
         logger.info(
             "Graph API Active Auto-Responder replying to unanswered Facebook chat %s (%s): %s",
@@ -817,22 +868,23 @@ async def auto_reply_unanswered_facebook_chats(
             trigger_text[:80],
         )
         try:
-            res = await main_mod.process_omnichannel_message(
-                brand_id=s.get("brand_id") or "buksukjai",
-                platform="facebook",
-                external_user_id=ext_id,
-                text=trigger_text,
-                customer_name=s.get("customer_name") or "",
-                skip_user_log=True,
-            )
-            replied_list.append(
-                {
-                    "psid": psid,
-                    "customer_name": s.get("customer_name"),
-                    "trigger_text": trigger_text,
-                    "bot_replied": res.get("bot_replied"),
-                }
-            )
+            async with lock:  # Fix 5: Per-PSID lock prevents concurrent duplicate replies
+                res = await main_mod.process_omnichannel_message(
+                    brand_id=s.get("brand_id") or "buksukjai",
+                    platform="facebook",
+                    external_user_id=ext_id,
+                    text=trigger_text,
+                    customer_name=s.get("customer_name") or "",
+                    skip_user_log=True,
+                )
+                replied_list.append(
+                    {
+                        "psid": psid,
+                        "customer_name": s.get("customer_name"),
+                        "trigger_text": trigger_text,
+                        "bot_replied": res.get("bot_replied"),
+                    }
+                )
         except Exception as exc:
             logger.warning("Auto-reply failed for %s: %s", psid, exc)
         finally:
@@ -842,17 +894,23 @@ async def auto_reply_unanswered_facebook_chats(
 
 
 async def _fast_facebook_chat_responder_loop() -> None:
-    """Dedicated high-priority loop that polls Facebook conversations every 20 seconds,
-    completely decoupled from the heavy 10-minute JST ERP / slip / tracking tasks.
+    """Dedicated SINGLE polling loop for Facebook conversations every 30 seconds.
+    This is now the ONLY loop that polls Facebook + auto-replies (Fix 1 & 7).
+    The main followup_loop() no longer does FB sync/reply to prevent double-polling.
     """
     from .config_loader import get_page_by_brand_id
 
-    fast_poll = float(os.getenv("FAST_FB_POLL_SECONDS", "20"))
+    fast_poll = float(os.getenv("FAST_FB_POLL_SECONDS", "30"))
+    cleanup_counter = 0
     while True:
         try:
             if get_page_by_brand_id("buksukjai").get("active", False):
                 await messenger.sync_recent_facebook_conversations("buksukjai", limit=20)
                 await auto_reply_unanswered_facebook_chats(max_age_minutes=60.0, min_wait_seconds=20.0)
+            # Fix 2: Periodically clean up old replied signatures (every 100 cycles ~50 min)
+            cleanup_counter += 1
+            if cleanup_counter % 100 == 0:
+                _cleanup_old_replied_sigs()
         except Exception as exc:
             logger.warning("Fast Facebook responder loop warning: %s", exc)
         await asyncio.sleep(fast_poll)
@@ -890,9 +948,9 @@ async def followup_loop(config: dict, public_base_url_getter=None) -> None:
             except Exception:
                 pass
 
-            # 0.1 Sync latest Facebook conversations & auto-reply to any unanswered customer messages!
-            await messenger.sync_recent_facebook_conversations("buksukjai", limit=25)
-            await auto_reply_unanswered_facebook_chats(max_age_minutes=60.0, min_wait_seconds=20.0)
+            # 0.1 Facebook sync + auto-reply is handled SOLELY by _fast_facebook_chat_responder_loop() (every 30s).
+            # REMOVED from main loop to prevent double-polling race condition that caused duplicate messages.
+            # See: Root Cause Analysis 2026-11-08 — Fix 1
 
             # 0.2 Daily 01:00 AM Sales & Stock Reconciliation Summary (สรุปยอดขายของเมื่อวานทุกวันเวลา 01:00 น.)
             from . import daily_sheet_report
@@ -903,7 +961,8 @@ async def followup_loop(config: dict, public_base_url_getter=None) -> None:
                 await asyncio.to_thread(daily_sheet_report.load_or_build_daily_report, yest_date)
 
             # 0.5 Daily 06:00 AM Batch Keying into JST ERP (คีย์ข้อมูลวันละ 1 ครั้ง ตอน 06:00 น. เวลาไทย รวบรวมออเดอร์ของเมื่อวาน)
-            importlib.reload(jst_erp)
+            # REMOVED: importlib.reload(jst_erp) — was resetting AUTO_SYNC_ENABLED to False every cycle.
+            # See: Root Cause Analysis 2026-11-08 — Fix 3
             if jst_erp.should_run_daily_6am_sync():
                 logger.info("Running Daily 06:00 AM (BKK) JST ERP Batch Order Sync...")
                 await messenger.sync_recent_facebook_conversations("buksukjai", limit=60)
@@ -912,7 +971,7 @@ async def followup_loop(config: dict, public_base_url_getter=None) -> None:
                 await asyncio.to_thread(daily_sheet_report.load_or_build_daily_report, yest_date)
 
             # 0.65 Daily 07:00 AM LINE Work Group Report (แจ้งสรุปยอดขายแต่ละช่องทาง โอน/COD และตัดสต็อกโกดังในกลุ่มไลน์งานหลังคีย์เสร็จ)
-            importlib.reload(daily_sheet_report)
+            # REMOVED: importlib.reload(daily_sheet_report) — unnecessary module reload
             should_line_7am, yest_7am = daily_sheet_report.should_run_daily_7am_line_report()
             if should_line_7am:
                 logger.info("Running Daily 07:00 AM (BKK) LINE Work Group Summary for %s...", yest_7am)
@@ -982,6 +1041,15 @@ async def followup_loop(config: dict, public_base_url_getter=None) -> None:
                     days_elapsed = (now - paid_at).total_seconds() / 86400.0
                     sched = calculate_depletion_schedule(u.purchased_sku, u.purchased_qty)
                     cur_stage = u.after_sales_stage or 0
+
+                    # Fix 6: Minimum 20-hour cooldown between after-sales messages
+                    last_sent = getattr(u, "after_sales_last_sent_at", None)
+                    if last_sent:
+                        if last_sent.tzinfo is None:
+                            last_sent = last_sent.replace(tzinfo=timezone.utc)
+                        hours_since_last = (now - last_sent).total_seconds() / 3600.0
+                        if hours_since_last < 20.0:
+                            continue  # Too soon — prevent duplicate after-sales blasts
 
                     if cur_stage < 1 and days_elapsed >= sched["day_delivery_check"]:
                         await send_after_sales_stage(u.psid, 1, public_base_url=pub_url)

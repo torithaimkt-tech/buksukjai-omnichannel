@@ -95,6 +95,7 @@ class UserSession(Base):
     purchased_qty: Mapped[int] = mapped_column(Integer, default=1)
     purchased_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     after_sales_stage: Mapped[int] = mapped_column(Integer, default=0)
+    after_sales_last_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # Fix 6
     last_interaction_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     followup_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -152,6 +153,7 @@ class LoyaltyClaimedOrder(Base):
 def init_db() -> None:
     Base.metadata.create_all(engine)
     _ensure_columns()
+    _ensure_replied_signatures_table()
     restore_persistent_snapshot_if_needed()
 
 
@@ -175,6 +177,7 @@ def _ensure_columns() -> None:
             ("purchased_qty", "INTEGER DEFAULT 1"),
             ("purchased_at", ts_col_type),
             ("after_sales_stage", "INTEGER DEFAULT 0"),
+            ("after_sales_last_sent_at", ts_col_type),  # Fix 6: Cooldown timer for after-sales
         ]
         with engine.begin() as conn:
             for col_name, col_def in migrations:
@@ -192,6 +195,21 @@ def _ensure_columns() -> None:
         with engine.begin() as conn:
             if "sender_label" not in existing_msg:
                 conn.execute(text("ALTER TABLE message_log ADD COLUMN sender_label VARCHAR(64) DEFAULT ''"))
+
+
+def _ensure_replied_signatures_table() -> None:
+    """Fix 2: Create persistent replied_signatures table for Facebook auto-reply deduplication.
+    Survives Render container restarts unlike the in-memory set that was used before."""
+    try:
+        with engine.begin() as conn:
+            conn.execute(text(
+                "CREATE TABLE IF NOT EXISTS replied_signatures ("
+                "  sig VARCHAR(256) PRIMARY KEY,"
+                "  created_at VARCHAR(32) NOT NULL"
+                ")"
+            ))
+    except Exception as exc:
+        logger.warning("Failed to create replied_signatures table: %s", exc)
 
 
 def _parse_iso_dt(val: str | None) -> datetime | None:
@@ -616,6 +634,7 @@ def update_session_meta(
     purchased_sku: str | None = None,
     purchased_qty: int | None = None,
     after_sales_stage: int | None = None,
+    after_sales_last_sent_at: datetime | None = None,  # Fix 6: Cooldown timer
     clear_unread: bool = False,
 ) -> UserSession | None:
     with SessionLocal() as db:
@@ -652,6 +671,8 @@ def update_session_meta(
             user.purchased_qty = max(1, int(purchased_qty))
         if after_sales_stage is not None:
             user.after_sales_stage = after_sales_stage
+        if after_sales_last_sent_at is not None:
+            user.after_sales_last_sent_at = after_sales_last_sent_at
         if clear_unread:
             user.unread_count = 0
         db.commit()

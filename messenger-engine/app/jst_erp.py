@@ -65,7 +65,21 @@ def get_shop_id_for_brand(brand_id: str = "buksukjai") -> int:
 
 
 _RUNTIME_COOKIE: str = ""
-AUTO_SYNC_ENABLED: bool = False
+
+# Fix 4: Load AUTO_SYNC_ENABLED from persisted state so it survives Render restarts.
+# Previously this was always False on boot, causing JST sync to silently stop for days.
+def _load_auto_sync_from_state() -> bool:
+    try:
+        import json
+        _path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "jst_sync_state.json")
+        if os.path.exists(_path):
+            with open(_path, "r", encoding="utf-8") as f:
+                return bool(json.load(f).get("auto_sync_enabled", False))
+    except Exception:
+        pass
+    return False
+
+AUTO_SYNC_ENABLED: bool = _load_auto_sync_from_state()
 
 # Verified JST ERP SKU Catalog for Shop 20759963 (ข้าวบุกสุขใจ)
 KNOWN_SKUS: dict[str, dict[str, Any]] = {
@@ -443,6 +457,11 @@ def is_auto_sync_enabled() -> bool:
 def set_auto_sync_enabled(enabled: bool) -> None:
     global AUTO_SYNC_ENABLED
     AUTO_SYNC_ENABLED = bool(enabled)
+    # Fix 4: Persist to jst_sync_state.json so the setting survives container restarts
+    try:
+        save_daily_sync_state({"auto_sync_enabled": bool(enabled)})
+    except Exception:
+        pass
 
 
 DAILY_BATCH_HOUR_BKK: int = 6
