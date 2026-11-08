@@ -65,7 +65,7 @@ def get_shop_id_for_brand(brand_id: str = "buksukjai") -> int:
 
 
 _RUNTIME_COOKIE: str = ""
-AUTO_SYNC_ENABLED: bool = True
+AUTO_SYNC_ENABLED: bool = False
 
 # Verified JST ERP SKU Catalog for Shop 20759963 (ข้าวบุกสุขใจ)
 KNOWN_SKUS: dict[str, dict[str, Any]] = {
