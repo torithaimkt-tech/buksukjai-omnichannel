@@ -145,7 +145,7 @@ def build_daily_sales_sheet_rows(target_date: str) -> dict[str, Any]:
     earlier_manual_phones: set[str] = set()
     for x in non_cancelled_rows:
         ot = _effective_order_date(x)
-        if ot and ot < target_date and str(x.get("SaveType") or "") == "ManualOrder":
+        if ot and ot < target_date and str(x.get("SaveType") or "") in ("ManualOrder", "ManualImport"):
             ph = jst_erp.normalize_thai_phone(str(x.get("ReceiverMobileEn") or x.get("ReceiverPhoneEn") or ""))
             if ph:
                 earlier_manual_phones.add(ph)
@@ -162,7 +162,7 @@ def build_daily_sales_sheet_rows(target_date: str) -> dict[str, Any]:
     # and filter out bot-rekeyed orders from earlier dates.
     manual_by_phone: dict[str, list[dict[str, Any]]] = {}
     for x in raw_day_orders:
-        if str(x.get("SaveType") or "") == "ManualOrder":
+        if str(x.get("SaveType") or "") in ("ManualOrder", "ManualImport"):
             ph = jst_erp.normalize_thai_phone(str(x.get("ReceiverMobileEn") or x.get("ReceiverPhoneEn") or ""))
             if ph:
                 manual_by_phone.setdefault(ph, []).append(x)
@@ -202,7 +202,7 @@ def build_daily_sales_sheet_rows(target_date: str) -> dict[str, Any]:
     day_orders = [
         x
         for x in raw_day_orders
-        if str(x.get("SaveType") or "") != "ManualOrder"
+        if str(x.get("SaveType") or "") not in ("ManualOrder", "ManualImport")
         or not jst_erp.normalize_thai_phone(str(x.get("ReceiverMobileEn") or x.get("ReceiverPhoneEn") or ""))
         or str(x.get("OrderId") or "") in chosen_manual_order_ids
     ]
@@ -247,7 +247,7 @@ def build_daily_sales_sheet_rows(target_date: str) -> dict[str, Any]:
 
         save_type = str(o.get("SaveType") or "")
         plat_id = str(o.get("PlatformId") or "")
-        channel = "Facebook" if save_type == "ManualOrder" else (plat_id or "TikTok")
+        channel = "Facebook" if save_type in ("ManualOrder", "ManualImport") else (plat_id or "TikTok")
         if channel.lower() == "facebook":
             tot_facebook += amt
         elif channel.lower() == "shopee":

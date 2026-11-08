@@ -1209,7 +1209,7 @@ def auto_fix_missing_express_orders(
             x
             for x in ph_orders
             if "จัดส่งแล้ว" not in str(x.get("StatusDisplay") or "")
-            and str(x.get("SaveType") or "") == "ManualOrder"
+            and str(x.get("SaveType") or "") in ("ManualOrder", "ManualImport")
         ]
         if shipped_list and unshipped_list:
             shipped_amts = {float(x.get("PayAmount") or 0.0) for x in shipped_list}
@@ -1239,7 +1239,7 @@ def auto_fix_missing_express_orders(
 
     for d in all_rows:
         oid = str(d.get("OrderId") or "").strip()
-        if not oid or oid in cancelled_dup_ids or d.get("SaveType") != "ManualOrder":
+        if not oid or oid in cancelled_dup_ids or d.get("SaveType") not in ("ManualOrder", "ManualImport"):
             continue
         st_disp = str(d.get("StatusDisplay") or "")
         if "ยกเลิก" in st_disp or "Cancel" in str(d.get("Status") or "") or "จัดส่งแล้ว" in st_disp:
@@ -1409,7 +1409,7 @@ def recognize_and_clean_address(
     # Smart Bangkok 10xxx fallback when customer writes "ลาดพร้าว จตุจักร กทม 10900" without แขวง/เขต prefixes
     if (zip_code.startswith("10") or province in ("กรุงเทพ", "กรุงเทพมหานคร", "กทม", "กทม.")) and (not city or not district):
         m_bkk_pair = re.search(
-            r"([ก-๙]{2,25})\s+([ก-๙]{2,25})\s+(?:กรุงเทพมหานคร|กรุงเทพฯ?|กทม\.?|\b10\d{3}\b)",
+            r"([ก-๙]{2,25})\s+([ก-๙]{2,25})\s*(?:กรุงเทพมหานคร|กรุงเทพฯ?|กทม\.?|\b10\d{3}\b)",
             cleaned_input,
         )
         if m_bkk_pair:
@@ -1418,10 +1418,62 @@ def recognize_and_clean_address(
                 district = cand_sub
             if not city and cand_dist not in ("ถนน", "ซอย", "หมู่บ้าน", "อาคาร", "คอนโด"):
                 city = cand_dist
+        for bkk_d in ("พญาไท", "บางเขน", "บางนา", "จตุจักร", "ลาดพร้าว", "ห้วยขวาง", "ดินแดง", "บางกะปิ", "คลองเตย", "วัฒนา", "สาทร", "บางรัก", "ปทุมวัน", "ดุสิต", "พระนคร", "ธนบุรี", "คลองสาน", "บางกอกน้อย", "บางกอกใหญ่", "ตลิ่งชัน", "ภาษีเจริญ", "บางแค", "หนองแขม", "บางขุนเทียน", "จอมทอง", "ราษฎร์บูรณะ", "ทุ่งครุ", "ยานนาวา", "บางคอแหลม", "ประเวศ", "สวนหลวง", "พระโขนง", "สะพานสูง", "บึงกุ่ม", "คันนายาว", "มีนบุรี", "คลองสามวา", "หนองจอก", "ลาดกระบัง", "สายไหม", "ดอนเมือง", "หลักสี่", "บางซื่อ", "จตุจักร"):
+            if not city and bkk_d in cleaned_input:
+                city = bkk_d
+            if not district and f"{bkk_d}เหนือ" in cleaned_input:
+                district = f"{bkk_d}เหนือ"
+            elif not district and f"{bkk_d}ใต้" in cleaned_input:
+                district = f"{bkk_d}ใต้"
         if city and not district:
             district = city
         elif district and not city:
             city = district
+
+    # Offline postal-code & English/Thai fallback when AddresseeRecognition (u_cid) is unavailable
+    _zip_fallback_map: dict[str, tuple[str, str, str]] = {
+        "10220": ("กรุงเทพมหานคร", "บางเขน", "ท่าแร้ง"),
+        "10260": ("กรุงเทพมหานคร", "บางนา", "บางนาเหนือ"),
+        "10400": ("กรุงเทพมหานคร", "พญาไท", "พญาไท"),
+        "10540": ("สมุทรปราการ", "บางพลี", "ราชาเทวะ"),
+        "11000": ("นนทบุรี", "เมืองนนทบุรี", "ท่าทราย"),
+        "11130": ("นนทบุรี", "บางกรวย", "มหาสวัสดิ์"),
+        "20110": ("ชลบุรี", "ศรีราชา", "สุรศักดิ์"),
+        "20150": ("ชลบุรี", "บางละมุง", "หนองปลาไหล"),
+        "21000": ("ระยอง", "เมืองระยอง", "ทับมา"),
+        "21150": ("ระยอง", "เมืองระยอง", "มาบตาพุด"),
+        "22110": ("จันทบุรี", "ขลุง", "วันยาว"),
+        "25110": ("ปราจีนบุรี", "กบินทร์บุรี", "หนองกี่"),
+        "30250": ("นครราชสีมา", "ครบุรี", "เฉลียง"),
+        "31000": ("บุรีรัมย์", "เมืองบุรีรัมย์", "อิสาณ"),
+        "34000": ("อุบลราชธานี", "เมืองอุบลราชธานี", "ในเมือง"),
+        "41000": ("อุดรธานี", "เมืองอุดรธานี", "กุดสระ"),
+        "50130": ("เชียงใหม่", "สันกำแพง", "สันกำแพง"),
+        "54130": ("แพร่", "สูงเม่น", "ร่องกาศ"),
+        "57000": ("เชียงราย", "เมืองเชียงราย", "สันทราย"),
+        "73180": ("นครปฐม", "กำแพงแสน", "สระสี่มุม"),
+        "84110": ("สุราษฎร์ธานี", "ไชยา", "ตลาดไชยา"),
+        "90110": ("สงขลา", "หาดใหญ่", "หาดใหญ่"),
+    }
+    if zip_code and zip_code in _zip_fallback_map:
+        fb_prov, fb_city, fb_dist = _zip_fallback_map[zip_code]
+        if not province:
+            province = fb_prov
+        if not city:
+            city = fb_city
+        if not district:
+            district = fb_dist
+    elif not zip_code and province and city:
+        _city_zip_map = {
+            ("สมุทรปราการ", "บางพลี"): "10540",
+            ("แพร่", "สูงเม่น"): "54130",
+            ("นนทบุรี", "เมือง"): "11000",
+            ("นนทบุรี", "เมืองนนทบุรี"): "11000",
+            ("นนทบุรี", "บางกรวย"): "11130",
+            ("ระยอง", "เมือง"): "21000",
+            ("ระยอง", "เมืองระยอง"): "21000",
+        }
+        zip_code = _city_zip_map.get((province, city), "")
 
     rec_detail = re.sub(
         r"\b(จัดส่งที่นี่นะครับ|จัดส่งที่นี่นะคะ|ที่อยู่จัดส่ง|แขวง|เขต|ตำบล|อำเภอ|จังหวัด|ต\.|อ\.|จ\.|รหัส|เบอร์|โทร|ชื่อ)\s*(?=\s|$)",
@@ -1608,7 +1660,7 @@ def classify_incoming_chat_image(
 
 
 def upload_payment_slip(image_url: str) -> dict[str, str]:
-    """Download payment slip image from URL, verify it is NOT a promotion poster, and upload to JST ERP (`ErpUploadAttachement`)."""
+    """Download payment slip image from URL, verify it is NOT a promotion poster, and upload to JST ERP."""
     img_resp = httpx.get(image_url, timeout=20.0, follow_redirects=True)
     img_resp.raise_for_status()
     img_bytes = img_resp.content
@@ -1616,6 +1668,30 @@ def upload_payment_slip(image_url: str) -> dict[str, str]:
     is_slip, reason = verify_image_is_payment_slip(image_bytes=img_bytes, image_url=image_url)
     if not is_slip:
         raise ValueError(f"ปฏิเสธการอัปโหลดรูปภาพ: {reason}")
+
+    # Primary: https://asia.jsterp.com/Intergration/Upload/UploadAttachement (uses sliding .AspNetCore.GlobalAuthCookie)
+    try:
+        asia_headers = {
+            "Cookie": get_jst_cookie(),
+            "X-Requested-With": "XMLHttpRequest",
+            "Origin": "https://asia.jsterp.com",
+            "Referer": "https://asia.jsterp.com/OMS/Order/OrderManage?type=WaitPay",
+        }
+        r_asia = httpx.post(
+            "https://asia.jsterp.com/Intergration/Upload/UploadAttachement",
+            headers=asia_headers,
+            data={"BizType": "PayReceipt"},
+            files={"file": (f"slip_{int(time.time())}.jpg", img_bytes, "image/jpeg")},
+            timeout=25.0,
+        )
+        if r_asia.status_code == 200:
+            rj = r_asia.json()
+            data_obj = rj.get("Data") or rj.get("data") or {}
+            vid = data_obj.get("Id") or data_obj.get("id")
+            if vid:
+                return {"voucherId": str(vid), "uri": str(data_obj.get("Uri") or data_obj.get("uri") or "")}
+    except Exception as exc:
+        logger.warning("asia.jsterp.com slip upload fallback: %s", exc)
 
     up_headers = {
         "Cookie": get_jst_cookie(),
@@ -1974,14 +2050,147 @@ def create_order_in_jst(
         "IsUpsell": False,
     }
 
-    save_resp = httpx.post(
-        "https://asia-web.jsterp.com/MiniShop/OMS/Order/Save",
-        headers=_headers(json_body=True),
-        json=order_payload,
-        timeout=25.0,
-    )
-    save_resp.raise_for_status()
-    save_json = save_resp.json()
+    save_json: dict[str, Any] = {}
+    used_asia_file_import = False
+    try:
+        save_resp = httpx.post(
+            "https://asia-web.jsterp.com/MiniShop/OMS/Order/Save",
+            headers=_headers(json_body=True),
+            json=order_payload,
+            timeout=25.0,
+        )
+        if save_resp.status_code == 200:
+            save_json = save_resp.json() or {}
+    except Exception as exc:
+        logger.warning("asia-web Save failed (%s), falling back to asia.jsterp.com FileImport", exc)
+
+    if not save_json.get("success"):
+        # Fallback: Create order directly on https://asia.jsterp.com/Common/FileImport/FileImport
+        # which uses sliding .AspNetCore.GlobalAuthCookie (never expires after 48h like u_cid!)
+        try:
+            import io
+            import zipfile
+            import xml.etree.ElementTree as ET
+
+            tpl_path = os.path.join(os.path.dirname(__file__), "jst_order_template.xlsx")
+            ns_main = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+            ET.register_namespace("", ns_main)
+            now_str = datetime.now(_BKK_TZ).strftime("%Y-%m-%d %H:%M:%S")
+            online_oid = f"FB{int(time.time())}_{phone}"
+
+            import_rows: list[dict[str, str]] = []
+            for idx_item, it in enumerate(order_item):
+                import_rows.append(
+                    {
+                        "หมายเลขออเดอร์ออนไลน์": online_oid,
+                        "ชื่อร้านค้า": "ข้าวบุกสุขใจ",
+                        "เวลาที่สั่งซื้อ": now_str,
+                        "บัญชีร้านค้า": f"{addr['receiverFirstName']}__{phone}",
+                        "COD": "ใช่" if is_cod else "ไม่",
+                        "คลังสินค้า": "Buksukjai",
+                        "ข้อความจากร้านค้า": seller_remark or f"Order {phone}",
+                        "ค่าขนส่ง": f"{freight_val:g}" if idx_item == 0 else "0",
+                        "จำนวนเงินที่ต้องชำระ": f"{total_pay:g}" if idx_item == 0 else "0",
+                        "ผู้รับสินค้า": addr["receiverFirstName"],
+                        "รหัสไปรษณีย์": addr["receiverZip"],
+                        "หมายเลขโทรศัพท์": phone,
+                        "หมายเลขมือถือ": phone,
+                        "ประเทศ": "ไทย",
+                        "จังหวัด": addr["receiverProvince"],
+                        "อำเภอ": addr["receiverCity"],
+                        "ตำบล": addr["receiverDistrict"],
+                        "สถานที่": addr["receiverAddress"],
+                        "รับสินค้าที่ร้านหรือไม่": "ไม่",
+                        "รหัสสินค้าบนแพลตฟอร์ม": str(it["skuId"]),
+                        "รหัสสินค้าในระบบ": str(it["skuId"]),
+                        "ชื่อสินค้า": str(it["name"]),
+                        "จำนวน": str(it["qty"]),
+                        "ราคาสินค้าต่อหน่วย": f"{float(it['price']):g}",
+                        "บริษัทขนส่ง": "J&T Express",
+                        "สถานะ": "ชำระแล้วรอตรวจสอบ" if is_cod else "รอชำระเงิน",
+                        "พนักงานขาย": "buksukjai",
+                        "รูปแบบคำสั่งซื้อ": "ใบสั่งซื้อทั่วไป",
+                    }
+                )
+
+            with zipfile.ZipFile(tpl_path, "r") as zin:
+                s_root = ET.fromstring(zin.read("xl/sharedStrings.xml"))
+                strings = ["".join(si.itertext()) for si in s_root]
+                str_to_idx = {s: i for i, s in enumerate(strings)}
+
+                def _get_str_idx(val: str) -> int:
+                    if val not in str_to_idx:
+                        idx_s = len(strings)
+                        strings.append(val)
+                        str_to_idx[val] = idx_s
+                        si = ET.SubElement(s_root, f"{{{ns_main}}}si")
+                        t_el = ET.SubElement(si, f"{{{ns_main}}}t")
+                        t_el.text = val
+                    return str_to_idx[val]
+
+                w_root = ET.fromstring(zin.read("xl/worksheets/sheet1.xml"))
+                sheet_data = w_root.find(f"{{{ns_main}}}sheetData")
+                row1 = sheet_data.find(f"{{{ns_main}}}row[@r='1']")
+                col_to_header = {}
+                for c in row1:
+                    ref = c.attrib["r"]
+                    col_letters = "".join(ch for ch in ref if ch.isalpha())
+                    v_el = c.find(f"{{{ns_main}}}v")
+                    h_txt = strings[int(v_el.text)] if v_el is not None else ""
+                    col_to_header[col_letters] = h_txt
+
+                for r_el in list(sheet_data):
+                    if r_el.attrib.get("r") != "1":
+                        sheet_data.remove(r_el)
+
+                for r_idx, r_dict in enumerate(import_rows, start=2):
+                    row_el = ET.SubElement(sheet_data, f"{{{ns_main}}}row", {"r": str(r_idx)})
+                    for col_let, h_name in col_to_header.items():
+                        val = str(r_dict.get(h_name, "")).strip()
+                        if not val:
+                            continue
+                        c_el = ET.SubElement(row_el, f"{{{ns_main}}}c", {"r": f"{col_let}{r_idx}", "t": "s"})
+                        v_el = ET.SubElement(c_el, f"{{{ns_main}}}v")
+                        v_el.text = str(_get_str_idx(val))
+
+                s_root.attrib["count"] = str(len(strings))
+                s_root.attrib["uniqueCount"] = str(len(strings))
+                out_buf = io.BytesIO()
+                with zipfile.ZipFile(out_buf, "w", zipfile.ZIP_DEFLATED) as zout:
+                    for item in zin.infolist():
+                        if item.filename == "xl/sharedStrings.xml":
+                            zout.writestr(item, ET.tostring(s_root, encoding="utf-8", xml_declaration=True))
+                        elif item.filename == "xl/worksheets/sheet1.xml":
+                            zout.writestr(item, ET.tostring(w_root, encoding="utf-8", xml_declaration=True))
+                        else:
+                            zout.writestr(item, zin.read(item.filename))
+                xlsx_bytes = out_buf.getvalue()
+
+            imp_fname = f"order_{phone}_{int(time.time())}.xlsx"
+            imp_resp = httpx.post(
+                "https://asia.jsterp.com/Common/FileImport/FileImport",
+                headers={
+                    "Cookie": get_jst_cookie(),
+                    "X-Requested-With": "XMLHttpRequest",
+                    "Origin": "https://asia.jsterp.com",
+                    "Referer": "https://asia.jsterp.com/OMS/Order/Import",
+                },
+                data={
+                    "RelativeId": "order",
+                    "ExtraInfo": json.dumps({"ShopId": JST_SHOP_ID, "isCalcPromotion": False, "isCalcFreight": False}),
+                    "ImportType": "increase",
+                },
+                files={"file": (imp_fname, xlsx_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+                timeout=30.0,
+            )
+            imp_json = imp_resp.json() if imp_resp.status_code == 200 else {}
+            if imp_json.get("Success"):
+                used_asia_file_import = True
+                save_json = {"success": True, "via": "asia_file_import", "response": imp_json}
+                time.sleep(3.5)
+        except Exception as imp_exc:
+            logger.warning("asia FileImport fallback failed for %s: %s", phone, imp_exc)
+
     if not save_json.get("success"):
         return {
             "status": "error",
@@ -1991,6 +2200,21 @@ def create_order_in_jst(
 
     verify_info = check_duplicate_order(phone, within_days=1)
     created_order = verify_info["recent_orders"][0] if verify_info["recent_orders"] else None
+
+    if created_order and created_order.get("order_id") and used_asia_file_import and not is_cod and slip_image_url:
+        try:
+            oid_imp = int(created_order["order_id"])
+            attach_or_replace_slip_on_jst_order(oid_imp, slip_image_url, float(total_pay))
+            time.sleep(0.8)
+            httpx.post(
+                "https://asia.jsterp.com/OMS/MiniShopOrder/ConfirmOrder",
+                headers=_headers(json_body=True),
+                json={"OrderIds": [oid_imp], "LanguageId": "zh-cn"},
+                timeout=20.0,
+            )
+            time.sleep(0.8)
+        except Exception as slip_exc:
+            logger.warning("Auto attach+confirm slip after FileImport failed for %s: %s", phone, slip_exc)
 
     if created_order and created_order.get("order_id"):
         oid_created = str(created_order["order_id"])
@@ -2729,8 +2953,8 @@ def extract_order_from_session(psid: str) -> dict[str, Any]:
             if nb == 3:
                 return "BSJ60G3", set_mult, float(total_hint or 140)
             return "BSJ60G1", nb * set_mult, 39.0
-        if "1kg" in s:
-            m1k = re.search(r"1kg(?:\*|x|×)?(\d+)(?:ถุง|ซอง|ชุด)?", s)
+        if "1kg" in s or "1kh" in s or "1กก" in s:
+            m1k = re.search(r"1(?:kg|kh|กก)(?:\*|x|×)?(\d+)(?:ถุง|ซอง|ชุด)?", s)
             n1k = int(m1k.group(1)) if m1k else 1
             return "BSJ1KG1", n1k * set_mult, 459.0
         if "500g" in s:
