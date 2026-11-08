@@ -17,10 +17,14 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 logger = logging.getLogger(__name__)
 
 PERSISTENT_SNAPSHOT_PATH = Path(__file__).resolve().parent.parent / "db_persistent_snapshot.json"
+DEFAULT_SQLITE_DB_PATH = Path(__file__).resolve().parent.parent / "chatbot.db"
+DEFAULT_SQLITE_URL = f"sqlite:///{DEFAULT_SQLITE_DB_PATH.as_posix()}"
 
 
 def _normalize_database_url(raw_url: str) -> str:
-    url = (raw_url or "").strip() or "sqlite:///chatbot.db"
+    url = (raw_url or "").strip() or DEFAULT_SQLITE_URL
+    if url in ("sqlite:///chatbot.db", "sqlite:///./chatbot.db"):
+        return DEFAULT_SQLITE_URL
     if url.startswith("postgres://"):
         url = "postgresql+psycopg2://" + url[len("postgres://") :]
     elif url.startswith("postgresql://") and "+psycopg" not in url:
@@ -29,7 +33,7 @@ def _normalize_database_url(raw_url: str) -> str:
 
 
 DATABASE_URL = _normalize_database_url(
-    os.getenv("EXTERNAL_DATABASE_URL") or os.getenv("POSTGRES_URL") or os.getenv("DATABASE_URL", "sqlite:///chatbot.db")
+    os.getenv("EXTERNAL_DATABASE_URL") or os.getenv("POSTGRES_URL") or os.getenv("DATABASE_URL", DEFAULT_SQLITE_URL)
 )
 _IS_SQLITE = DATABASE_URL.startswith("sqlite")
 
@@ -55,7 +59,7 @@ def _build_engine(db_url: str):
     except Exception as exc:
         logger.warning("PostgreSQL connection failed (%s); falling back to local SQLite with persistent snapshot.", exc)
         _IS_SQLITE = True
-        return create_engine("sqlite:///chatbot.db", connect_args={"check_same_thread": False})
+        return create_engine(DEFAULT_SQLITE_URL, connect_args={"check_same_thread": False})
 
 
 engine = _build_engine(DATABASE_URL)

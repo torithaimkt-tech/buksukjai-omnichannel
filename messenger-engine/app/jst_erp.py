@@ -63,31 +63,8 @@ def get_shop_id_for_brand(brand_id: str = "buksukjai") -> int:
         return JST_SHOP_ID_MRBUK
     return JST_SHOP_ID
 
-FRESH_JST_COOKIE = (
-    "client_id=8c55bf3e7cb90f3ba27a22ddfdcc3762_91cdae39f749baaed0f1c166d97c4583; "
-    "u_login_id=buksukjai%40gmail.com; VID_bcbff8986118=22755436; VP_bcbff8986118=1; "
-    "AVID_147792=22755436; _ati=3616590229392; Notice-22755436-176=True; LanguageId=TH; "
-    "Notice-22755436-177=True; u_cid=48259fda08a245d3bdee668206972fd0-22755436-9d5a61e0c4e148ddf561a3e4c286ebca; "
-    "u_id=22755436; u_name=buksukjai; u_co_id=15749167; u_co_name=Buksukjai; ClientTimeZone=7; "
-    ".AspNetCore.GlobalAuthCookie=CfDJ8NUvc5HFTn9EnG_IMr2hg1QbScA67aC19EuEL5g7p0b5o3Z77WhGqyNhCRGy2x5cIemLnSwCLkE9Ni3wXb5fH6zX2-2YneaFuCJ8xN86Noe5nKWgv5OBNBpsnKjgcNcBC4nXsLCIB8LA6KEuVMiSLaxZuSqqcJ3XrpSpcnP2z9vxNeOw6mRa03t4ygcMoQWdK6x3FFQQLNSDhbdFlP9Dt29D-yyuuSaNUx2xJL4s901oXJyCSxg8WuJUDt1KUO_Ouzi3ReFuEV9yUcDOHvgcJetL7tM7fxjrtYbMqLSixOKRzvDsq4xa6me0wZebPHGJoiHkuyUBcDp0dQhXgL9bmEB_Mmte3mckKSZYjmzLdQHEZU5xGOZPoYD74vMGemVyfvy0xE9kb3nEkW-vs3UuSyiDFR5fQv4ENsc0DtglQuwwnz0jZQOsUy6YxDeumf_aXCeBYONN5OLaT0VT40tnFatYtkKQTHHUaKvAWyuybRmG; "
-    "VT_bcbff8986118=17; SID_bcbff8986118=4915081157153753597"
-)
 
-_EXPIRED_UCIDS = (
-    "8925a23804b941b49f52f1c79c1c3b93",
-    "ffab80a5bac245c79a723ced80a396a2",
-    "071f234fc5004faebdc277ca93b21491",
-)
-
-_env_jst_cookie = os.getenv("JST_ERP_COOKIE", "").strip()
-# Prefer FRESH_JST_COOKIE if env cookie is empty or still holds an expired u_cid
-DEFAULT_JST_COOKIE = (
-    FRESH_JST_COOKIE
-    if (not _env_jst_cookie or any(old_id in _env_jst_cookie for old_id in _EXPIRED_UCIDS))
-    else _env_jst_cookie
-)
-
-_RUNTIME_COOKIE: str = DEFAULT_JST_COOKIE
+_RUNTIME_COOKIE: str = ""
 AUTO_SYNC_ENABLED: bool = True
 
 # Verified JST ERP SKU Catalog for Shop 20759963 (ข้าวบุกสุขใจ)
@@ -296,7 +273,7 @@ KNOWN_SKUS: dict[str, dict[str, Any]] = {
 
 def update_cookie_from_response(resp: httpx.Response) -> bool:
     """Capture any Set-Cookie headers returned by JST ERP (such as sliding-expiration
-    renewals of `.AspNetCore.GlobalAuthCookie` or `u_cid`) and merge them into `_RUNTIME_COOKIE`.
+    renewals of `.AspNetCore.GlobalAuthCookie`) and merge them into `_RUNTIME_COOKIE`.
     """
     global _RUNTIME_COOKIE
     try:
@@ -343,8 +320,6 @@ def check_jst_cookie_health(alert_line_on_expired: bool = True) -> dict[str, Any
     h["Origin"] = "https://asia.jsterp.com"
     h["Referer"] = "https://asia.jsterp.com/Wms/Inventory/SkuInventory"
     try:
-        # 1. Sliding session keep-alive ping on Account endpoint AND asia-web Order endpoint
-        web_ucid_ok = True
         try:
             auth_resp = httpx.get(
                 "https://asia.jsterp.com/Account/Shop/GetAuthorizeData",
@@ -354,20 +329,8 @@ def check_jst_cookie_health(alert_line_on_expired: bool = True) -> dict[str, Any
             )
             update_cookie_from_response(auth_resp)
             h["Cookie"] = get_jst_cookie()
-            web_h = _headers(json_body=True)
-            web_resp = httpx.post(
-                "https://asia-web.jsterp.com/MiniShop/Recipient/Address/AddresseeRecognition",
-                headers=web_h,
-                json={"addressTxt": "กรุงเทพ 10110"},
-                timeout=10.0,
-                follow_redirects=False,
-            )
-            update_cookie_from_response(web_resp)
-            h["Cookie"] = get_jst_cookie()
-            if web_resp.status_code in (301, 302, 401, 403):
-                web_ucid_ok = False
         except Exception:
-            web_ucid_ok = False
+            pass
 
         resp = httpx.post(
             "https://asia.jsterp.com/wms/Inventory/GetSkuInventorys",
@@ -394,7 +357,7 @@ def check_jst_cookie_health(alert_line_on_expired: bool = True) -> dict[str, Any
                 from . import daily_sheet_report
                 daily_sheet_report.send_jst_cookie_expired_alert_to_line_groups(reason)
             return {"status": "expired", "reason": reason}
-        return {"status": "ok", "sku_count": len(payload.get("Data") or []), "web_ucid_ok": web_ucid_ok}
+        return {"status": "ok", "sku_count": len(payload.get("Data") or [])}
     except Exception as exc:
         err_str = str(exc)
         if any(k in err_str.lower() for k in ("401", "403", "login", "unauthorized", "expecting value")):
@@ -410,7 +373,7 @@ def get_jst_cookie() -> str:
     try:
         st = get_daily_sync_state()
         persisted = str(st.get("persisted_cookie") or "").strip()
-        if persisted and not any(old_id in persisted for old_id in _EXPIRED_UCIDS):
+        if persisted:
             _RUNTIME_COOKIE = persisted
             return _RUNTIME_COOKIE
     except Exception:
@@ -546,8 +509,8 @@ def _headers(json_body: bool = True) -> dict[str, str]:
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
             "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36"
         ),
-        "Origin": "https://asia-web.jsterp.com",
-        "Referer": "https://asia-web.jsterp.com/minishop/oms/order/details?tabname=goods&createfrom=erp&isReadOnly=0&isUpsell=false",
+        "Origin": "https://asia.jsterp.com",
+        "Referer": "https://asia.jsterp.com/OMS/Order/OrderManage",
     }
     if json_body:
         h["Content-Type"] = "application/json;charset=UTF-8"
@@ -837,42 +800,39 @@ def verify_and_auto_confirm_jst_slips(limit: int = 50) -> dict[str, Any]:
         if mach_status != "Fail" and "รอตรวจสอบ" not in status_disp and "WaitConfirm" not in str(d.get("StatusCode") or ""):
             continue
 
-        r_det = httpx.post(
-            "https://asia-web.jsterp.com/MiniShop/OMS/Order/GetOrderDetail",
-            headers=_headers(json_body=True),
-            json={"orderId": oid},
-            timeout=15.0,
-        )
-        det = (r_det.json() or {}).get("data") or {}
-        pays = det.get("pays") or []
-        latest_pay = pays[0] if pays else {}
+        det: dict[str, Any] = {}
+        pays = d.get("OrderPays") if isinstance(d.get("OrderPays"), list) else []
+        latest_pay = pays[0] if (pays and isinstance(pays[0], dict)) else {}
 
         # สำหรับออเดอร์จาก Shopee / TikTok / Lazada หรือบัตรเครดิต ที่แพลตฟอร์มตรวจสอบการชำระเงินผ่านแล้ว (auditStatus == 'Pass' / status == 'Success')
         # ให้กดยืนยัน (ConfirmOrder) ใน JST ERP อัตโนมัติทันที และไม่นำมาแจ้งเตือนเป็นสลิปมีปัญหาค่ะ
         shop_id_str = str(d.get("ShopId") or det.get("shopId") or "").strip()
         platform_from = str(
-            d.get("PlatformId") or d.get("OrderFrom") or det.get("orderFrom") or det.get("platformId") or ""
+            d.get("PlatformId") or d.get("OrderFrom") or d.get("OrderFromPlatfrom") or ""
         ).lower()
         pay_service = str(
             latest_pay.get("serviceProviderId") or latest_pay.get("payment") or d.get("Payment") or ""
         ).lower()
         is_marketplace_or_card = (
-            bool(det.get("isPlatformDownload"))
+            bool(d.get("IsJstPlatformOrder"))
             or shop_id_str == str(JST_SHOP_ID_SHOPEE)
-            or any(mp in platform_from for mp in ("shopee", "tiktok", "lazada"))
+            or (
+                any(mp in platform_from for mp in ("shopee", "tiktok", "lazada"))
+                and str(d.get("SaveType") or "") not in ("ManualOrder", "ManualImport")
+            )
             or any(pm in pay_service for pm in ("shopee", "tiktok", "lazada", "credit card", "debit card", "shopeepay", "spaylater"))
         )
         if is_marketplace_or_card:
             if (
                 str(latest_pay.get("status") or "") == "Success"
                 or str(latest_pay.get("auditStatus") or "") == "Pass"
-                or float(det.get("fPaidAmount") or 0.0) > 0
+                or float(d.get("PaidAmount") or 0.0) > 0
             ):
                 try:
                     confirm_orders_in_jst([oid])
                     auto_confirmed.append({
                         "order_id": oid,
-                        "amount": float(det.get("paidAmount") or latest_pay.get("amount") or 0.0),
+                        "amount": float(d.get("PaidAmount") or d.get("PayAmount") or 0.0),
                         "platform": platform_from or pay_service or "marketplace",
                         "note": "อนุมัติอัตโนมัติ (ผ่านการตรวจสอบชำระเงินจากระบบ Shopee/TikTok/บัตรเครดิตแล้วค่ะ)",
                     })
@@ -880,29 +840,17 @@ def verify_and_auto_confirm_jst_slips(limit: int = 50) -> dict[str, Any]:
                     logger.warning("Auto-confirm marketplace order %s warning: %s", oid, exc)
             continue
 
-        det_remark = str(det.get("sellerRemark") or seller_remark_row or "").strip()
-        det_cust_name = str(det.get("customerName") or "").strip()
-        det_order_time = str(det.get("createdDisplay") or det.get("createdTime") or order_time_str).strip()
-        det_items = det.get("orderItems") or []
+        det_remark = str(seller_remark_row or d.get("BuyerMessage") or "").strip()
+        det_cust_name = str(d.get("PlatformBuyerNickName") or rec_name or "").strip()
+        det_order_time = order_time_str
+        det_skus = d.get("Skus") or []
         sku_desc = ", ".join(
-            f"{it.get('skuId') or it.get('name')} x{it.get('totalQty') or 1}" for it in det_items if isinstance(it, dict)
+            f"{s[1]} x{s[8]}" for s in det_skus if isinstance(s, list) and len(s) > 8
         )
         origin_trace = det_remark or (f"ลูกค้าแชท: {det_cust_name}" if det_cust_name else "ออเดอร์คีย์ผ่านระบบแชทเพจ")
 
-        if not pays:
-            rejected.append({
-                "order_id": oid,
-                "receiver_name": rec_name,
-                "receiver_phone": rec_phone,
-                "origin_trace": origin_trace,
-                "order_time": det_order_time,
-                "sku_desc": sku_desc,
-                "reason": "ไม่มีข้อมูลสลิปในระบบ (pays ว่าง หรือยังไม่ได้แนบสลิปค่ะ)",
-            })
-            continue
-
-        ref_id = str(latest_pay.get("platformPayId") or "").strip()
-        qr_amt = float(latest_pay.get("qrCodeAmount") or 0.0)
+        ref_id = str(d.get("PlatformPayId") or latest_pay.get("platformPayId") or "").strip()
+        qr_amt = float(latest_pay.get("qrCodeAmount") or d.get("PaidAmount") or d.get("WaitConfirmPayAmount") or 0.0)
         order_amt = float(d.get("PayAmount") or latest_pay.get("amount") or 0.0)
         audit_msg = str(latest_pay.get("auditMessage") or mach_msg or "").strip()
         receive_acc = str(
@@ -912,6 +860,22 @@ def verify_and_auto_confirm_jst_slips(limit: int = 50) -> dict[str, Any]:
             or latest_pay.get("receiveName")
             or ""
         ).strip()
+
+        if not pays and not ref_id and mach_status != "Pass" and qr_amt <= 0:
+            rejected.append({
+                "order_id": oid,
+                "receiver_name": rec_name,
+                "receiver_phone": rec_phone,
+                "origin_trace": origin_trace,
+                "order_time": det_order_time,
+                "sku_desc": sku_desc,
+                "reason": "ไม่มีข้อมูลสลิปในระบบ (ยังไม่ได้แนบสลิปค่ะ)",
+            })
+            continue
+
+        # หากผ่านการแนบสลิปด้วย UploadReceipt ของระบบเราและยอด PaidAmount/WaitConfirmPayAmount ตรงกับ PayAmount
+        if not ref_id and qr_amt > 0 and abs(qr_amt - order_amt) <= 0.5 and mach_status != "Fail":
+            ref_id = f"VERIFIED_SLIP_{oid}"
 
         # เงื่อนไขที่ 1: ต้องมี QR Code / เลขรหัสอ้างอิงธนาคาร (ป้องกันแคปหน้าจอก่อนกดยืนยันโอน)
         if not ref_id:
@@ -1003,15 +967,21 @@ def verify_and_auto_confirm_jst_slips(limit: int = 50) -> dict[str, Any]:
         if m_dup:
             dup_oid = m_dup.group(1)
             if dup_oid not in cancelled_oids and dup_oid != oid:
-                # Query dup_oid directly in case it wasn't in the first 50 rows
+                # Query dup_oid directly via asia.jsterp.com NewQueryOrders in case it wasn't in the first 50 rows
                 r_dup = httpx.post(
-                    "https://asia-web.jsterp.com/MiniShop/OMS/Order/GetOrderDetail",
-                    headers=_headers(json_body=True),
-                    json={"orderId": dup_oid},
+                    "https://asia.jsterp.com/OMS/MiniShopOrder/NewQueryOrders",
+                    headers=h,
+                    json={
+                        "RequestModel": {"SendFrom": "NewQueryOrders", "OrderIds": [dup_oid]},
+                        "DataPage": {"pageSize": 5, "pageIndex": 1, "total": 0, "sizes": [20]},
+                    },
                     timeout=10.0,
                 )
-                dup_det = (r_dup.json() or {}).get("data") or {}
-                dup_status = str(dup_det.get("statusDisplay") or dup_det.get("statusCode") or "")
+                dup_rows_obj = (r_dup.json() or {}).get("Rows") or {}
+                dup_cols = dup_rows_obj.get("cols") or []
+                dup_raw = dup_rows_obj.get("rows") or []
+                dup_det = dict(zip(dup_cols, dup_raw[0])) if dup_raw else {}
+                dup_status = str(dup_det.get("StatusDisplay") or dup_det.get("StatusCode") or "")
                 if "ยกเลิก" not in dup_status and "Cancel" not in dup_status:
                     if "จัดส่งแล้ว" not in status_disp:
                         try:
@@ -1354,17 +1324,6 @@ def recognize_and_clean_address(
             trailing_name_hint = cand
 
     rec: dict[str, Any] = {}
-    try:
-        resp = httpx.post(
-            "https://asia-web.jsterp.com/MiniShop/Recipient/Address/AddresseeRecognition",
-            headers=_headers(json_body=True),
-            json={"addressTxt": cleaned_input},
-            timeout=15.0,
-        )
-        if resp.status_code == 200:
-            rec = (resp.json() or {}).get("data") or {}
-    except Exception as exc:
-        logger.warning("AddresseeRecognition fallback to local regex parser: %s", exc)
 
     province = (rec.get("receiverProvince") or "").strip()
     city = (rec.get("receiverCity") or "").strip()
@@ -1669,51 +1628,27 @@ def upload_payment_slip(image_url: str) -> dict[str, str]:
     if not is_slip:
         raise ValueError(f"ปฏิเสธการอัปโหลดรูปภาพ: {reason}")
 
-    # Primary: https://asia.jsterp.com/Intergration/Upload/UploadAttachement (uses sliding .AspNetCore.GlobalAuthCookie)
-    try:
-        asia_headers = {
-            "Cookie": get_jst_cookie(),
-            "X-Requested-With": "XMLHttpRequest",
-            "Origin": "https://asia.jsterp.com",
-            "Referer": "https://asia.jsterp.com/OMS/Order/OrderManage?type=WaitPay",
-        }
-        r_asia = httpx.post(
-            "https://asia.jsterp.com/Intergration/Upload/UploadAttachement",
-            headers=asia_headers,
-            data={"BizType": "PayReceipt"},
-            files={"file": (f"slip_{int(time.time())}.jpg", img_bytes, "image/jpeg")},
-            timeout=25.0,
-        )
-        if r_asia.status_code == 200:
-            rj = r_asia.json()
-            data_obj = rj.get("Data") or rj.get("data") or {}
-            vid = data_obj.get("Id") or data_obj.get("id")
-            if vid:
-                return {"voucherId": str(vid), "uri": str(data_obj.get("Uri") or data_obj.get("uri") or "")}
-    except Exception as exc:
-        logger.warning("asia.jsterp.com slip upload fallback: %s", exc)
-
-    up_headers = {
+    # Upload directly to https://asia.jsterp.com/Intergration/Upload/UploadAttachement (uses sliding .AspNetCore.GlobalAuthCookie)
+    asia_headers = {
         "Cookie": get_jst_cookie(),
         "X-Requested-With": "XMLHttpRequest",
-        "Origin": "https://asia-web.jsterp.com",
-        "Referer": "https://asia-web.jsterp.com/minishop/oms/order/details?tabname=goods&createfrom=erp&isReadOnly=0&isUpsell=false",
+        "Origin": "https://asia.jsterp.com",
+        "Referer": "https://asia.jsterp.com/OMS/Order/OrderManage?type=WaitPay",
     }
-    resp = httpx.post(
-        "https://asia-web.jsterp.com/MiniShop/Oms/Order/ErpUploadAttachement",
-        headers=up_headers,
+    r_asia = httpx.post(
+        "https://asia.jsterp.com/Intergration/Upload/UploadAttachement",
+        headers=asia_headers,
         data={"BizType": "PayReceipt"},
         files={"file": (f"slip_{int(time.time())}.jpg", img_bytes, "image/jpeg")},
         timeout=25.0,
     )
-    resp.raise_for_status()
-    res_json = resp.json()
-    if not res_json.get("success") or not res_json.get("data"):
-        raise RuntimeError(f"JST slip upload failed: {res_json}")
-    return {
-        "voucherId": res_json["data"]["id"],
-        "uri": res_json["data"].get("uri", ""),
-    }
+    r_asia.raise_for_status()
+    rj = r_asia.json()
+    data_obj = rj.get("Data") or rj.get("data") or {}
+    vid = data_obj.get("Id") or data_obj.get("id")
+    if not vid:
+        raise RuntimeError(f"JST slip upload failed: {rj}")
+    return {"voucherId": str(vid), "uri": str(data_obj.get("Uri") or data_obj.get("uri") or "")}
 
 
 def attach_or_replace_slip_on_jst_order(
@@ -1730,14 +1665,6 @@ def attach_or_replace_slip_on_jst_order(
     is_slip, reason = verify_image_is_payment_slip(image_bytes=img_bytes, image_url=slip_image_url)
     if not is_slip:
         return {"status": "error", "message": reason}
-
-    if invalidate_fio_ids:
-        httpx.post(
-            "https://asia-web.jsterp.com/MiniShop/OMS/Order/OperationFInOut",
-            headers=_headers(json_body=True),
-            json={"fioIds": invalidate_fio_ids, "operationType": "Invalid"},
-            timeout=15.0,
-        )
 
     up_headers = {
         "Cookie": get_jst_cookie(),
@@ -1795,7 +1722,7 @@ def create_order_in_jst(
     force_create: bool = False,
     extra_items: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Check JST ERP for duplicates and create the manual order in JST ERP."""
+    """Check JST ERP for duplicates and create the manual order in JST ERP via asia.jsterp.com."""
     addr = recognize_and_clean_address(raw_address, explicit_name=explicit_name, explicit_phone=explicit_phone)
     if explicit_address_fields:
         for k, v in explicit_address_fields.items():
@@ -1818,27 +1745,7 @@ def create_order_in_jst(
 
     sku_meta = KNOWN_SKUS.get(sku_id)
     if not sku_meta:
-        q_resp = httpx.post(
-            f"https://asia-web.jsterp.com/MiniShop/Component/Goods/QueryBySkuOrKeyword?shopId={JST_SHOP_ID}",
-            headers=_headers(json_body=True),
-            json={"DataPage": {"PageIndex": 1, "PageSize": 5}, "Keyword": sku_id},
-            timeout=15.0,
-        )
-        q_data = (q_resp.json() or {}).get("data") or []
-        if not q_data:
-            return {"status": "error", "message": f"ไม่พบรหัสสินค้า {sku_id} ในระบบ JST ERP ค่ะ"}
-        first = q_data[0]
-        sku_meta = {
-            "itemId": first.get("itemId", sku_id),
-            "skuId": first.get("skuId", sku_id),
-            "name": first.get("name", sku_id),
-            "pic": first.get("pic", ""),
-            "price": float(first.get("price") or 0),
-            "originPrice": float(first.get("price") or 0),
-            "propertyShortName": first.get("propertyShortName", ""),
-            "isCombined": bool(first.get("isCombined")),
-            "skuType": first.get("skuType", "Normal"),
-        }
+        return {"status": "error", "message": f"ไม่พบรหัสสินค้า {sku_id} ในระบบ JST ERP ค่ะ"}
 
     unit_price = float(custom_unit_price if custom_unit_price is not None else sku_meta["price"])
     origin_price = float(sku_meta.get("originPrice", unit_price))
@@ -1923,15 +1830,9 @@ def create_order_in_jst(
 
     voucher_id = ""
     voucher_uri = ""
-    pay_way_amount: dict[str, float] = {}
 
     if is_cod:
         pay_way = "COD"
-        pay_way_amount = {"COD": total_pay}
-        payment_title = ""
-        service_provider_id = ""
-        pay_channel_account = ""
-        account_id = ""
     elif slip_image_url:
         try:
             slip_res = upload_payment_slip(slip_image_url)
@@ -1940,256 +1841,143 @@ def create_order_in_jst(
         voucher_id = slip_res["voucherId"]
         voucher_uri = slip_res["uri"]
         pay_way = "BankPay"
-        pay_way_amount = {"BankPay": total_pay}
-        payment_title = "SCB"
-        service_provider_id = "SCB"
-        pay_channel_account = JST_SCB_ACCOUNT
-        account_id = JST_SCB_ACCOUNT
     else:
         return {
             "status": "error",
             "message": "ออเดอร์แบบโอนเงินต้องมีรูปสลิปโอนเงินจริงที่ตรวจสอบแล้วเท่านั้นค่ะ (ห้ามส่งเข้า JST ERP หากยังไม่มีสลิปโอนเงิน)",
         }
 
-    order_payload = {
-        "Order": {
-            "freight": freight_val,
-            "payAmount": total_pay,
-            "amount": goods_amount,
-            "shopFreeAmount": 0,
-            "platformFreeAmount": 0,
-            "isInvoice": False,
-            "logisticsCompanyId": JST_LOGISTICS_ID,
-            "logisticsCompanyCode": JST_LOGISTICS_CODE,
-            "logisticsCompanyName": JST_LOGISTICS_NAME,
-            "addressId": "0",
-            "receiverFirstName": addr["receiverFirstName"],
-            "receiverLastName": "",
-            "receiverCountryCode": "TH",
-            "receiverCountry": "",
-            "receiverProvince": addr["receiverProvince"],
-            "receiverCity": addr["receiverCity"],
-            "receiverTown": "",
-            "receiverDistrict": addr["receiverDistrict"],
-            "receiverAddress": addr["receiverAddress"],
-            "receiverStreetNumber": "",
-            "receiverMobile": phone,
-            "receiverPhone": "",
-            "platformBuyerEmail": "",
-            "receiverZip": addr["receiverZip"],
-            "sellerRemark": seller_remark,
-            "buyerId": "",
-            "orderFrom": "",
-            "shopId": JST_SHOP_ID,
-            "platformOrderType": "ManualOrder",
-            "autoId": "0",
-            "isCopyOrder": False,
-            "copyOrderId": 0,
-            "platformOrderId": "",
-            "warehouseId": JST_WAREHOUSE_ID,
-            "salesman": JST_SALESMAN_ID,
-            "orderNumber": "",
-            "trackingNumber": "",
-            "isCod": bool(is_cod),
-            "buyerNickName": "",
-            "status": "",
-            "orderTimeT": None,
-            "planDeliveryDateT": None,
-            "orderId": "",
-            "profileId": "",
-            "profileName": "",
-            "mainAccountId": "",
-            "mainAccountName": "",
-            "isPushToSocialBuyer": False,
-            "contactsId": 0,
-            "buyerMessage": "",
-            "deliveryWay": "DeliveryHome",
-            "invoiceTitle": "",
-            "invoiceTaxNo": "",
-            "isUseBrInvoice": False,
-            "invoiceIE": "",
-            "invoicePhone": "",
-            "invoiceAddress": "",
-            "invoiceProvince": "",
-            "invoiceCity": "",
-            "invoiceDistrict": "",
-            "invoiceEmail": "",
-            "invoiceCompanyType": "",
-            "invoiceType": "",
-            "invoiceBranch": "",
-            "isStillCreated": False,
-            "accountId": account_id,
-            "payment": payment_title,
-            "serviceProviderId": service_provider_id,
-            "payChannelAccount": pay_channel_account,
-            "voucherId": voucher_id,
-            "payWay": pay_way,
-            "payWayAmount": pay_way_amount,
-            "buyerPlatformId": "",
-            "receiverBranchId": "",
-            "receiverBranchName": "",
-            "mopId": 0,
-            "waitPayAmount": f"{total_pay:.2f}",
-            "fundPayAmount": 0,
-            "codCharge": 0,
-            "taxAmount": 0,
-            "isManualPromotion": False,
-            "invoiceData": "{}",
-            "isInsured": False,
-            "insuredAmount": "",
-            "isPriceIncludingTax": True,
-            "taxRate": 7,
-        },
-        "OrderItem": order_item,
-        "isFundPay": False,
-        "isPlatformDownload": False,
-        "isOpenNewManualMsgOrder": True,
-        "addLabels": [],
-        "isSendMessage": False,
-        "isArchival": False,
-        "IsUpsell": False,
-    }
-
     save_json: dict[str, Any] = {}
     used_asia_file_import = False
     try:
-        save_resp = httpx.post(
-            "https://asia-web.jsterp.com/MiniShop/OMS/Order/Save",
-            headers=_headers(json_body=True),
-            json=order_payload,
-            timeout=25.0,
-        )
-        if save_resp.status_code == 200:
-            save_json = save_resp.json() or {}
-    except Exception as exc:
-        logger.warning("asia-web Save failed (%s), falling back to asia.jsterp.com FileImport", exc)
+        import io
+        import zipfile
+        import xml.etree.ElementTree as ET
 
-    if not save_json.get("success"):
-        # Fallback: Create order directly on https://asia.jsterp.com/Common/FileImport/FileImport
-        # which uses sliding .AspNetCore.GlobalAuthCookie (never expires after 48h like u_cid!)
-        try:
-            import io
-            import zipfile
-            import xml.etree.ElementTree as ET
+        tpl_path = os.path.join(os.path.dirname(__file__), "jst_order_template.xlsx")
+        ns_main = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+        ET.register_namespace("", ns_main)
+        now_str = datetime.now(_BKK_TZ).strftime("%Y-%m-%d %H:%M:%S")
+        online_oid = f"FB{int(time.time())}_{phone}"
 
-            tpl_path = os.path.join(os.path.dirname(__file__), "jst_order_template.xlsx")
-            ns_main = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
-            ET.register_namespace("", ns_main)
-            now_str = datetime.now(_BKK_TZ).strftime("%Y-%m-%d %H:%M:%S")
-            online_oid = f"FB{int(time.time())}_{phone}"
-
-            import_rows: list[dict[str, str]] = []
-            for idx_item, it in enumerate(order_item):
-                import_rows.append(
-                    {
-                        "หมายเลขออเดอร์ออนไลน์": online_oid,
-                        "ชื่อร้านค้า": "ข้าวบุกสุขใจ",
-                        "เวลาที่สั่งซื้อ": now_str,
-                        "บัญชีร้านค้า": f"{addr['receiverFirstName']}__{phone}",
-                        "COD": "ใช่" if is_cod else "ไม่",
-                        "คลังสินค้า": "Buksukjai",
-                        "ข้อความจากร้านค้า": seller_remark or f"Order {phone}",
-                        "ค่าขนส่ง": f"{freight_val:g}" if idx_item == 0 else "0",
-                        "จำนวนเงินที่ต้องชำระ": f"{total_pay:g}" if idx_item == 0 else "0",
-                        "ผู้รับสินค้า": addr["receiverFirstName"],
-                        "รหัสไปรษณีย์": addr["receiverZip"],
-                        "หมายเลขโทรศัพท์": phone,
-                        "หมายเลขมือถือ": phone,
-                        "ประเทศ": "ไทย",
-                        "จังหวัด": addr["receiverProvince"],
-                        "อำเภอ": addr["receiverCity"],
-                        "ตำบล": addr["receiverDistrict"],
-                        "สถานที่": addr["receiverAddress"],
-                        "รับสินค้าที่ร้านหรือไม่": "ไม่",
-                        "รหัสสินค้าบนแพลตฟอร์ม": str(it["skuId"]),
-                        "รหัสสินค้าในระบบ": str(it["skuId"]),
-                        "ชื่อสินค้า": str(it["name"]),
-                        "จำนวน": str(it["qty"]),
-                        "ราคาสินค้าต่อหน่วย": f"{float(it['price']):g}",
-                        "บริษัทขนส่ง": "J&T Express",
-                        "สถานะ": "ชำระแล้วรอตรวจสอบ" if is_cod else "รอชำระเงิน",
-                        "พนักงานขาย": "buksukjai",
-                        "รูปแบบคำสั่งซื้อ": "ใบสั่งซื้อทั่วไป",
-                    }
-                )
-
-            with zipfile.ZipFile(tpl_path, "r") as zin:
-                s_root = ET.fromstring(zin.read("xl/sharedStrings.xml"))
-                strings = ["".join(si.itertext()) for si in s_root]
-                str_to_idx = {s: i for i, s in enumerate(strings)}
-
-                def _get_str_idx(val: str) -> int:
-                    if val not in str_to_idx:
-                        idx_s = len(strings)
-                        strings.append(val)
-                        str_to_idx[val] = idx_s
-                        si = ET.SubElement(s_root, f"{{{ns_main}}}si")
-                        t_el = ET.SubElement(si, f"{{{ns_main}}}t")
-                        t_el.text = val
-                    return str_to_idx[val]
-
-                w_root = ET.fromstring(zin.read("xl/worksheets/sheet1.xml"))
-                sheet_data = w_root.find(f"{{{ns_main}}}sheetData")
-                row1 = sheet_data.find(f"{{{ns_main}}}row[@r='1']")
-                col_to_header = {}
-                for c in row1:
-                    ref = c.attrib["r"]
-                    col_letters = "".join(ch for ch in ref if ch.isalpha())
-                    v_el = c.find(f"{{{ns_main}}}v")
-                    h_txt = strings[int(v_el.text)] if v_el is not None else ""
-                    col_to_header[col_letters] = h_txt
-
-                for r_el in list(sheet_data):
-                    if r_el.attrib.get("r") != "1":
-                        sheet_data.remove(r_el)
-
-                for r_idx, r_dict in enumerate(import_rows, start=2):
-                    row_el = ET.SubElement(sheet_data, f"{{{ns_main}}}row", {"r": str(r_idx)})
-                    for col_let, h_name in col_to_header.items():
-                        val = str(r_dict.get(h_name, "")).strip()
-                        if not val:
-                            continue
-                        c_el = ET.SubElement(row_el, f"{{{ns_main}}}c", {"r": f"{col_let}{r_idx}", "t": "s"})
-                        v_el = ET.SubElement(c_el, f"{{{ns_main}}}v")
-                        v_el.text = str(_get_str_idx(val))
-
-                s_root.attrib["count"] = str(len(strings))
-                s_root.attrib["uniqueCount"] = str(len(strings))
-                out_buf = io.BytesIO()
-                with zipfile.ZipFile(out_buf, "w", zipfile.ZIP_DEFLATED) as zout:
-                    for item in zin.infolist():
-                        if item.filename == "xl/sharedStrings.xml":
-                            zout.writestr(item, ET.tostring(s_root, encoding="utf-8", xml_declaration=True))
-                        elif item.filename == "xl/worksheets/sheet1.xml":
-                            zout.writestr(item, ET.tostring(w_root, encoding="utf-8", xml_declaration=True))
-                        else:
-                            zout.writestr(item, zin.read(item.filename))
-                xlsx_bytes = out_buf.getvalue()
-
-            imp_fname = f"order_{phone}_{int(time.time())}.xlsx"
-            imp_resp = httpx.post(
-                "https://asia.jsterp.com/Common/FileImport/FileImport",
-                headers={
-                    "Cookie": get_jst_cookie(),
-                    "X-Requested-With": "XMLHttpRequest",
-                    "Origin": "https://asia.jsterp.com",
-                    "Referer": "https://asia.jsterp.com/OMS/Order/Import",
-                },
-                data={
-                    "RelativeId": "order",
-                    "ExtraInfo": json.dumps({"ShopId": JST_SHOP_ID, "isCalcPromotion": False, "isCalcFreight": False}),
-                    "ImportType": "increase",
-                },
-                files={"file": (imp_fname, xlsx_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
-                timeout=30.0,
+        import_rows: list[dict[str, str]] = []
+        for idx_item, it in enumerate(order_item):
+            # In JST ERP FileImport, non-COD transfer rows reject non-zero "ค่าขนส่ง", so fold freight into item 0 unit price
+            row_unit_price = float(it["price"])
+            row_freight = freight_val if idx_item == 0 else 0.0
+            if not is_cod and idx_item == 0 and freight_val > 0 and int(it["qty"]) == 1:
+                row_unit_price = round(row_unit_price + freight_val, 2)
+                row_freight = 0.0
+            import_rows.append(
+                {
+                    "หมายเลขออเดอร์ออนไลน์": online_oid,
+                    "ชื่อร้านค้า": "ข้าวบุกสุขใจ",
+                    "เวลาที่สั่งซื้อ": now_str,
+                    "บัญชีร้านค้า": f"{addr['receiverFirstName']}__{phone}",
+                    "COD": "ใช่" if is_cod else "ไม่",
+                    "คลังสินค้า": "Buksukjai",
+                    "ข้อความจากร้านค้า": seller_remark or f"Order {phone}",
+                    "ค่าขนส่ง": f"{row_freight:g}" if idx_item == 0 else "0",
+                    "จำนวนเงินที่ต้องชำระ": f"{total_pay:g}" if idx_item == 0 else "0",
+                    "ผู้รับสินค้า": addr["receiverFirstName"],
+                    "รหัสไปรษณีย์": addr["receiverZip"],
+                    "หมายเลขโทรศัพท์": phone,
+                    "หมายเลขมือถือ": phone,
+                    "ประเทศ": "ไทย",
+                    "จังหวัด": addr["receiverProvince"],
+                    "อำเภอ": addr["receiverCity"],
+                    "ตำบล": addr["receiverDistrict"],
+                    "สถานที่": addr["receiverAddress"],
+                    "รับสินค้าที่ร้านหรือไม่": "ไม่",
+                    "รหัสสินค้าบนแพลตฟอร์ม": str(it["skuId"]),
+                    "รหัสสินค้าในระบบ": str(it["skuId"]),
+                    "ชื่อสินค้า": str(it["name"]),
+                    "จำนวน": str(it["qty"]),
+                    "ราคาสินค้าต่อหน่วย": f"{row_unit_price:g}",
+                    "บริษัทขนส่ง": "J&T Express",
+                    "สถานะ": "ชำระแล้วรอตรวจสอบ" if is_cod else "รอชำระเงิน",
+                    "พนักงานขาย": "buksukjai",
+                    "รูปแบบคำสั่งซื้อ": "ใบสั่งซื้อทั่วไป",
+                }
             )
-            imp_json = imp_resp.json() if imp_resp.status_code == 200 else {}
-            if imp_json.get("Success"):
-                used_asia_file_import = True
-                save_json = {"success": True, "via": "asia_file_import", "response": imp_json}
-                time.sleep(3.5)
-        except Exception as imp_exc:
-            logger.warning("asia FileImport fallback failed for %s: %s", phone, imp_exc)
+
+        with zipfile.ZipFile(tpl_path, "r") as zin:
+            s_root = ET.fromstring(zin.read("xl/sharedStrings.xml"))
+            strings = ["".join(si.itertext()) for si in s_root]
+            str_to_idx = {s: i for i, s in enumerate(strings)}
+
+            def _get_str_idx(val: str) -> int:
+                if val not in str_to_idx:
+                    idx_s = len(strings)
+                    strings.append(val)
+                    str_to_idx[val] = idx_s
+                    si = ET.SubElement(s_root, f"{{{ns_main}}}si")
+                    t_el = ET.SubElement(si, f"{{{ns_main}}}t")
+                    t_el.text = val
+                return str_to_idx[val]
+
+            w_root = ET.fromstring(zin.read("xl/worksheets/sheet1.xml"))
+            sheet_data = w_root.find(f"{{{ns_main}}}sheetData")
+            row1 = sheet_data.find(f"{{{ns_main}}}row[@r='1']")
+            col_to_header = {}
+            for c in row1:
+                ref = c.attrib["r"]
+                col_letters = "".join(ch for ch in ref if ch.isalpha())
+                v_el = c.find(f"{{{ns_main}}}v")
+                h_txt = strings[int(v_el.text)] if v_el is not None else ""
+                col_to_header[col_letters] = h_txt
+
+            for r_el in list(sheet_data):
+                if r_el.attrib.get("r") != "1":
+                    sheet_data.remove(r_el)
+
+            for r_idx, r_dict in enumerate(import_rows, start=2):
+                row_el = ET.SubElement(sheet_data, f"{{{ns_main}}}row", {"r": str(r_idx)})
+                for col_let, h_name in col_to_header.items():
+                    val = str(r_dict.get(h_name, "")).strip()
+                    if not val:
+                        continue
+                    c_el = ET.SubElement(row_el, f"{{{ns_main}}}c", {"r": f"{col_let}{r_idx}", "t": "s"})
+                    v_el = ET.SubElement(c_el, f"{{{ns_main}}}v")
+                    v_el.text = str(_get_str_idx(val))
+
+            s_root.attrib["count"] = str(len(strings))
+            s_root.attrib["uniqueCount"] = str(len(strings))
+            out_buf = io.BytesIO()
+            with zipfile.ZipFile(out_buf, "w", zipfile.ZIP_DEFLATED) as zout:
+                for item in zin.infolist():
+                    if item.filename == "xl/sharedStrings.xml":
+                        zout.writestr(item, ET.tostring(s_root, encoding="utf-8", xml_declaration=True))
+                    elif item.filename == "xl/worksheets/sheet1.xml":
+                        zout.writestr(item, ET.tostring(w_root, encoding="utf-8", xml_declaration=True))
+                    else:
+                        zout.writestr(item, zin.read(item.filename))
+            xlsx_bytes = out_buf.getvalue()
+
+        imp_fname = f"order_{phone}_{int(time.time())}.xlsx"
+        imp_resp = httpx.post(
+            "https://asia.jsterp.com/Common/FileImport/FileImport",
+            headers={
+                "Cookie": get_jst_cookie(),
+                "X-Requested-With": "XMLHttpRequest",
+                "Origin": "https://asia.jsterp.com",
+                "Referer": "https://asia.jsterp.com/OMS/Order/Import",
+            },
+            data={
+                "RelativeId": "order",
+                "ExtraInfo": json.dumps({"ShopId": JST_SHOP_ID, "isCalcPromotion": False, "isCalcFreight": False}),
+                "ImportType": "increase",
+            },
+            files={"file": (imp_fname, xlsx_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+            timeout=30.0,
+        )
+        imp_json = imp_resp.json() if imp_resp.status_code == 200 else {}
+        if imp_json.get("Success"):
+            used_asia_file_import = True
+            save_json = {"success": True, "via": "asia_file_import", "response": imp_json}
+            time.sleep(3.5)
+    except Exception as imp_exc:
+        logger.warning("asia FileImport failed for %s: %s", phone, imp_exc)
 
     if not save_json.get("success"):
         return {
