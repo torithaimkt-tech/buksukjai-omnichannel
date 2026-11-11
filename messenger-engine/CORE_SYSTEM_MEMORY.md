@@ -1,5 +1,5 @@
 # 🧠 แกนกลางความจำระบบแชทบอท (Chatbot Core Memory & Master Status)
-**อัปเดตล่าสุด:** 8 พฤศจิกายน 2026 (เวลา 19:00 น. — Commit `b97f503` + ระบบกระชับความแข็งแกร่ง 5 ด้าน & กฎบริบทคำตอบสั้น/เงียบฝั่งลูกค้า 100%)
+**อัปเดตล่าสุด:** 11 พฤศจิกายน 2026 (Commit `46fc7a6` — เปิดบอท `BUK TEAM @934ndvfs` ล็อกเฉพาะ **`กลุ่มบูม`** กลุ่มเดียว เพื่อรายงานเฉพาะสต็อกคงเหลือ **ข้าวบุกสุขใจ** ทุกเช้า 07:00 น.)
 
 เอกสารนี้คือ **แกนกลางความจำหลัก (Single Source of Truth)** ของระบบแชทบอททั้งหมดในโปรเจกต์ `D:\chat bot` (และ [`messenger-engine/CORE_SYSTEM_MEMORY.md`](file:///D:/chat%20bot/messenger-engine/CORE_SYSTEM_MEMORY.md)) เพื่อให้สามารถเปิดแชทใหม่และทำงานต่อได้ทันทีโดยไม่สูญเสียข้อมูลแม้จะลบแชทเดิมทิ้งค่ะ
 
@@ -15,7 +15,7 @@
 | ลำดับ | ชื่อบอท | บทบาทหน้าที่ | LINE ID / ช่องทาง | `brand_id` ในระบบ | กลุ่ม LINE ที่ประจำการ | Webhook URL |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **ตัวที่ 1** | **น้องบุก (Sales Bot)** | ตอบแชทขายของหน้าร้าน ดูแลลูกค้า ปิดการขาย ทวนออเดอร์ ส่ง `#BUY` ขุดแชท และแจ้งเลขพัสดุ | `@602xbpha` + เพจ FB ข้าวบุก สุขใจ (`806129109240845`, LINE Channel ID: `2009665645`) | `buksukjai` | แชทส่วนตัวลูกค้า 1-on-1 (LINE OA & FB Messenger) | `https://buksukjai-omnichannel.onrender.com/webhook/line/buksukjai` และ `/webhook/facebook` |
-| **ตัวที่ 2** | **บอทกลุ่มสรุปยอด (Summary & Escalation Bot)** | ส่งสรุปยอดขาย-ตัดสต็อก 07:00 น. + แจ้งเตือนเคส `[#Q...]` และส่งคำตอบกลับหาลูกค้าเมื่อแอดมินกด Reply | `GENIUS POINT` (`@934ndvfs`, Channel ID: `2009741913`) | `workbot` | กลุ่มสรุปยอด (`C5e760c74d6b020ae8b8cc831970517dc` และ `C814be1f1cc536059190b79ac21d4e562`) | `https://buksukjai-omnichannel.onrender.com/webhook/line/workbot` |
+| **ตัวที่ 2** | **BUK TEAM (Stock Bot กลุ่มบูม)** | รายงาน **เฉพาะสต็อกคงเหลือ ข้าวบุกสุขใจ แบรนด์เดียว** ทุกเช้า 07:00 น. (ห้ามส่งยอดขาย/ข้อมูลลูกค้า และห้ามตอบกลุ่มอื่นเด็ดขาด) | `BUK TEAM` (`@934ndvfs`, Channel ID: `2009741913`) | `workbot` | เฉพาะ **`กลุ่มบูม`** เท่านั้น (บล็อกกลุ่มสรุปยอดเดิม 100%) | `https://buksukjai-omnichannel.onrender.com/webhook/line/workbot` |
 | **ตัวที่ 3** | **บอทรับคอมเมนต์สอน AI (AI Coach Bot)** | รับรูปแคปหน้าจอ + คอมเมนต์จากคุณแอมมี่และคุณนัดในกลุ่ม `Comment` เพื่ออัปเดตกฎการตอบของน้องบุกแบบถาวร (ห้ามส่งข้อความหาลูกค้าเด็ดขาด) | `Muzart พามู` (`@346zyzej`, Provider: `BukSukjai`, Channel ID: `2012318669`) | `coachbot` | กลุ่ม **`Comment (4)`** (`Cf0c8835b5b0711e80f7350ffc9af66f1`) | `https://buksukjai-omnichannel.onrender.com/webhook/line/coachbot` |
 | **ตัวที่ 4** | **บอทแอดมินประสานงาน Tori Marketing** | บอทประสานงานและรับแจ้งเตือนฝั่งเอเจนซี่ Tori Marketing | `AIFY` (`@599fgktd`, Channel ID: `2012318539`, Secret: `2e841449fe0466ebba1abcf68953966b`) | `torimarketing_admin` / `aify` | กลุ่มประสานงาน Tori Marketing | `https://buksukjai-omnichannel.onrender.com/webhook/line/aify` และโฟลว์ [`4_torimarketing_admin_bot.json`](file:///D:/chat%20bot/messenger-engine/n8n_workflows/4_torimarketing_admin_bot.json) |
 
