@@ -452,7 +452,7 @@ def load_line_group_config() -> dict[str, Any]:
     """Load registered LINE group config (strictly locked to กลุ่มบูม for BUK TEAM stock report) and AI Coach rules."""
     import os
 
-    default_boom_gid = os.getenv("BOOM_STOCK_GROUP_ID", "").strip()
+    default_boom_gid = os.getenv("BOOM_STOCK_GROUP_ID", "C08c05061b088deb0311b79a93b9be3c0").strip()
     cfg: dict[str, Any] = {
         "boom_stock_group_id": default_boom_gid,
         "boom_stock_group_name": BOOM_TARGET_GROUP_NAME,
