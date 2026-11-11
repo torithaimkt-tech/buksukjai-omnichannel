@@ -114,8 +114,8 @@ def load_pages_registry() -> list[dict]:
             {
                 "brand_id": "workbot",
                 "slot": len(pages) + 1,
-                "name": "GENIUS POINT (@934ndvfs)",
-                "active": False,
+                "name": "BUK TEAM (@934ndvfs)",
+                "active": True,
                 "config_file": "config.json",
                 "channels": {
                     "line_channel_secret": os.getenv("WORKBOT_LINE_CHANNEL_SECRET", "31c6946f80249c4ce55213c996d97cf9"),

@@ -63,8 +63,8 @@
     {
       "brand_id": "workbot",
       "slot": 5,
-      "name": "Daily Report Bot (@934ndvfs)",
-      "active": false,
+      "name": "BUK TEAM (@934ndvfs)",
+      "active": true,
       "config_file": "config.json",
       "channels": {
         "line_channel_secret": "31c6946f80249c4ce55213c996d97cf9",

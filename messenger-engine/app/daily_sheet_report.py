@@ -358,12 +358,17 @@ def should_run_daily_1am_report() -> tuple[bool, str]:
 
 GOOGLE_SHEET_FILE_ID = "1mMO_aZnaCaDskrJMreJiaonFqna-WNKBhOoozAWxIhE"
 GOOGLE_SHEET_URL = f"https://docs.google.com/spreadsheets/d/{GOOGLE_SHEET_FILE_ID}/edit?gid=0#gid=0"
-DAILY_LINE_GROUP_HOUR_BKK = 7  # 07:00 AM Bangkok time (แจ้งสรุปยอดในกลุ่มไลน์งานหลังคีย์ออเดอร์ 06:00 น. เสร็จ)
+DAILY_LINE_GROUP_HOUR_BKK = 7  # 07:00 AM Bangkok time (แจ้งสต็อกคงเหลือข้าวบุกสุขใจในกลุ่มบูมทุกเช้า)
 LINE_GROUP_CONFIG_FILE = Path(__file__).resolve().parent.parent / "line_group_config.json"
-DEFAULT_LINE_WORK_GROUPS = [
-    "C5e760c74d6b020ae8b8cc831970517dc",
+BOOM_TARGET_GROUP_NAME = "กลุ่มบูม"
+BLOCKED_NON_BOOM_GROUP_IDS = {
+    "C5e760c74d6b020ae8b8cc831970517dc",  # กลุ่มสรุปยอดเดิม (ห้ามบอท BUK TEAM ส่งข้อความเข้ากลุ่มนี้)
     "C814be1f1cc536059190b79ac21d4e562",
-]  # เฉพาะกลุ่มสรุปยอด (แยกออกจากกลุ่ม Comment ของ @346zyzej และกลุ่มอื่นที่ไม่เกี่ยวข้อง)
+    "C1a437ddee70267ad6372696fe3e17a0e",
+    "Cf0c8835b5b0711e80f7350ffc9af66f1",  # กลุ่ม Comment AI Coach
+    "C_test_sim_coach",
+}
+DEFAULT_LINE_WORK_GROUPS: list[str] = []  # ล็อกให้ส่งเฉพาะ กลุ่มบูม เท่านั้น (boom_stock_group_id)
 
 DEFAULT_LEARNED_RULES = [
     "เวลาพูดคุยกับลูกค้า ต้องคุยดีๆ ด้วยน้ำเสียงนุ่มนวล อบอุ่น เป็นธรรมชาติ และใส่ใจความรู้สึกของลูกค้า ตอบคำถามให้ตรงประเด็นก่อนเสมอ ห้ามตัดบทถามห้วนๆ ว่า 'คุณลูกค้าสนใจรับขนาดเท่าไหร่ค่ะ' หรือส่งตารางโปรซ้ำโดยไม่คุยดีๆ ก่อนเด็ดขาด (คอมเมนต์จากคุณแอมมี่)",
@@ -444,31 +449,17 @@ _RECENT_GROUP_IMAGES: dict[str, dict[str, Any]] = {}
 
 
 def load_line_group_config() -> dict[str, Any]:
-    """Load registered LINE work group IDs, 07:00 AM broadcast state, and AI Coach learned rules."""
+    """Load registered LINE group config (strictly locked to กลุ่มบูม for BUK TEAM stock report) and AI Coach rules."""
     import os
 
+    default_boom_gid = os.getenv("BOOM_STOCK_GROUP_ID", "").strip()
     cfg: dict[str, Any] = {
-        "groups": list(DEFAULT_LINE_WORK_GROUPS),
-        "group_meta": {
-            "C5e760c74d6b020ae8b8cc831970517dc": {
-                "group_id": "C5e760c74d6b020ae8b8cc831970517dc",
-                "brand_id": "workbot",
-                "group_type": "group",
-                "name": "กลุ่มสรุปยอด",
-            },
-            "C1a437ddee70267ad6372696fe3e17a0e": {
-                "group_id": "C1a437ddee70267ad6372696fe3e17a0e",
-                "brand_id": "workbot",
-                "group_type": "group",
-                "name": "กลุ่มงาน (C1a437dd)",
-            },
-            "C814be1f1cc536059190b79ac21d4e562": {
-                "group_id": "C814be1f1cc536059190b79ac21d4e562",
-                "brand_id": "workbot",
-                "group_type": "group",
-                "name": "แอม+นัด",
-            },
-        },
+        "boom_stock_group_id": default_boom_gid,
+        "boom_stock_group_name": BOOM_TARGET_GROUP_NAME,
+        "last_boom_stock_report_date": "",
+        "last_boom_stock_sent_at": "",
+        "groups": [default_boom_gid] if default_boom_gid else [],
+        "group_meta": {},
         "last_7am_report_date": "2026-11-01",
         "last_7am_sent_at": "2026-11-02T07:00:51+07:00",
         "learned_rules": list(DEFAULT_LEARNED_RULES),
@@ -483,7 +474,7 @@ def load_line_group_config() -> dict[str, Any]:
         except Exception:
             pass
 
-    # Also restore any AI Coach rules saved in SQLite (survives file resets)
+    # Also restore AI Coach rules & locked กลุ่มบูม ID saved in SQLite (survives file resets)
     try:
         from . import database
 
@@ -513,6 +504,13 @@ def load_line_group_config() -> dict[str, Any]:
                 if db_coach.get("last_7am_report_date") and str(db_coach["last_7am_report_date"]) > str(cfg.get("last_7am_report_date") or ""):
                     cfg["last_7am_report_date"] = db_coach["last_7am_report_date"]
                     cfg["last_7am_sent_at"] = db_coach.get("last_7am_sent_at") or cfg.get("last_7am_sent_at")
+                db_boom_gid = str(db_coach.get("boom_stock_group_id") or "").strip()
+                if db_boom_gid and db_boom_gid not in BLOCKED_NON_BOOM_GROUP_IDS and not cfg.get("boom_stock_group_id"):
+                    cfg["boom_stock_group_id"] = db_boom_gid
+                    cfg["boom_stock_group_name"] = str(db_coach.get("boom_stock_group_name") or BOOM_TARGET_GROUP_NAME)
+                if db_coach.get("last_boom_stock_report_date") and str(db_coach["last_boom_stock_report_date"]) > str(cfg.get("last_boom_stock_report_date") or ""):
+                    cfg["last_boom_stock_report_date"] = db_coach["last_boom_stock_report_date"]
+                    cfg["last_boom_stock_sent_at"] = db_coach.get("last_boom_stock_sent_at") or cfg.get("last_boom_stock_sent_at")
     except Exception:
         pass
 
@@ -538,35 +536,28 @@ def load_line_group_config() -> dict[str, Any]:
         rep_dict.update(cfg["custom_replacements"])
     cfg["custom_replacements"] = rep_dict
 
-    # Merge default & any group IDs from environment variable LINE_WORK_GROUP_IDS (comma-separated)
-    env_groups = [g.strip() for g in os.getenv("LINE_WORK_GROUP_IDS", "").split(",") if g.strip()]
-    groups_list: list[str] = list(cfg.get("groups") or [])
-    for g in list(DEFAULT_LINE_WORK_GROUPS) + env_groups:
-        if g not in groups_list:
-            groups_list.append(g)
-
-    # Also check SQLite sessions ONLY for `workbot` `:line_group:` session keys (never `coachbot`!)
-    try:
-        from . import database
-
-        for s in database.list_all_sessions(brand_id="workbot", platform="line_group", state="all"):
-            ext_id = str(s.get("external_user_id") or "").strip()
-            if ext_id and ext_id not in groups_list and ext_id not in ("Cf0c8835b5b0711e80f7350ffc9af66f1", "C1a437ddee70267ad6372696fe3e17a0e", "C_test_sim_coach"):
-                groups_list.append(ext_id)
-    except Exception:
-        pass
-
-    # Strictly exclude coachbot comment group and unrelated groups from daily sales summary
-    groups_list = [
-        g for g in groups_list
-        if g not in ("Cf0c8835b5b0711e80f7350ffc9af66f1", "C1a437ddee70267ad6372696fe3e17a0e", "C_test_sim_coach")
-    ]
-    cfg["groups"] = groups_list
+    # Strictly lock `groups` to ONLY `boom_stock_group_id` (never include old สรุปยอด or Comment groups)
+    boom_gid = str(cfg.get("boom_stock_group_id") or default_boom_gid).strip()
+    if boom_gid in BLOCKED_NON_BOOM_GROUP_IDS:
+        boom_gid = ""
+    cfg["boom_stock_group_id"] = boom_gid
+    cfg["groups"] = [boom_gid] if boom_gid else []
+    meta_clean = {
+        k: v
+        for k, v in (cfg.get("group_meta") or {}).items()
+        if k == boom_gid and k not in BLOCKED_NON_BOOM_GROUP_IDS
+    }
+    cfg["group_meta"] = meta_clean
     return cfg
 
 
 def save_line_group_config(cfg: dict[str, Any]) -> None:
-    """Persist registered LINE work group IDs, broadcast state, and AI Coach learned rules."""
+    """Persist registered กลุ่มบูม group ID, morning stock state, and AI Coach learned rules."""
+    boom_gid = str(cfg.get("boom_stock_group_id") or "").strip()
+    if boom_gid in BLOCKED_NON_BOOM_GROUP_IDS:
+        boom_gid = ""
+    cfg["boom_stock_group_id"] = boom_gid
+    cfg["groups"] = [boom_gid] if boom_gid else []
     try:
         LINE_GROUP_CONFIG_FILE.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception as exc:
@@ -582,6 +573,10 @@ def save_line_group_config(cfg: dict[str, Any]) -> None:
             customer_name="AI Coach Memory",
         )
         coach_payload = {
+            "boom_stock_group_id": boom_gid,
+            "boom_stock_group_name": cfg.get("boom_stock_group_name") or BOOM_TARGET_GROUP_NAME,
+            "last_boom_stock_report_date": cfg.get("last_boom_stock_report_date") or "",
+            "last_boom_stock_sent_at": cfg.get("last_boom_stock_sent_at") or "",
             "learned_rules": cfg.get("learned_rules") or [],
             "learned_faq": cfg.get("learned_faq") or [],
             "custom_replacements": cfg.get("custom_replacements") or {},
@@ -593,63 +588,269 @@ def save_line_group_config(cfg: dict[str, Any]) -> None:
             bot_enabled=False,
             notes=json.dumps(coach_payload, ensure_ascii=False),
         )
+        database.save_persistent_snapshot()
     except Exception:
         pass
 
 
-def register_line_group(group_id: str, brand_id: str = "buksukjai", group_type: str = "group") -> bool:
-    """Register a LINE Group (`C...`) or Room (`R...`) to receive the daily 07:00 AM sales & stock summary.
-    Returns True if this is a newly registered group.
+def fetch_line_group_summary(group_id: str, brand_id: str = "workbot") -> dict[str, Any]:
+    """Query LINE Messaging API `/v2/bot/group/{groupId}/summary` to verify the exact group name."""
+    from .messenger import _get_channel_token
+
+    gid = (group_id or "").strip()
+    if not gid:
+        return {}
+    token = _get_channel_token(brand_id, "line") or _get_channel_token("workbot", "line")
+    if not token:
+        return {}
+    try:
+        r = httpx.get(
+            f"https://api.line.me/v2/bot/group/{gid}/summary",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10.0,
+        )
+        if r.status_code == 200:
+            return r.json() or {}
+    except Exception as exc:
+        logger.warning("LINE group summary lookup warning for %s: %s", gid, exc)
+    return {}
+
+
+def verify_and_lock_boom_group(group_id: str, group_type: str = "group") -> tuple[bool, bool, str]:
+    """Verify via LINE API whether `group_id` is `กลุ่มบูม`.
+    Returns `(is_boom_group, newly_locked, group_name)`.
+    Strictly rejects `สรุปยอด` and any group whose name does not match `กลุ่มบูม`.
     """
-    group_id = (group_id or "").strip()
-    if not group_id or brand_id == "coachbot" or group_id in ("Cf0c8835b5b0711e80f7350ffc9af66f1", "C1a437ddee70267ad6372696fe3e17a0e"):
-        return False
+    gid = (group_id or "").strip()
+    if not gid or gid in BLOCKED_NON_BOOM_GROUP_IDS:
+        return False, False, ""
+
     cfg = load_line_group_config()
-    groups: list[str] = list(cfg.get("groups") or [])
-    is_new = group_id not in groups
-    if is_new:
-        groups.append(group_id)
-    cfg["groups"] = groups
-    meta = dict(cfg.get("group_meta") or {})
     now_iso = datetime.now(BKK_TZ).isoformat()
-    if group_id not in meta:
-        meta[group_id] = {
-            "group_id": group_id,
-            "brand_id": brand_id,
+    locked_gid = str(cfg.get("boom_stock_group_id") or "").strip()
+    if locked_gid and gid == locked_gid:
+        g_name = str(cfg.get("boom_stock_group_name") or BOOM_TARGET_GROUP_NAME)
+        meta = dict(cfg.get("group_meta") or {})
+        meta.setdefault(
+            gid,
+            {
+                "group_id": gid,
+                "brand_id": "workbot",
+                "group_type": group_type,
+                "name": g_name,
+                "joined_at": now_iso,
+            },
+        )["last_active_at"] = now_iso
+        cfg["group_meta"] = meta
+        save_line_group_config(cfg)
+        return True, False, g_name
+
+    summary = fetch_line_group_summary(gid, brand_id="workbot")
+    group_name = str(summary.get("groupName") or "").strip()
+    if BOOM_TARGET_GROUP_NAME not in group_name:
+        logger.info("Ignoring non-Boom LINE group %s (name=%r)", gid, group_name)
+        return False, False, group_name
+
+    cfg["boom_stock_group_id"] = gid
+    cfg["boom_stock_group_name"] = group_name
+    cfg["groups"] = [gid]
+    cfg["group_meta"] = {
+        gid: {
+            "group_id": gid,
+            "brand_id": "workbot",
             "group_type": group_type,
+            "name": group_name,
             "joined_at": now_iso,
             "last_active_at": now_iso,
         }
-    else:
-        meta[group_id]["last_active_at"] = now_iso
-        meta[group_id]["brand_id"] = brand_id
-    cfg["group_meta"] = meta
+    }
     save_line_group_config(cfg)
 
     try:
         from . import database
 
-        psid = database.make_session_key(brand_id, "line_group", group_id)
+        psid = database.make_session_key("workbot", "line_group", gid)
         database.get_or_create_session(
             psid=psid,
-            brand_id=brand_id,
+            brand_id="workbot",
             platform="line_group",
-            external_user_id=group_id,
-            customer_name=f"กลุ่มไลน์งาน ({group_id[:8]}...)",
+            external_user_id=gid,
+            customer_name=f"{group_name} ({gid[-6:]})",
         )
-        database.update_session_meta(psid=psid, bot_enabled=False, notes="Registered LINE Work Group for 07:00 AM Daily Report")
+        database.update_session_meta(
+            psid=psid,
+            bot_enabled=False,
+            notes="Locked Boom Group for Daily Morning Buk Sukjai Stock Report Only",
+        )
+        database.save_persistent_snapshot()
     except Exception as exc:
-        logger.warning("SQLite line_group session save warning: %s", exc)
+        logger.warning("SQLite Boom group session save warning: %s", exc)
 
-    return is_new
+    logger.info("Locked กลุ่มบูม successfully: group_id=%s name=%s", gid, group_name)
+    return True, True, group_name
+
+
+def format_buksukjai_stock_only_report(wh: dict[str, Any] | None = None) -> str:
+    """Format the daily morning stock-only report strictly for ข้าวบุกสุขใจ (`BSJ*` SKUs ONLY).
+    Never includes sales amounts, order counts, customer info, or any other brand.
+    Formatted concisely (6-7 words per line) for easy reading in LINE `กลุ่มบูม`.
+    """
+    if not isinstance(wh, dict) or wh.get("status") != "ok":
+        wh = get_or_fetch_warehouse_stock()
+
+    now_bkk = datetime.now(BKK_TZ)
+    date_label = now_bkk.strftime("%d/%m/%Y")
+
+    avail_60 = int(wh.get("available_60g", 0))
+    phys_60 = int(wh.get("physical_60g", 0))
+    lock_60 = int(wh.get("lock_60g", 0))
+
+    avail_500 = int(wh.get("available_500g", 0))
+    phys_500 = int(wh.get("physical_500g", 0))
+    lock_500 = int(wh.get("lock_500g", 0))
+
+    avail_1k = int(wh.get("available_1kg", 0))
+    phys_1k = int(wh.get("physical_1kg", 0))
+    lock_1k = int(wh.get("lock_1kg", 0))
+
+    lines = [
+        "📦 อัปเดตสต็อกคงเหลือ ข้าวบุกสุขใจ",
+        f"ประจำเช้าวันที่ {date_label} ค่ะ",
+        "━━━━━━━━━━━━━━━",
+        f"• ขนาด 60 กรัม : {avail_60:,} ซอง",
+    ]
+    if lock_60 > 0:
+        lines.append(f"  (ในคลัง {phys_60:,} | รอแพ็ค {lock_60:,})")
+
+    lines.append(f"• ขนาด 500 กรัม : {avail_500:,} ถุง")
+    if lock_500 > 0:
+        lines.append(f"  (ในคลัง {phys_500:,} | รอแพ็ค {lock_500:,})")
+
+    lines.append(f"• ขนาด 1 กิโลกรัม : {avail_1k:,} ถุง")
+    if lock_1k > 0:
+        lines.append(f"  (ในคลัง {phys_1k:,} | รอแพ็ค {lock_1k:,})")
+
+    low_items: list[str] = []
+    if avail_60 <= 100 or (0 < int(wh.get("days_60g") or 0) <= 5):
+        low_items.append(f"• 60 กรัม เหลือพร้อมขาย {avail_60:,} ซอง")
+    if avail_500 <= 30 or (0 < int(wh.get("days_500g") or 0) <= 5):
+        low_items.append(f"• 500 กรัม เหลือพร้อมขาย {avail_500:,} ถุง")
+    if avail_1k <= 30 or (0 < int(wh.get("days_1kg") or 0) <= 5):
+        low_items.append(f"• 1 กิโลกรัม เหลือพร้อมขาย {avail_1k:,} ถุง")
+
+    lines.append("━━━━━━━━━━━━━━━")
+    if low_items:
+        lines.append("⚠️ รายการใกล้หมด :")
+        lines.extend(low_items)
+    else:
+        lines.append("✅ สต็อกเพียงพอพร้อมขายทุกรายการค่ะ")
+
+    return "\n".join(lines)
+
+
+def should_run_daily_boom_stock_report() -> tuple[bool, str]:
+    """Return `(True, today_str)` during 07:00–08:59 AM Bangkok time when `กลุ่มบูม` is registered
+    and today's Buk Sukjai morning stock report has not been sent yet.
+    """
+    now_bkk = datetime.now(BKK_TZ)
+    today_str = now_bkk.strftime("%Y-%m-%d")
+    if now_bkk.hour not in (DAILY_LINE_GROUP_HOUR_BKK, DAILY_LINE_GROUP_HOUR_BKK + 1):
+        return False, today_str
+    cfg = load_line_group_config()
+    boom_gid = str(cfg.get("boom_stock_group_id") or "").strip()
+    if not boom_gid or boom_gid in BLOCKED_NON_BOOM_GROUP_IDS:
+        return False, today_str
+    return str(cfg.get("last_boom_stock_report_date") or "") != today_str, today_str
+
+
+def send_boom_morning_stock_report(
+    reply_token: str | None = None,
+    mark_morning_done: bool = False,
+    target_group_id: str | None = None,
+) -> dict[str, Any]:
+    """Send ONLY Buk Sukjai's remaining warehouse stock report to `กลุ่มบูม` (`boom_stock_group_id`)."""
+    from .messenger import LINE_PUSH_URL, LINE_REPLY_URL, _get_channel_token
+
+    cfg = load_line_group_config()
+    gid = (target_group_id or cfg.get("boom_stock_group_id") or "").strip()
+    if not gid or gid in BLOCKED_NON_BOOM_GROUP_IDS:
+        return {"status": "waiting_for_boom_group_id", "reason": "boom_stock_group_id_not_registered_yet"}
+
+    # Extra safety check: verify group name is กลุ่มบูม before pushing if not yet verified in group_meta
+    meta_name = str((cfg.get("group_meta") or {}).get(gid, {}).get("name") or cfg.get("boom_stock_group_name") or "")
+    if BOOM_TARGET_GROUP_NAME not in meta_name:
+        ok_boom, _, g_name = verify_and_lock_boom_group(gid)
+        if not ok_boom:
+            return {"status": "blocked_non_boom_group", "group_id": gid, "group_name": g_name}
+
+    token = _get_channel_token("workbot", "line")
+    if not token:
+        return {"status": "error", "reason": "missing_workbot_line_token"}
+
+    wh = get_or_fetch_warehouse_stock()
+    stock_text = format_buksukjai_stock_only_report(wh)
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+    msg_payload = [{"type": "text", "text": stock_text}]
+
+    sent_ok = False
+    err_detail = ""
+    with httpx.Client(timeout=15.0) as client:
+        if reply_token and not reply_token.startswith("sim_"):
+            resp = client.post(
+                LINE_REPLY_URL,
+                headers=headers,
+                json={"replyToken": reply_token, "messages": msg_payload},
+            )
+            if resp.status_code == 200:
+                sent_ok = True
+        if not sent_ok:
+            resp = client.post(
+                LINE_PUSH_URL,
+                headers=headers,
+                json={"to": gid, "messages": msg_payload},
+            )
+            if resp.status_code == 200:
+                sent_ok = True
+            else:
+                err_detail = f"HTTP {resp.status_code}: {resp.text}"
+
+    now_bkk = datetime.now(BKK_TZ)
+    today_str = now_bkk.strftime("%Y-%m-%d")
+    if sent_ok and mark_morning_done:
+        cfg = load_line_group_config()
+        cfg["last_boom_stock_report_date"] = today_str
+        cfg["last_boom_stock_sent_at"] = now_bkk.isoformat()
+        save_line_group_config(cfg)
+
+    return {
+        "status": "ok" if sent_ok else "error",
+        "group_id": gid,
+        "date": today_str,
+        "stock_text": stock_text,
+        "warehouse_stock": wh,
+        "error": err_detail,
+    }
+
+
+def register_line_group(group_id: str, brand_id: str = "buksukjai", group_type: str = "group") -> bool:
+    """Register ONLY `กลุ่มบูม` for BUK TEAM (`workbot`). Rejects all other groups."""
+    if brand_id == "coachbot":
+        return False
+    ok_boom, newly_locked, _ = verify_and_lock_boom_group(group_id, group_type=group_type)
+    return bool(ok_boom and newly_locked)
 
 
 def unregister_line_group(group_id: str) -> None:
-    """Remove a LINE Group when the bot leaves the group."""
+    """Remove `boom_stock_group_id` if the bot leaves `กลุ่มบูม`."""
     group_id = (group_id or "").strip()
     if not group_id:
         return
     cfg = load_line_group_config()
+    if cfg.get("boom_stock_group_id") == group_id:
+        cfg["boom_stock_group_id"] = ""
     cfg["groups"] = [g for g in (cfg.get("groups") or []) if g != group_id]
     save_line_group_config(cfg)
 
@@ -1461,269 +1662,32 @@ def send_daily_summary_to_line_groups(
     reply_token: str | None = None,
     mark_7am_done: bool = False,
 ) -> dict[str, Any]:
-    """Pull the daily sales & stock report from Google Sheets / JST ERP for `target_date` (defaults to yesterday)
-    and send the formatted summary to the specified `target_group_id` or all registered LINE work groups.
+    """Redirected to Buk Sukjai Stock-Only Report for `กลุ่มบูม` ONLY.
+    Sales revenue & other groups (`สรุปยอด`) are strictly disabled per owner rule.
     """
-    from .messenger import LINE_PUSH_URL, LINE_REPLY_URL, _get_channel_token
-
-    now_bkk = datetime.now(BKK_TZ)
-    if not target_date:
-        target_date = (now_bkk - timedelta(days=1)).strftime("%Y-%m-%d")
-
-    report = load_or_build_daily_report(target_date)
-    summary_text = format_line_group_daily_summary(report)
-
-    token = _get_channel_token(brand_id, "line")
-    if not token:
-        return {
-            "status": "error",
-            "reason": "missing_line_channel_access_token",
-            "target_date": target_date,
-            "summary_text": summary_text,
-        }
-
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
-    }
-    msg_payload = [{"type": "text", "text": summary_text}]
-
-    cfg = load_line_group_config()
-    groups_to_send = [target_group_id] if target_group_id else list(cfg.get("groups") or [])
-    sent_groups: list[str] = []
-    errors: list[dict[str, Any]] = []
-
-    with httpx.Client(timeout=15.0) as client:
-        # If reply_token is provided (e.g. someone typed "สรุปยอด" inside the LINE group), try replyToken first
-        replied_ok = False
-        if reply_token and target_group_id and not reply_token.startswith("sim_"):
-            resp = client.post(
-                LINE_REPLY_URL,
-                headers=headers,
-                json={"replyToken": reply_token, "messages": msg_payload},
-            )
-            if resp.status_code == 200:
-                replied_ok = True
-                sent_groups.append(target_group_id)
-
-        if not replied_ok:
-            for gid in groups_to_send:
-                if not gid:
-                    continue
-                resp = client.post(
-                    LINE_PUSH_URL,
-                    headers=headers,
-                    json={"to": gid, "messages": msg_payload},
-                )
-                if resp.status_code == 200:
-                    sent_groups.append(gid)
-                else:
-                    errors.append({"group_id": gid, "status_code": resp.status_code, "body": resp.text})
-
-    if mark_7am_done and sent_groups:
-        cfg["last_7am_report_date"] = target_date
-        cfg["last_7am_sent_at"] = now_bkk.isoformat()
-        save_line_group_config(cfg)
-
-    return {
-        "status": "ok" if sent_groups else ("no_groups_registered" if not groups_to_send else "error"),
-        "target_date": target_date,
-        "sent_groups": sent_groups,
-        "errors": errors,
-        "summary_text": summary_text,
-        "report": {
-            "order_count": report["order_count"],
-            "tot_facebook": report["tot_facebook"],
-            "tot_tiktok": report["tot_tiktok"],
-            "tot_shopee": report["tot_shopee"],
-            "tot_transfer": report["tot_transfer"],
-            "tot_cod": report["tot_cod"],
-            "grand_total": report["grand_total"],
-            "tot_60g": report["tot_60g"],
-            "tot_500g": report["tot_500g"],
-            "tot_1kg": report["tot_1kg"],
-            "tot_pieces": report["tot_pieces"],
-        },
-    }
+    return send_boom_morning_stock_report(
+        reply_token=reply_token,
+        mark_morning_done=mark_7am_done,
+        target_group_id=target_group_id,
+    )
 
 
 _RECENT_ESCALATION_CACHE: dict[str, float] = {}
 
 
 def send_jst_cookie_expired_alert_to_line_groups(error_detail: str = "") -> dict[str, Any]:
-    """Send an alert to the LINE Summary Work Group(s) when `JST_ERP_COOKIE` expires.
-    - Quiet Hours: NEVER alert at night (22:00–06:59 BKK) so admins are never woken up.
-    - Once-Per-Day Lock: Alert at most 1 time per calendar day in the morning (`last_jst_cookie_alert_date`).
-    """
-    from . import jst_erp
-    from .messenger import LINE_PUSH_URL, _get_channel_token
-
-    now_bkk = datetime.now(BKK_TZ)
-    # ห้ามแจ้งเตือนตอนกลางคืน (22:00 น. – 06:59 น.) รอแจ้งเตือนรอบเช้าวันละ 1 ครั้งเท่านั้นค่ะ
-    if now_bkk.hour < 7 or now_bkk.hour >= 22:
-        return {"status": "quiet_hours_skipped", "hour_bkk": now_bkk.hour}
-
-    today_str = now_bkk.strftime("%Y-%m-%d")
-    cfg = load_line_group_config()
-    if str(cfg.get("last_jst_cookie_alert_date") or "").strip() == today_str:
-        return {"status": "once_per_day_skipped", "date": today_str}
-
-    token = _get_channel_token("workbot", "line")
-    if not token:
-        return {"status": "error", "reason": "missing_line_channel_access_token"}
-
-    retry_q = jst_erp.get_pending_jst_retry_queue()
-    queued_cnt = len(retry_q)
-
-    alert_text = (
-        "⚠️ แจ้งเตือนระบบคลังสินค้า JST ERP (Cookie หมดอายุ — แจ้งเตือนวันละ 1 ครั้งตอนเช้าค่ะ)\n"
-        "━━━━━━━━━━━━━━━\n"
-        "ขณะนี้เซสชันล็อกอิน (`JST_ERP_COOKIE`) ของเว็บ asia.jsterp.com หมดอายุค่ะ\n"
-        f"• สาเหตุ: {error_detail[:140] or 'Unauthorized / Session Expired'}\n"
-        f"• ตะกร้ารอคีย์ซ้ำอัตโนมัติ (Retry Queue): เก็บออเดอร์รอคีย์ไว้ปลอดภัยแล้ว {queued_cnt} รายการค่ะ (ออเดอร์ไม่ตกหล่นแน่นอนค่ะ)\n\n"
-        "🔧 รบกวนล็อกอินเว็บ JST ERP แล้วอัปเดต Cookie ใหม่ ระบบจะกวาดออเดอร์ในตะกร้าส่งเข้าคลัง JST ย้อนหลังให้ครบทุกบิลอัตโนมัติทันทีค่ะ 🙏💚"
-    )
-    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-    groups_to_send = list(cfg.get("groups") or [])
-    sent_groups: list[str] = []
-    with httpx.Client(timeout=15.0) as client:
-        for gid in groups_to_send:
-            if not gid:
-                continue
-            resp = client.post(
-                LINE_PUSH_URL,
-                headers=headers,
-                json={"to": gid, "messages": [{"type": "text", "text": alert_text}]},
-            )
-            if resp.status_code == 200:
-                sent_groups.append(gid)
-
-    if sent_groups:
-        cfg["last_jst_cookie_alert_at"] = now_bkk.isoformat()
-        cfg["last_jst_cookie_alert_date"] = today_str
-        save_line_group_config(cfg)
-    return {"status": "ok" if sent_groups else "error", "sent_groups": sent_groups}
+    """Disabled: BUK TEAM (`workbot`) is strictly locked to `กลุ่มบูม` for Buk Sukjai morning stock only."""
+    return {"status": "disabled_boom_stock_only"}
 
 
 def check_and_alert_fb_page_token_health(brand_id: str = "buksukjai") -> dict[str, Any]:
-    """Verify Facebook Page Access Token health (`GET /me?fields=id,name`).
-    If expired/invalid, send at most 1 alert per day in the morning (never at night).
-    """
-    from .config_loader import get_page_by_brand_id
-    from .messenger import LINE_PUSH_URL, _get_channel_token
-
-    now_bkk = datetime.now(BKK_TZ)
-    if now_bkk.hour < 7 or now_bkk.hour >= 22:
-        return {"status": "quiet_hours_skipped"}
-
-    page = get_page_by_brand_id(brand_id) or {}
-    fb_token = (page.get("channels") or {}).get("fb_page_access_token") or os.getenv("PAGE_ACCESS_TOKEN", "")
-    if not fb_token:
-        return {"status": "no_fb_token"}
-
-    try:
-        r = httpx.get(
-            "https://graph.facebook.com/v21.0/me",
-            params={"fields": "id,name", "access_token": fb_token},
-            timeout=10.0,
-        )
-        data = r.json() if r.content else {}
-        if r.status_code == 200 and data.get("id"):
-            return {"status": "ok", "page_id": data.get("id"), "page_name": data.get("name")}
-        err_msg = str((data.get("error") or {}).get("message") or f"HTTP {r.status_code}")
-    except Exception as exc:
-        return {"status": "network_warning", "reason": str(exc)}
-
-    today_str = now_bkk.strftime("%Y-%m-%d")
-    cfg = load_line_group_config()
-    if str(cfg.get("last_fb_token_alert_date") or "").strip() == today_str:
-        return {"status": "once_per_day_skipped", "reason": err_msg}
-
-    line_token = _get_channel_token("workbot", "line")
-    if not line_token:
-        return {"status": "error", "reason": "missing_line_token"}
-
-    alert_text = (
-        "🚨 แจ้งเตือน Token เพจ Facebook หลุดหรือหมดอายุค่ะ (แจ้งเตือนวันละ 1 ครั้ง)\n"
-        "━━━━━━━━━━━━━━━\n"
-        f"• เพจ: ข้าวบุกสุขใจ ({brand_id})\n"
-        f"• สาเหตุจาก Meta API: {err_msg[:160]}\n\n"
-        "🔧 รบกวนต่ออายุ Facebook Page Access Token ในระบบ เพื่อให้น้องบุกตอบแชท Facebook ได้ต่อเนื่องนะคะ 🙏💚"
-    )
-    headers = {"Authorization": f"Bearer {line_token}", "Content-Type": "application/json"}
-    sent_groups: list[str] = []
-    with httpx.Client(timeout=15.0) as client:
-        for gid in list(cfg.get("groups") or []):
-            if not gid:
-                continue
-            resp = client.post(
-                LINE_PUSH_URL,
-                headers=headers,
-                json={"to": gid, "messages": [{"type": "text", "text": alert_text}]},
-            )
-            if resp.status_code == 200:
-                sent_groups.append(gid)
-    if sent_groups:
-        cfg["last_fb_token_alert_date"] = today_str
-        save_line_group_config(cfg)
-    return {"status": "alerted", "sent_groups": sent_groups, "reason": err_msg}
+    """Disabled LINE group alert: BUK TEAM (`workbot`) is strictly locked to `กลุ่มบูม` for Buk Sukjai morning stock only."""
+    return {"status": "disabled_boom_stock_only"}
 
 
 def send_slip_issue_alert_to_line_groups(rejected_slips: list[dict[str, Any]]) -> dict[str, Any]:
-    """Send an immediate notification to the LINE Work Group when a bank transfer slip fails
-    any of the 4 verification conditions (missing QR Ref, wrong recipient account, mismatched amount, or duplicate Ref).
-    """
-    from .messenger import LINE_PUSH_URL, _get_channel_token
-
-    if not rejected_slips:
-        return {"status": "skipped_empty"}
-    token = _get_channel_token("workbot", "line")
-    if not token:
-        return {"status": "error", "reason": "missing_line_channel_access_token"}
-
-    now_str = datetime.now(BKK_TZ).strftime("%d/%m/%Y %H:%M น.")
-    lines = [
-        f"🚨 แจ้งเตือนตรวจสอบสลิปโอนเงินไม่ผ่านเกณฑ์ 4 ข้อ ({len(rejected_slips)} รายการค่ะ)",
-        f"({now_str})",
-        "━━━━━━━━━━━━━━━",
-    ]
-    for idx, item in enumerate(rejected_slips[:8], 1):
-        oid = item.get("order_id") or "-"
-        r_name = item.get("receiver_name") or "ลูกค้า"
-        r_ph = item.get("receiver_phone") or "-"
-        origin_trace = item.get("origin_trace") or "ออเดอร์แชทเพจ"
-        order_time = item.get("order_time") or "-"
-        sku_desc = item.get("sku_desc") or "-"
-        order_amt = item.get("order_amount")
-        amt_txt = f" | ยอด {float(order_amt):,.0f} บาท" if order_amt else ""
-        reason = item.get("reason") or "สลิปไม่ผ่านเกณฑ์ตรวจสอบ"
-        lines.append(
-            f"{idx}. ใบสั่งซื้อ JST #{oid} — คุณ{r_name} (โทร: {r_ph})\n"
-            f"   📍 ต้นตอแชท: {origin_trace}\n"
-            f"   🕒 เวลาสั่ง: {order_time} | สินค้า: {sku_desc}{amt_txt}\n"
-            f"   ⚠️ สาเหตุ: {reason}"
-        )
-    lines.append("━━━━━━━━━━━━━━━")
-    lines.append(
-        "🔎 วิธีหาต้นตอทันที: ค้นหาเลขใบสั่งซื้อ (#OrderId) ในหน้าคำสั่งซื้อ JST ERP หรือค้นหาชื่อเฟซบุ๊กจากบรรทัด 'ต้นตอแชท' ใน Inbox เพจได้เลยค่ะ 🙏💚"
-    )
-    alert_text = "\n".join(lines)
-
-    cfg = load_line_group_config()
-    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-    sent_groups: list[str] = []
-    with httpx.Client(timeout=15.0) as client:
-        for gid in list(cfg.get("groups") or []):
-            if not gid:
-                continue
-            resp = client.post(
-                LINE_PUSH_URL,
-                headers=headers,
-                json={"to": gid, "messages": [{"type": "text", "text": alert_text}]},
-            )
-            if resp.status_code == 200:
-                sent_groups.append(gid)
-    return {"status": "ok" if sent_groups else "error", "sent_groups": sent_groups}
+    """Disabled LINE group alert: BUK TEAM (`workbot`) is strictly locked to `กลุ่มบูม` for Buk Sukjai morning stock only."""
+    return {"status": "disabled_boom_stock_only"}
 
 
 def send_escalation_alert_to_line_groups(
@@ -1736,141 +1700,8 @@ def send_escalation_alert_to_line_groups(
     reason: str = "คำถามแปลกใหม่ / AI ไม่มั่นใจคำตอบ",
     target_group_id: str | None = None,
 ) -> dict[str, Any]:
-    """Send an instant alert to the registered LINE Summary Work Group(s) whenever the AI encounters
-    an unfamiliar/uncertain question, replies with a safe holding message, and pauses itself for human review.
-    Records the pending escalation in line_group_config.json so any admin reply in the LINE group
-    is automatically forwarded back to the customer and unpauses the AI bot.
-    """
-    import time as _time
-    from . import database
-    from .messenger import LINE_PUSH_URL, _get_channel_token
-
-    dedup_key = f"{psid}:{customer_question.strip()[:80]}"
-    now_ts = _time.time()
-    if dedup_key in _RECENT_ESCALATION_CACHE and (now_ts - _RECENT_ESCALATION_CACHE[dedup_key]) < 300:
-        return {"status": "skipped_duplicate", "psid": psid}
-    _RECENT_ESCALATION_CACHE[dedup_key] = now_ts
-
-    cfg = load_line_group_config()
-    seq = int(cfg.get("escalation_seq") or 0) + 1
-    cfg["escalation_seq"] = seq
-    case_id = f"Q{seq}"
-
-    now_dt = datetime.now(BKK_TZ)
-    now_bkk = now_dt.strftime("%d/%m/%Y %H:%M น.")
-    plat_map = {
-        "facebook": "Facebook เพจ",
-        "line": "LINE OA",
-        "instagram": "Instagram DM",
-    }
-    plat_label = plat_map.get(platform.lower(), platform)
-    brand_label = "มิสเตอร์บุก" if brand_id == "mrbuk" else "ข้าวบุกสุขใจ"
-    ext_uid = psid.split(":", 2)[-1] if ":" in psid else psid
-    disp_name = (customer_name or "").strip() or f"ลูกค้า ({ext_uid[:10]})"
-    clean_q = (customer_question or "").strip()
-    clean_a = (ai_holding_reply or "").replace("|||", "\n").strip()
-
-    if clean_a:
-        bot_reply_block = (
-            f"🤖 AI ตอบรับเบื้องต้นไว้ว่า :\n"
-            f"“{clean_a}”\n"
-        )
-    else:
-        bot_reply_block = (
-            "🔇 สถานะบอท : เงียบไว้และพักบอทชั่วคราว (ยังไม่ได้ส่งข้อความตอบลูกค้า เพื่อให้แอดมินตอบเองค่ะ)\n"
-        )
-
-    alert_text = (
-        f"🔔 แจ้งเตือนคำถามใหม่ / AI ไม่มั่นใจค่ะ [#{case_id}]\n"
-        f"({now_bkk})\n"
-        f"━━━━━━━━━━━━━━━\n"
-        f"👤 ลูกค้า : {disp_name}\n"
-        f"📱 ช่องทาง : {plat_label} ({brand_label})\n"
-        f"🏷️ สาเหตุ : {reason}\n\n"
-        f"💬 คำถามจากลูกค้า :\n"
-        f"“{clean_q}”\n\n"
-        f"{bot_reply_block}"
-        f"━━━━━━━━━━━━━━━\n"
-        f"💡 ตอบกลับลูกค้าจากในกลุ่มนี้ได้เลยค่ะ:\n"
-        f"• กด Reply ข้อความนี้ หรือพิมพ์คำตอบในกลุ่มได้เลยค่ะ (หรือพิมพ์ {case_id} ตามด้วยคำตอบ)\n"
-        f"• บอทจะนำคำตอบไปส่งให้ลูกค้าทันที พร้อมเปิดบอทดูแลต่อให้อัตโนมัติค่ะ 🙏💚"
-    )
-
-    token = _get_channel_token("workbot", "line") or _get_channel_token(brand_id, "line")
-    if not token:
-        return {
-            "status": "error",
-            "reason": "missing_line_channel_access_token",
-            "alert_text": alert_text,
-        }
-
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
-    }
-    msg_payload = [{"type": "text", "text": alert_text}]
-
-    groups_to_send = [target_group_id] if target_group_id else list(cfg.get("groups") or [])
-    sent_groups: list[str] = []
-    sent_line_msg_ids: list[str] = []
-    errors: list[dict[str, Any]] = []
-
-    with httpx.Client(timeout=15.0) as client:
-        for gid in groups_to_send:
-            if not gid:
-                continue
-            resp = client.post(
-                LINE_PUSH_URL,
-                headers=headers,
-                json={"to": gid, "messages": msg_payload},
-            )
-            if resp.status_code == 200:
-                sent_groups.append(gid)
-                try:
-                    r_json = resp.json() or {}
-                    for sm in r_json.get("sentMessages") or []:
-                        mid = str(sm.get("id") or "").strip()
-                        if mid:
-                            sent_line_msg_ids.append(mid)
-                except Exception:
-                    pass
-                try:
-                    grp_psid = database.make_session_key("workbot", "line_group", gid)
-                    database.log_message(grp_psid, "bot", alert_text, sender_label=f"แจ้งเตือนคำถาม AI [#{case_id}]")
-                except Exception:
-                    pass
-            else:
-                errors.append({"group_id": gid, "status_code": resp.status_code, "body": resp.text})
-
-    # Record pending escalation so LINE group replies can be routed back to the customer
-    pending_list: list[dict[str, Any]] = list(cfg.get("pending_escalations") or [])
-    pending_list.append(
-        {
-            "case_id": case_id,
-            "psid": psid,
-            "brand_id": brand_id,
-            "platform": platform,
-            "external_user_id": ext_uid,
-            "customer_name": disp_name,
-            "question": clean_q,
-            "reason": reason,
-            "created_at": now_dt.isoformat(),
-            "created_ts": now_ts,
-            "status": "pending",
-            "line_message_ids": sent_line_msg_ids,
-        }
-    )
-    # Keep last 40 escalation records
-    cfg["pending_escalations"] = pending_list[-40:]
-    save_line_group_config(cfg)
-
-    return {
-        "status": "ok" if sent_groups else "error",
-        "case_id": case_id,
-        "sent_groups": sent_groups,
-        "errors": errors,
-        "alert_text": alert_text,
-    }
+    """Disabled LINE group escalation: BUK TEAM (`workbot`) is strictly locked to `กลุ่มบูม` for Buk Sukjai morning stock only."""
+    return {"status": "disabled_boom_stock_only"}
 
 
 def resolve_line_group_escalation_reply(

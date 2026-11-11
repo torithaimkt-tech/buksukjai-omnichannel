@@ -1,24 +1,10 @@
 {
-  "groups": [
-    "C5e760c74d6b020ae8b8cc831970517dc",
-    "C814be1f1cc536059190b79ac21d4e562"
-  ],
-  "group_meta": {
-    "C5e760c74d6b020ae8b8cc831970517dc": {
-      "group_id": "C5e760c74d6b020ae8b8cc831970517dc",
-      "brand_id": "workbot",
-      "group_type": "group",
-      "joined_at": "2026-10-31T15:01:44.771964+07:00",
-      "last_active_at": "2026-10-31T15:02:08.926888+07:00"
-    },
-    "C814be1f1cc536059190b79ac21d4e562": {
-      "group_id": "C814be1f1cc536059190b79ac21d4e562",
-      "brand_id": "workbot",
-      "group_type": "group",
-      "joined_at": "2026-10-31T12:48:38.942340+07:00",
-      "last_active_at": "2026-10-31T12:48:38.942340+07:00"
-    }
-  },
+  "boom_stock_group_id": "",
+  "boom_stock_group_name": "กลุ่มบูม",
+  "last_boom_stock_report_date": "",
+  "last_boom_stock_sent_at": "",
+  "groups": [],
+  "group_meta": {},
   "last_7am_report_date": "2026-11-07",
   "last_7am_sent_at": "2026-11-08T10:59:02.608191+07:00",
   "learned_rules": [

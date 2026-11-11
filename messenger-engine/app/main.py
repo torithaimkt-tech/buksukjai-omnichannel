@@ -229,17 +229,27 @@ async def lifespan(app: FastAPI):
     )
 
     followup_task = None
+    boom_stock_task = None
     buksukjai_active = bool(get_page_by_brand_id("buksukjai").get("active", False))
+    workbot_active = bool(get_page_by_brand_id("workbot").get("active", False))
     if buksukjai_active and os.getenv("ENABLE_FOLLOWUP", "false").lower() in ("1", "true", "yes"):
         import asyncio
 
         asyncio.create_task(messenger.sync_recent_facebook_conversations("buksukjai", limit=40))
         followup_task = asyncio.create_task(followup.followup_loop(CONFIG, lambda: PUBLIC_BASE_URL))
     else:
-        logger.info("All chatbots for 'buksukjai' are currently DISABLED (active=False).")
+        logger.info("Customer chatbots for 'buksukjai' are currently DISABLED (active=False).")
+
+    if workbot_active:
+        import asyncio
+
+        boom_stock_task = asyncio.create_task(_boom_morning_stock_scheduler_loop())
+        logger.info("BUK TEAM (@934ndvfs) scheduler started: locked strictly to 'กลุ่มบูม' for morning Buk Sukjai stock report.")
     yield
     if followup_task:
         followup_task.cancel()
+    if boom_stock_task:
+        boom_stock_task.cancel()
     if _TUNNEL_PROC:
         try:
             _TUNNEL_PROC.terminate()
@@ -633,186 +643,65 @@ async def _handle_line_group_event(
         return
 
     # =========================================================================
-    # WORK GROUP BOT (@934ndvfs GENIUS POINT — brand_id == "workbot")
-    # Strictly for 07:00 AM daily sales & stock summary + [#Q1] customer escalations
+    # BUK TEAM BOT (@934ndvfs — brand_id == "workbot")
+    # Strictly locked to "กลุ่มบูม" ONLY (`ต้องการให้มาตอบกลุ่มนี้เท่านั้น`)!
+    # Reports ONLY ข้าวบุกสุขใจ remaining stock (`สต็อกคงเหลือ ข้าวบุกสุขใจ`) every morning at 07:00 AM.
+    # NEVER replies or sends messages to "สรุปยอด" or any other group!
     # =========================================================================
-    daily_sheet_report.register_line_group(group_id, brand_id=brand_id, group_type=group_type)
+    is_boom_group, newly_locked, group_name = await asyncio.to_thread(
+        daily_sheet_report.verify_and_lock_boom_group,
+        group_id,
+        group_type,
+    )
+    if not is_boom_group:
+        # Silently ignore `สรุปยอด` and all non-Boom groups 100%
+        return
 
     if event_type == "join":
         welcome_text = (
-            "สวัสดีค่ะ ขออนุญาตรายงานตัวเข้ากลุ่มงานนะคะ 🙏\n"
-            "บันทึกกลุ่มนี้สำหรับแจ้งสรุปยอดประจำวันเรียบร้อยแล้วค่ะ\n"
-            "• ทุกเช้าเวลา 07:00 น. (หลังคีย์ออเดอร์เสร็จ) บอทจะส่งสรุปยอดขายแต่ละช่องทาง ยอดโอน/COD และสรุปจำนวนสินค้าที่ตัดสต็อกโกดัง (60 กรัม / 500 กรัม / 1 กิโลกรัม) ของเมื่อวานให้ในกลุ่มนี้อัตโนมัติค่ะ\n"
-            "• หากต้องการดูสรุปยอดทันที สามารถพิมพ์คำว่า สรุปยอด ในกลุ่มได้เลยนะคะ"
+            "สวัสดีค่ะ BUK TEAM รายงานตัวเข้ากลุ่มบูมนะคะ 🙏💚\n"
+            "บอทจะส่งอัปเดตสต็อกคงเหลือของ ข้าวบุกสุขใจ\n"
+            "เข้ากลุ่มนี้ทุกเช้าเวลา 07:00 น. อัตโนมัติค่ะ\n"
+            "(หากต้องการดูทันที พิมพ์คำว่า เช็กสต็อก ได้เลยค่ะ)"
         )
-        database.log_message(psid, "bot", welcome_text, sender_label="บอทสรุปยอดกลุ่มงาน")
+        database.log_message(psid, "bot", welcome_text, sender_label="BUK TEAM")
         await messenger.send_omnichannel_text("line", group_id, welcome_text, brand_id, reply_token)
         return
 
-    if event_type == "memberJoined":
-        joined_members = event.get("joined", {}).get("members", [])
-        database.log_message(
-            psid,
-            "user",
-            f"[มีสมาชิกใหม่เข้าร่วมกลุ่มไลน์งาน {len(joined_members)} ท่านค่ะ]",
-            sender_label="ระบบกลุ่มไลน์",
-        )
+    if event_type != "message":
         return
 
-    if event_type == "memberLeft":
-        left_members = event.get("left", {}).get("members", [])
-        database.log_message(
-            psid,
-            "user",
-            f"[มีสมาชิกออกจากกลุ่มไลน์งาน {len(left_members)} ท่านค่ะ]",
-            sender_label="ระบบกลุ่มไลน์",
-        )
+    msg_obj = event.get("message", {})
+    msg_type = str(msg_obj.get("type") or "")
+    if msg_type != "text":
+        return
+    text = (msg_obj.get("text") or "").strip()
+    if not text:
         return
 
-    if event_type == "message":
-        msg_obj = event.get("message", {})
-        msg_type = str(msg_obj.get("type") or "")
-        sender_uid = (event.get("source") or {}).get("userId") or "สมาชิกในกลุ่ม"
+    sender_uid = (event.get("source") or {}).get("userId") or "สมาชิกกลุ่มบูม"
+    database.log_message(psid, "user", text, sender_label=f"กลุ่มบูม ({sender_uid[-6:]})")
 
-        if msg_type == "image":
-            msg_id = str(msg_obj.get("id") or "").strip()
-            database.log_message(
-                psid,
-                "user",
-                f"[ส่งรูปภาพเข้ามาในกลุ่มสรุปยอด (ID: {msg_id})]",
-                sender_label=f"สมาชิกกลุ่ม ({sender_uid[-6:]})",
-            )
-            return
-
-        if msg_type != "text":
-            return
-        text = (msg_obj.get("text") or "").strip()
-        if not text:
-            return
-        quoted_msg_id = str(msg_obj.get("quotedMessageId") or "").strip() or None
-        database.log_message(psid, "user", text, sender_label=f"สมาชิกกลุ่ม ({sender_uid[-6:]})")
-
-        pre_key_keywords = (
-            "เช็กออเดอร์",
-            "เช็คออเดอร์",
-            "เช็ก jst",
-            "เช็ค jst",
-            "ตรวจ jst",
-            "ตรวจออเดอร์ก่อนคีย์",
-            "คีย์หรือยัง",
+    stock_triggers = (
+        "เช็กสต็อก",
+        "เช็คสต็อก",
+        "สต็อกคงเหลือ",
+        "สต็อกข้าวบุก",
+        "อัปเดตสต็อก",
+        "อัพเดตสต็อก",
+        "ทดสอบบอท",
+        "เทสบอท",
+    )
+    if text in ("สต็อก", "สต๊อก", "เช็กสต๊อก", "เช็คสต๊อก") or any(k in text for k in stock_triggers):
+        res = await asyncio.to_thread(
+            daily_sheet_report.send_boom_morning_stock_report,
+            reply_token,
+            False,
+            group_id,
         )
-        if any(k in text.lower() for k in pre_key_keywords):
-            from . import jst_erp
-
-            await messenger.sync_recent_facebook_conversations("buksukjai", limit=40)
-            chk = await asyncio.to_thread(jst_erp.build_pre_keying_jst_checklist, 2)
-            msg_out = str(chk.get("summary_text") or "")
-            if msg_out:
-                database.log_message(psid, "bot", msg_out, sender_label="บอทตรวจสอบออเดอร์ JST")
-                await messenger.send_omnichannel_text("line", group_id, msg_out, brand_id, reply_token)
-            return
-
-        auto_key_keywords = ("คีย์ออเดอร์", "คีย์ jst", "สั่งคีย์ออเดอร์")
-        if any(k in text.lower() for k in auto_key_keywords):
-            from . import jst_erp
-
-            await messenger.sync_recent_facebook_conversations("buksukjai", limit=60)
-            sync_res = await asyncio.to_thread(jst_erp.sync_all_confirmed_orders_to_jst, 2, False)
-            chk = await asyncio.to_thread(jst_erp.build_pre_keying_jst_checklist, 2)
-            created_cnt = len(sync_res.get("created") or [])
-            dup_cnt = len(sync_res.get("duplicate_skipped") or [])
-            msg_out = (
-                f"🤖 ระบบอัตโนมัติตรวจสอบและคีย์ออเดอร์ลง JST ERP เรียบร้อยแล้วค่ะ!\n"
-                f"• คีย์ออเดอร์ใหม่สำเร็จ : {created_cnt} รายการ\n"
-                f"• ป้องกันออเดอร์ซ้ำ (ข้ามอัตโนมัติ) : {dup_cnt} รายการ\n\n"
-                f"{chk.get('summary_text') or ''}"
-            )
-            database.log_message(psid, "bot", msg_out, sender_label="บอทคีย์ออเดอร์ JST")
-            await messenger.send_omnichannel_text("line", group_id, msg_out, brand_id, reply_token)
-            return
-
-        trigger_keywords = ("สรุปยอด", "เช็กยอด", "เช็คยอด", "รายงานยอด", "ยอดขายเมื่อวาน", "ลงทะเบียนกลุ่ม", "ทดสอบบอท", "เทสบอท")
-        if any(k in text for k in trigger_keywords):
-            bkk_tz = timezone(timedelta(hours=7))
-            now_bkk = datetime.now(bkk_tz)
-            m_date = re.search(r"(202\d-\d{2}-\d{2})", text)
-            if m_date:
-                target_date = m_date.group(1)
-            elif "วันนี้" in text:
-                target_date = now_bkk.strftime("%Y-%m-%d")
-            else:
-                target_date = (now_bkk - timedelta(days=1)).strftime("%Y-%m-%d")
-
-            res = await asyncio.to_thread(
-                daily_sheet_report.send_daily_summary_to_line_groups,
-                target_date,
-                brand_id,
-                group_id,
-                reply_token,
-                False,
-            )
-            if res.get("summary_text"):
-                database.log_message(psid, "bot", res["summary_text"], sender_label="บอทสรุปยอดกลุ่มงาน")
-            return
-
-        # Check if someone in the LINE Group is answering a paused customer escalation!
-        matched_esc = await asyncio.to_thread(
-            daily_sheet_report.resolve_line_group_escalation_reply,
-            text,
-            quoted_msg_id,
-        )
-        if matched_esc:
-            cust_psid = str(matched_esc.get("psid") or "")
-            cust_brand = str(matched_esc.get("brand_id") or "buksukjai")
-            cust_plat = str(matched_esc.get("platform") or "facebook")
-            cust_ext_id = str(matched_esc.get("external_user_id") or "")
-            cust_name = str(matched_esc.get("customer_name") or "คุณลูกค้า")
-            cust_reply = str(matched_esc.get("customer_reply") or "")
-            case_id = str(matched_esc.get("case_id") or "Q")
-
-            if cust_psid and cust_ext_id and cust_reply:
-                # 1. Log & send the answer to the customer on their original platform (Facebook / LINE OA / IG)
-                database.log_message(cust_psid, "admin", cust_reply, sender_label="แอดมิน (ตอบผ่านกลุ่ม LINE)")
-                await messenger.send_omnichannel_text(
-                    platform=cust_plat,
-                    external_user_id=cust_ext_id,
-                    text=cust_reply,
-                    brand_id=cust_brand,
-                )
-
-                # 2. Unpause the AI bot for this customer so AI can continue assisting after the answer
-                try:
-                    cust_sess = database.get_or_create_session(cust_psid)
-                    raw_tags = getattr(cust_sess, "broadcast_tags", "") or ""
-                    cleaned_tags = ",".join(
-                        t.strip()
-                        for t in raw_tags.split(",")
-                        if t.strip() and "รอแอดมิน" not in t
-                    )
-                    new_tags = database._add_tag_str(cleaned_tags, "แอดมินตอบผ่านกลุ่มแล้ว")
-                    database.update_session_meta(
-                        psid=cust_psid,
-                        bot_enabled=True,
-                        broadcast_tags=new_tags,
-                        clear_unread=True,
-                    )
-                except Exception as exc:
-                    logger.warning("Failed to re-enable bot for %s after LINE group reply: %s", cust_psid, exc)
-                    database.set_bot_enabled(cust_psid, True)
-
-                # 3. Confirm back inside the LINE Summary Group
-                plat_label = {"facebook": "Facebook เพจ", "line": "LINE OA", "instagram": "Instagram DM"}.get(cust_plat.lower(), cust_plat)
-                confirm_msg = (
-                    f"✅ ส่งคำตอบ [#{case_id}] ให้ {cust_name} ({plat_label}) เรียบร้อยแล้วค่ะ!\n"
-                    f"━━━━━━━━━━━━━━━\n"
-                    f"💬 ข้อความที่ส่งให้ลูกค้า :\n"
-                    f"“{cust_reply}”\n"
-                    f"━━━━━━━━━━━━━━━\n"
-                    f"🤖 เปิดบอท AI ดูแลแชทลูกค้าท่านนี้ต่อให้อัตโนมัติแล้วค่ะ (และบันทึกคำตอบนี้ไว้ให้ AI จำไปใช้ในครั้งต่อไปเรียบร้อยค่ะ) 🙏💚"
-                )
-                database.log_message(psid, "bot", confirm_msg, sender_label="บอทสรุปยอดกลุ่มงาน")
-                await messenger.send_omnichannel_text("line", group_id, confirm_msg, brand_id, reply_token)
-                return
+        if res.get("stock_text"):
+            database.log_message(psid, "bot", res["stock_text"], sender_label="BUK TEAM (สต็อกข้าวบุกสุขใจ)")
+        return
 
 
 # --- 3.5-Second Per-Customer Debounce & Image Type Classifier (LINE & Meta) -----
@@ -1914,18 +1803,65 @@ async def api_get_daily_sales_csv(date: str | None = None):
     return Response(content=buf.getvalue(), media_type="text/csv; charset=utf-8")
 
 
+async def _boom_morning_stock_scheduler_loop() -> None:
+    """Dedicated 24/7 lightweight cloud loop for BUK TEAM (`workbot` -> `กลุ่มบูม` ONLY):
+    1. Keeps Render container warm every 60s so 07:00 AM morning report never misses even when PC is off.
+    2. Refreshes JST ERP sliding cookie every 15 minutes quietly (never sends error alerts to any group).
+    3. Sends Buk Sukjai remaining stock report ONLY to `กลุ่มบูม` once every morning at 07:00 AM Bangkok time.
+    """
+    import asyncio
+    import httpx
+    from . import daily_sheet_report, jst_erp
+
+    render_health_url = os.getenv("RENDER_EXTERNAL_URL", "https://buksukjai-omnichannel.onrender.com") + "/health"
+    cycle = 0
+    while True:
+        try:
+            if get_page_by_brand_id("workbot").get("active", False):
+                try:
+                    async with httpx.AsyncClient(timeout=8.0) as _ka:
+                        await _ka.get(render_health_url)
+                except Exception:
+                    pass
+
+                if cycle % 15 == 0:
+                    try:
+                        await asyncio.to_thread(jst_erp.check_jst_cookie_health, False)
+                    except Exception:
+                        pass
+
+                should_send, today_str = await asyncio.to_thread(
+                    daily_sheet_report.should_run_daily_boom_stock_report
+                )
+                if should_send:
+                    logger.info("Sending 07:00 AM Buk Sukjai Stock Report to กลุ่มบูม (%s)...", today_str)
+                    await asyncio.to_thread(
+                        daily_sheet_report.send_boom_morning_stock_report,
+                        None,
+                        True,
+                        None,
+                    )
+            cycle += 1
+        except Exception as exc:
+            logger.warning("Boom morning stock scheduler warning: %s", exc)
+        await asyncio.sleep(60.0)
+
+
 @app.get("/api/line-groups")
 async def api_get_line_groups():
-    """Return registered LINE Work Group IDs and 07:00 AM daily broadcast state."""
+    """Return locked `กลุ่มบูม` ID and 07:00 AM Buk Sukjai morning stock broadcast state."""
     from . import daily_sheet_report
 
     cfg = daily_sheet_report.load_line_group_config()
     return {
         "status": "ok",
+        "mode": "boom_buksukjai_stock_only",
+        "boom_stock_group_id": cfg.get("boom_stock_group_id", ""),
+        "boom_stock_group_name": cfg.get("boom_stock_group_name", "กลุ่มบูม"),
+        "last_boom_stock_report_date": cfg.get("last_boom_stock_report_date", ""),
+        "last_boom_stock_sent_at": cfg.get("last_boom_stock_sent_at", ""),
         "groups": cfg.get("groups", []),
         "group_meta": cfg.get("group_meta", {}),
-        "last_7am_report_date": cfg.get("last_7am_report_date", ""),
-        "last_7am_sent_at": cfg.get("last_7am_sent_at", ""),
     }
 
 
@@ -1933,22 +1869,56 @@ async def api_get_line_groups():
 async def api_send_line_group_summary(
     date: str | None = None,
     group_id: str | None = None,
-    brand_id: str = "buksukjai",
+    brand_id: str = "workbot",
 ):
-    """Manually trigger or test the daily sales & stock reconciliation summary push to registered LINE Work Groups."""
+    """Manually trigger the Buk Sukjai Stock-Only Report strictly to `กลุ่มบูม`."""
     import asyncio
     from . import daily_sheet_report
 
-    if group_id:
-        daily_sheet_report.register_line_group(group_id, brand_id=brand_id)
     return await asyncio.to_thread(
-        daily_sheet_report.send_daily_summary_to_line_groups,
-        date,
-        brand_id,
-        group_id,
+        daily_sheet_report.send_boom_morning_stock_report,
         None,
         False,
+        group_id,
     )
+
+
+class JstCookieUpdatePayload(BaseModel):
+    cookie: str
+
+
+@app.post("/api/jst/cookie")
+async def api_update_jst_cookie_direct(body: JstCookieUpdatePayload):
+    """Update JST ERP session cookie directly and verify live Buk Sukjai warehouse stock."""
+    import asyncio
+    from . import daily_sheet_report, jst_erp
+
+    jst_erp.set_jst_cookie(body.cookie.strip())
+    live_wh = await asyncio.to_thread(jst_erp.get_warehouse_stock_summary)
+    if live_wh.get("status") == "ok":
+        cfg = daily_sheet_report.load_line_group_config()
+        cfg["last_warehouse_stock"] = live_wh
+        daily_sheet_report.save_line_group_config(cfg)
+    return {
+        "status": live_wh.get("status", "unknown"),
+        "warehouse_stock": live_wh,
+    }
+
+
+@app.get("/api/jst/stock-live")
+async def api_get_jst_stock_live():
+    """Check live JST ERP warehouse stock vs cached stock for ข้าวบุกสุขใจ."""
+    import asyncio
+    from . import daily_sheet_report, jst_erp
+
+    live_wh = await asyncio.to_thread(jst_erp.get_warehouse_stock_summary)
+    effective_wh = await asyncio.to_thread(daily_sheet_report.get_or_fetch_warehouse_stock)
+    return {
+        "live_jst_status": live_wh.get("status"),
+        "live_jst_message": live_wh.get("message", ""),
+        "effective_stock": effective_wh,
+        "preview_message": daily_sheet_report.format_buksukjai_stock_only_report(effective_wh),
+    }
 
 
 @app.get("/api/db/status")
