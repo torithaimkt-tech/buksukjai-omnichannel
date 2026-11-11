@@ -14,10 +14,10 @@
 
 | ลำดับ | ชื่อบอท | บทบาทหน้าที่ | LINE ID / ช่องทาง | `brand_id` ในระบบ | กลุ่ม LINE ที่ประจำการ | Webhook URL |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **ตัวที่ 1** | **น้องบุก (Sales Bot)** | ตอบแชทขายของหน้าร้าน ดูแลลูกค้า ปิดการขาย ทวนออเดอร์ ส่ง `#BUY` ขุดแชท และแจ้งเลขพัสดุ | `@602xbpha` + เพจ FB ข้าวบุก สุขใจ (`806129109240845`, LINE Channel ID: `2009665645`) | `buksukjai` | แชทส่วนตัวลูกค้า 1-on-1 (LINE OA & FB Messenger) | `https://buksukjai-omnichannel.onrender.com/webhook/line/buksukjai` และ `/webhook/facebook` |
-| **ตัวที่ 2** | **BUK TEAM (Stock Bot กลุ่มบูม)** | รายงาน **เฉพาะสต็อกคงเหลือ ข้าวบุกสุขใจ แบรนด์เดียว** ทุกเช้า 07:00 น. (ห้ามส่งยอดขาย/ข้อมูลลูกค้า และห้ามตอบกลุ่มอื่นเด็ดขาด) | `BUK TEAM` (`@934ndvfs`, Channel ID: `2009741913`) | `workbot` | เฉพาะ **`กลุ่มบูม`** เท่านั้น (บล็อกกลุ่มสรุปยอดเดิม 100%) | `https://buksukjai-omnichannel.onrender.com/webhook/line/workbot` |
-| **ตัวที่ 3** | **บอทรับคอมเมนต์สอน AI (AI Coach Bot)** | รับรูปแคปหน้าจอ + คอมเมนต์จากคุณแอมมี่และคุณนัดในกลุ่ม `Comment` เพื่ออัปเดตกฎการตอบของน้องบุกแบบถาวร (ห้ามส่งข้อความหาลูกค้าเด็ดขาด) | `Muzart พามู` (`@346zyzej`, Provider: `BukSukjai`, Channel ID: `2012318669`) | `coachbot` | กลุ่ม **`Comment (4)`** (`Cf0c8835b5b0711e80f7350ffc9af66f1`) | `https://buksukjai-omnichannel.onrender.com/webhook/line/coachbot` |
-| **ตัวที่ 4** | **บอทแอดมินประสานงาน Tori Marketing** | บอทประสานงานและรับแจ้งเตือนฝั่งเอเจนซี่ Tori Marketing | `AIFY` (`@599fgktd`, Channel ID: `2012318539`, Secret: `2e841449fe0466ebba1abcf68953966b`) | `torimarketing_admin` / `aify` | กลุ่มประสานงาน Tori Marketing | `https://buksukjai-omnichannel.onrender.com/webhook/line/aify` และโฟลว์ [`4_torimarketing_admin_bot.json`](file:///D:/chat%20bot/messenger-engine/n8n_workflows/4_torimarketing_admin_bot.json) |
+| **ตัวที่ 1** | **น้องบุก (Sales Bot)** | ตอบแชทขายของหน้าร้าน ดูแลลูกค้า ปิดการขาย ทวนออเดอร์ ส่ง `#BUY` ขุดแชท และแจ้งเลขพัสดุ | `@602xbpha` + เพจ FB ข้าวบุก สุขใจ (`806129109240845`, LINE Channel ID: `2009665645`) | `buksukjai` | แชทส่วนตัวลูกค้า 1-on-1 (LINE OA & FB Messenger) | `https://buksukjai-omnichannel-twht.onrender.com/webhook/line/buksukjai` และ `/webhook/facebook` |
+| **ตัวที่ 2** | **BUK TEAM (Stock Bot กลุ่มบูม)** | รายงาน **เฉพาะสต็อกคงเหลือ ข้าวบุกสุขใจ แบรนด์เดียว** ทุกเช้า 07:00 น. (ห้ามส่งยอดขาย/ข้อมูลลูกค้า และห้ามตอบกลุ่มอื่นเด็ดขาด) | `BUK TEAM` (`@934ndvfs`, Channel ID: `2009741913`) | `workbot` | เฉพาะ **`กลุ่มบูม`** เท่านั้น (บล็อกกลุ่มสรุปยอดเดิม 100%) | `https://buksukjai-omnichannel-twht.onrender.com/webhook/line/workbot` |
+| **ตัวที่ 3** | **บอทรับคอมเมนต์สอน AI (AI Coach Bot)** | รับรูปแคปหน้าจอ + คอมเมนต์จากคุณแอมมี่และคุณนัดในกลุ่ม `Comment` เพื่ออัปเดตกฎการตอบของน้องบุกแบบถาวร (ห้ามส่งข้อความหาลูกค้าเด็ดขาด) | `Muzart พามู` (`@346zyzej`, Provider: `BukSukjai`, Channel ID: `2012318669`) | `coachbot` | กลุ่ม **`Comment (4)`** (`Cf0c8835b5b0711e80f7350ffc9af66f1`) | `https://buksukjai-omnichannel-twht.onrender.com/webhook/line/coachbot` |
+| **ตัวที่ 4** | **บอทแอดมินประสานงาน Tori Marketing** | บอทประสานงานและรับแจ้งเตือนฝั่งเอเจนซี่ Tori Marketing (แยกไปใช้ Render ของ `torithaimkt@gmail.com`) | `AIFY` (`@599fgktd`, Channel ID: `2012318539`, Secret: `2e841449fe0466ebba1abcf68953966b`) | `torimarketing_admin` / `aify` | กลุ่มประสานงาน Tori Marketing | แยกโฮสต์ฝั่ง `Tori's workspace` (`torithaimkt@gmail.com`) และโฟลว์ [`4_torimarketing_admin_bot.json`](file:///D:/chat%20bot/messenger-engine/n8n_workflows/4_torimarketing_admin_bot.json) |
 
 *(หมายเหตุ: ค่า Channel Secret และ Channel Access Token ทั้งหมดถูกบันทึกไว้ในไฟล์ `.env`, `config_loader.py` และใน Skill `buksukjai-brand-specialist` เรียบร้อยแล้วค่ะ)*
 
@@ -274,7 +274,7 @@
 * **สิ่งที่ทำเสร็จสมบูรณ์แล้วเมื่อวันที่ 4–6 พ.ย. 2026 (Completed 100%):**
   1. **✅ ผูกบัญชี GitHub `torithaimkt-tech` แยกบริษัทถาวร & ส่งโค้ดทั้ง 77 Commits (`0a20b98`) ขึ้น Render สำเร็จแล้ว:**
      - ตั้งค่า `git config --global credential.https://github.com.useHttpPath true` และล็อกอินบัญชี `torithaimkt-tech` ใน Git Credential Manager เรียบร้อยแล้ว
-     - ส่งโค้ดชุดล่าสุดขึ้น `https://github.com/torithaimkt-tech/buksukjai-omnichannel.git` และอัปเดตเซิร์ฟเวอร์จริง `https://buksukjai-omnichannel.onrender.com` สำเร็จ 100%
+     - ส่งโค้ดชุดล่าสุดขึ้น `https://github.com/torithaimkt-tech/buksukjai-omnichannel.git` และย้ายเซิร์ฟเวอร์จริงมาอยู่ภายใต้อีเมล `buksukjai@gmail.com` (`Bukrice's workspace`, Service ID: `srv-dbpvo3h5efls7397humg`, URL: `https://buksukjai-omnichannel-twht.onrender.com`) แยกออกจาก `torithaimkt@gmail.com` (`Tori's workspace`) สำเร็จ 100%
   2. **✅ ระบบสำรองความจำแชทถาวรครบทุกช่องทาง 0 บาท (`/api/db/status`):**
      - อัปเกรด `save_persistent_snapshot()` และ `restore_persistent_snapshot_if_needed()` ใน [`app/database.py`](file:///D:/chat%20bot/messenger-engine/app/database.py) ให้จำครบทั้ง Facebook + LINE OA + LINE Group (รวม 183 ห้องแชท, 2,451 ข้อความ, และแต้มสะสม Loyalty) กู้คืนอัตโนมัติทันทีที่เซิร์ฟเวอร์ Render รีสตาร์ท
   3. **✅ ระบบต่ออายุคุกกี้ JST ERP อัตโนมัติ (`/api/jst/config`) & รายงานตรวจสุขภาพระบบทุกเช้า 07:00 น.:**
@@ -305,7 +305,7 @@
 - [ ] **4. ตรวจสอบยอดสรุป 07:00 น. และสลับ `AUTO_SYNC_ENABLED = True` เต็มรูปแบบเมื่อแอดมินคนหยุดคีย์มือ:**
   - เช็กผลบล็อก `🩺 เช็กสุขภาพระบบเช้านี้` ในกลุ่ม LINE ทุกเช้า 07:00 น.
 - [ ] **5. (ทางเลือกเสริมบนหน้าเว็บควบคุม) เพิ่มปุ่ม `"🔀 ดูผัง Flow แบบโหนด"` บนแถบด้านบนของ `index.html`:**
-  - เพื่อให้กดดูผังเชื่อมโหนดและไฟล์เวิร์กโฟลว์ n8n ทั้ง 4 ตัวได้จากหน้าเว็บ `https://buksukjai-omnichannel.onrender.com/` โดยตรง
+  - เพื่อให้กดดูผังเชื่อมโหนดและไฟล์เวิร์กโฟลว์ n8n ทั้ง 4 ตัวได้จากหน้าเว็บ `https://buksukjai-omnichannel-twht.onrender.com/` โดยตรง
 
 ### 📝 แม่แบบ 6 ข้อสำหรับสั่งเปิดแบรนด์ใหม่ครั้งต่อไป (Brand Onboarding Template)
 เมื่อคุณนัดต้องการเพิ่มแบรนด์ใหม่เข้าสู่ระบบ Flow ที่เสถียรแล้ว เพียงแจ้งข้อมูล 6 ข้อนี้ในแชทใหม่ได้เลยค่ะ:

@@ -1813,7 +1813,7 @@ async def _boom_morning_stock_scheduler_loop() -> None:
     import httpx
     from . import daily_sheet_report, jst_erp
 
-    render_health_url = os.getenv("RENDER_EXTERNAL_URL", "https://buksukjai-omnichannel.onrender.com") + "/health"
+    render_health_url = os.getenv("RENDER_EXTERNAL_URL", "https://buksukjai-omnichannel-twht.onrender.com") + "/health"
     cycle = 0
     while True:
         try:

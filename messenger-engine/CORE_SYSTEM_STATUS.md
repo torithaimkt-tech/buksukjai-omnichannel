@@ -4,7 +4,7 @@
 
 **อัปเดตล่าสุด:** 8 พฤศจิกายน 2026 (เวลา 18:50 น. — Commit `f597570`)
 **โฟลเดอร์แกนกลาง:** `D:\chat bot\messenger-engine`
-**เซิร์ฟเวอร์ออนไลน์ (Cloud URL):** `https://buksukjai-omnichannel.onrender.com` (เชื่อมต่อ GitHub `torithaimkt-tech/buksukjai-omnichannel.git` และออนไลน์ครบทุก Commit ล่าสุดแล้ว)
+**เซิร์ฟเวอร์ออนไลน์ (Cloud URL):** `https://buksukjai-omnichannel-twht.onrender.com` (อยู่ภายใต้บัญชี Render `buksukjai@gmail.com` — `Bukrice's workspace` แยกขาดจาก `torithaimkt@gmail.com` — `Tori's workspace` 100%)
 
 ---
 
@@ -31,7 +31,7 @@
   2. คีย์ออเดอร์เข้าคลัง JST ERP อัตโนมัติ 24 ชม. เมื่อลูกค้ายืนยันครบ 5 เงื่อนไข พร้อมระบบกันออเดอร์ซ้ำทุก 10 นาที และข้ามรายการเคลม (`⭕เคลม⭕`)
   3. ผูกขนส่ง J&T Express (`219956`) อัตโนมัติสำหรับรายการ `NoExpress` และแจ้งเลขพัสดุ 2 ระยะ (ตอนส่งออก + ตอนถึงมือลูกค้า)
   4. แจ้งเตือนเข้ากลุ่มเมื่อ AI ไม่มั่นใจคำตอบ พร้อมรองรับการกด Quote-Reply หรือพิมพ์ `#Q` / `ตอบ:` เพื่อตอบกลับลูกค้าจากกลุ่ม LINE
-  5. เชื่อมระบบขึ้นเซิร์ฟเวอร์ออนไลน์ Render (`https://buksukjai-omnichannel.onrender.com`) โซนสิงคโปร์ พร้อมระบบสำรองความจำแชทถาวร (`db_persistent_snapshot.json`), ระบบต่ออายุคุกกี้ JST อัตโนมัติใน `jst_sync_state.json`, และบล็อก `🩺 เช็กสุขภาพระบบเช้านี้` ในรายงาน 07:00 น. (ล็อกให้เด้งวันละ 1 ครั้งตอน 07:00 น. เท่านั้น ห้ามเด้งระหว่างวัน)
+  5. เชื่อมระบบขึ้นเซิร์ฟเวอร์ออนไลน์ Render (`https://buksukjai-omnichannel-twht.onrender.com` ภายใต้บัญชี `buksukjai@gmail.com`) พร้อมระบบสำรองความจำแชทถาวร (`db_persistent_snapshot.json`), ระบบต่ออายุคุกกี้ JST อัตโนมัติใน `jst_sync_state.json`, และบล็อก `🩺 เช็กสุขภาพระบบเช้านี้` ในรายงาน 07:00 น. (ล็อกให้เด้งวันละ 1 ครั้งตอน 07:00 น. เท่านั้น ห้ามเด้งระหว่างวัน)
   6. ล็อกกำแพงกั้นข้อมูลข้ามแบรนด์ 100% (`_resolve_brand_config_path()` & ด่าน `3.0 Hard Cross-Brand Isolation Wall`)
   7. **ล้างแหล่งข้อมูลเก่าที่ตายแล้วทิ้งถาวร 100% (8 พ.ย. 2026 — Commit `7feae4f` & `f597570`):** ลบลิงก์ `asia-web.jsterp.com` ทั้ง 7 จุดออกทั้งหมด (ใช้ `https://asia.jsterp.com/Common/FileImport/FileImport` + `UploadReceipt` + `ConfirmOrder` + `Audit` เส้นทางเดียว 100%), ลบตัวแปรคุกกี้เก่าที่ฝังในโค้ด (`FRESH_JST_COOKIE`, `_LATEST_JST_COOKIE`), ล็อก Path ฐานข้อมูล `D:/chat bot/messenger-engine/chatbot.db` แบบตายตัว, ลบไฟล์ DB/Config ที่ซ้ำซ้อน 9 ไฟล์ และล้างไฟล์ชั่วคราวใน `scratch/` ทิ้งทั้งหมด 127 ไฟล์เรียบร้อยแล้วค่ะ
 * **งานที่ต้องทำต่อในกลุ่มสรุปยอดและการขยายแบรนด์:**
