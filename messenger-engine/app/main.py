@@ -1894,6 +1894,7 @@ async def api_update_jst_cookie_direct(body: JstCookieUpdatePayload):
     from . import daily_sheet_report, jst_erp
 
     jst_erp.set_jst_cookie(body.cookie.strip())
+    await asyncio.to_thread(jst_erp.check_jst_cookie_health, False)
     live_wh = await asyncio.to_thread(jst_erp.get_warehouse_stock_summary)
     if live_wh.get("status") == "ok":
         cfg = daily_sheet_report.load_line_group_config()
@@ -1911,6 +1912,7 @@ async def api_get_jst_stock_live():
     import asyncio
     from . import daily_sheet_report, jst_erp
 
+    await asyncio.to_thread(jst_erp.check_jst_cookie_health, False)
     live_wh = await asyncio.to_thread(jst_erp.get_warehouse_stock_summary)
     effective_wh = await asyncio.to_thread(daily_sheet_report.get_or_fetch_warehouse_stock)
     return {

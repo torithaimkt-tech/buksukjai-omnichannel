@@ -81,46 +81,46 @@
   },
   "last_warehouse_stock": {
     "status": "ok",
-    "available_60g": 249,
-    "physical_60g": 373,
-    "lock_60g": 124,
-    "days_60g": 3,
-    "available_500g": 93,
-    "physical_500g": 100,
-    "lock_500g": 7,
-    "days_500g": 23,
-    "available_1kg": 24,
-    "physical_1kg": 33,
-    "lock_1kg": 9,
-    "days_1kg": 3,
+    "available_60g": 104,
+    "physical_60g": 117,
+    "lock_60g": 13,
+    "days_60g": 2,
+    "available_500g": 71,
+    "physical_500g": 71,
+    "lock_500g": 0,
+    "days_500g": 16,
+    "available_1kg": -19,
+    "physical_1kg": 1,
+    "lock_1kg": 20,
+    "days_1kg": -1,
     "warnings": [
-      "ขนาด 60 กรัม เหลือพร้อมขาย 249 ซอง (พอขายได้อีกประมาณ 3 วัน)",
-      "ขนาด 1 กิโลกรัม เหลือพร้อมขาย 24 ถุง (พอขายได้อีกประมาณ 3 วัน)"
+      "ขนาด 60 กรัม เหลือพร้อมขาย 104 ซอง (พอขายได้อีกประมาณ 2 วัน)",
+      "ขนาด 1 กิโลกรัม เหลือพร้อมขาย -19 ถุง (พอขายได้อีกประมาณ -1 วัน)"
     ],
     "skus": {
       "BSJ60G1": {
         "sku_id": "BSJ60G1",
-        "physical_qty": 373,
-        "order_lock": 124,
-        "available_qty": 249,
-        "can_sell_days": 3,
-        "modified": "2026-11-08 10:19:58"
+        "physical_qty": 117,
+        "order_lock": 13,
+        "available_qty": 104,
+        "can_sell_days": 2,
+        "modified": "2026-11-11 11:35:07"
       },
       "BSJ500G1": {
         "sku_id": "BSJ500G1",
-        "physical_qty": 100,
-        "order_lock": 7,
-        "available_qty": 93,
-        "can_sell_days": 23,
-        "modified": "2026-11-08 10:35:20"
+        "physical_qty": 71,
+        "order_lock": 0,
+        "available_qty": 71,
+        "can_sell_days": 16,
+        "modified": "2026-11-11 06:39:57"
       },
       "BSJ1KG1": {
         "sku_id": "BSJ1KG1",
-        "physical_qty": 33,
-        "order_lock": 9,
-        "available_qty": 24,
-        "can_sell_days": 3,
-        "modified": "2026-11-08 10:35:20"
+        "physical_qty": 1,
+        "order_lock": 20,
+        "available_qty": -19,
+        "can_sell_days": -1,
+        "modified": "2026-11-11 06:32:24"
       }
     }
   },

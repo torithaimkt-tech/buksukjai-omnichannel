@@ -2,7 +2,7 @@ name: Render Cloud 24-7 Keep-Alive (Buk Sukjai Bot)
 
 on:
   schedule:
-    # Ping every 10 minutes 24/7 so Render Free instance never sleeps through 07:00 AM BKK (00:00 UTC)
+    # Ping every 10 minutes 24/7 so Render Free never sleeps and JST ERP sliding cookie stays renewed
     - cron: "*/10 * * * *"
   workflow_dispatch:
 
@@ -10,6 +10,7 @@ jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - name: Wake and verify Buk Sukjai Render Cloud
+      - name: Wake Render Cloud and keep JST sliding cookie alive
         run: |
           curl -fsSL --retry 3 --retry-delay 10 --max-time 60 "https://buksukjai-omnichannel-twht.onrender.com/health"
+          curl -fsSL --retry 2 --retry-delay 5 --max-time 60 "https://buksukjai-omnichannel-twht.onrender.com/api/jst/stock-live" > /dev/null

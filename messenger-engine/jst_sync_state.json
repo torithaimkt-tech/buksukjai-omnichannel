@@ -1,5 +1,5 @@
 {
-  "sync_mode": "daily_6am",
+  "sync_mode": "disabled",
   "daily_hour_bkk": 6,
   "schedule_description": "คีย์ข้อมูลวันละ 1 ครั้ง ตอน 06:00 น. (รวบรวมออเดอร์ของเมื่อวาน)",
   "last_daily_sync_date": "",
@@ -9,6 +9,7 @@
   "pending_jst_retry_queue": {},
   "used_slip_refs": {},
   "alerted_rejected_slip_oids": [],
-  "persisted_cookie": "client_id=8c55bf3e7cb90f3ba27a22ddfdcc3762_91cdae39f749baaed0f1c166d97c4583; u_login_id=buksukjai%40gmail.com; VID_bcbff8986118=22755436; VP_bcbff8986118=1; AVID_147792=22755436; _ati=3616590229392; LanguageId=TH; Notice-22755436-177=True; VT_bcbff8986118=19; SID_bcbff8986118=4661478396766836063; Notice-22755436-136=True; u_cid=00f9d5059857453ea22f94fc00201c0b-22755436-cb2e6abfbc0049b9214f634509ed647f; u_id=22755436; u_name=buksukjai; u_co_id=15749167; u_co_name=Buksukjai; ClientTimeZone=7; .AspNetCore.GlobalAuthCookie=CfDJ8NUvc5HFTn9EnG_IMr2hg1SrC0_hwIc-5QbHPudxJxVsIc_xpMM-ARNCKJfOxQuUbsW3W1RETcgHbIhg9bA1jk7sRNHJ0AA_ebAga-WYNjf-GlyY3JcWWqry6wnlcKJxFTjSvgwU5q2iILUZ2Ff1_ctkRLNUTWvaPt8qgB13NGLZgwN0oO2QR8xf85qwpkfSvxcfP9IHsgEAbiREBdKu2_ASxzrMPnEoLHPUK1k7lH80mbx_7ZkABC-H-T3BVO4hOQZ74XRk2pUmEubmznOsPyIsD1uuUDOBIFvIKQIPbtYCjyLYfnvGkhgFipgYh1qRctl3gF-XwJJR9oqv7w2DejH-iM-0MNJMJzV97Ew8geDYzdMjhNHgTIISZ4YWi2w_6gAp9MzHx-2WRIfUGEO4iHCkM7fvywyflYGAOsPZLD4tUv9pyPk0Y4SRiQu6Ps-6BDloW4SRk7FMoE_YFO5UQQhjzTUsFrPKP2e7-BEEekX4",
-  "cookie_refreshed_at": "2026-11-08T09:27:25.808964+07:00"
+  "persisted_cookie": "client_id=cb8d90dbe3e82efc4e7d8d6d821e473b_61f249efbe94caeb64767add0c92a553; u_login_id=buksukjai%40gmail.com; VID_bcbff8986118=22755436; _ati=7666190588932; VP_bcbff8986118=1; AVID_147792=22755436; LanguageId=TH; u_cid=6081d13b26d441fe861c973896cfddc6-22755436-f5106a643f1fe7ec883211c910cc94f1; u_id=22755436; u_name=buksukjai; u_co_id=15749167; u_co_name=Buksukjai; ClientTimeZone=7; .AspNetCore.GlobalAuthCookie=CfDJ8NUvc5HFTn9EnG_IMr2hg1TLKzDh6jNxHyWPzv4VmR090Szz1ZDSRJH2KY1nOiKdX9TYrAp0hPw4ZHJM3BaNgPpplZj3V3TL17Oaddz5VVVTmlYGGwovjbmsPgGfVKIhOsD4jKZa_kKp9wLglzfg44hKrgA8f4yoj7AdQiRRgR5Dbw-yCFXMMqb6ZwypOoStA1bttqhwLYZpB0Umn80h6Cm-ymjBh83iSNHzca7ju1H0FLAtpCO3y-bFRSWqHyFMyQPc39a0DuE4LlmvRgqeiO1C4I8KREzU4JY2I93UkNoKbZ-w2nJtAj_pgt1r4tWZMFUKrZLD0hf38i4lVCK3Ny7rTGB5s-ViKXirPptoCIYL8D2RjKUjlrDNhAp3ZbCy29jxp2eORft9PTRqEqgwKvmzyuzC2JPNKpgTLTENQ2m6HUF7JVCHGQYHTVgFz7zc4kxRNOAt2CASrILkegXkus9MGFYGva2pafN3oSxNt9fU; VT_bcbff8986118=186; SID_bcbff8986118=5502626287347772746; Notice-22755436-137=True",
+  "cookie_refreshed_at": "2026-11-11T12:59:15+07:00",
+  "auto_sync_enabled": false
 }

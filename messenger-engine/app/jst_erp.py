@@ -334,17 +334,21 @@ def check_jst_cookie_health(alert_line_on_expired: bool = True) -> dict[str, Any
     h["Origin"] = "https://asia.jsterp.com"
     h["Referer"] = "https://asia.jsterp.com/Wms/Inventory/SkuInventory"
     try:
-        try:
-            auth_resp = httpx.get(
-                "https://asia.jsterp.com/Account/Shop/GetAuthorizeData",
-                headers=h,
-                timeout=10.0,
-                follow_redirects=False,
-            )
-            update_cookie_from_response(auth_resp)
-            h["Cookie"] = get_jst_cookie()
-        except Exception:
-            pass
+        for _renew_url in (
+            "https://asia.jsterp.com/Wms/Inventory/SkuInventory",
+            "https://asia.jsterp.com/Account/Shop/GetAuthorizeData",
+        ):
+            try:
+                auth_resp = httpx.get(
+                    _renew_url,
+                    headers=h,
+                    timeout=10.0,
+                    follow_redirects=False,
+                )
+                if update_cookie_from_response(auth_resp):
+                    h["Cookie"] = get_jst_cookie()
+            except Exception:
+                pass
 
         resp = httpx.post(
             "https://asia.jsterp.com/wms/Inventory/GetSkuInventorys",
@@ -383,6 +387,9 @@ def check_jst_cookie_health(alert_line_on_expired: bool = True) -> dict[str, Any
 
 
 def get_jst_cookie() -> str:
+    """Return ONLY the sliding auto-renewing cookie (`persisted_cookie` in `jst_sync_state.json` / DB).
+    Legacy static `JST_ERP_COOKIE` env fallback has been permanently removed.
+    """
     global _RUNTIME_COOKIE
     try:
         st = get_daily_sync_state()
@@ -392,8 +399,6 @@ def get_jst_cookie() -> str:
             return _RUNTIME_COOKIE
     except Exception:
         pass
-    if not _RUNTIME_COOKIE:
-        _RUNTIME_COOKIE = os.getenv("JST_ERP_COOKIE", "").strip()
     return _RUNTIME_COOKIE
 
 
@@ -489,6 +494,19 @@ def get_daily_sync_state() -> dict[str, Any]:
             default_state.update(saved)
         except Exception:
             pass
+    try:
+        with SessionLocal() as db:
+            u = db.get(UserSession, "system:jst_erp:state")
+            if u is not None and (u.notes or "").strip().startswith("{"):
+                db_st = json.loads(u.notes)
+                if isinstance(db_st, dict):
+                    db_ref = str(db_st.get("cookie_refreshed_at") or "")
+                    file_ref = str(default_state.get("cookie_refreshed_at") or "")
+                    if db_st.get("persisted_cookie") and db_ref >= file_ref:
+                        default_state["persisted_cookie"] = db_st["persisted_cookie"]
+                        default_state["cookie_refreshed_at"] = db_ref
+    except Exception:
+        pass
     return default_state
 
 
@@ -501,6 +519,28 @@ def save_daily_sync_state(updates: dict[str, Any]) -> dict[str, Any]:
             json.dump(st, f, ensure_ascii=False, indent=2)
     except Exception as exc:
         logger.warning("Failed to save JST daily sync state: %s", exc)
+    try:
+        from app import database
+        sess = database.get_or_create_session(
+            psid="system:jst_erp:state",
+            brand_id="workbot",
+            platform="system",
+            external_user_id="jst_erp_state",
+            customer_name="JST Sliding Cookie State",
+        )
+        with SessionLocal() as db:
+            u = db.get(UserSession, sess.psid)
+            if u is not None:
+                u.notes = json.dumps(
+                    {
+                        "persisted_cookie": st.get("persisted_cookie", ""),
+                        "cookie_refreshed_at": st.get("cookie_refreshed_at", ""),
+                    },
+                    ensure_ascii=False,
+                )
+                db.commit()
+    except Exception:
+        pass
     return st
 
 
