@@ -150,7 +150,7 @@ def _seed_sample_conversations_if_empty() -> None:
                 ("user", "สวัสดีค่ะ ข้าวบุกสุขใจมีขนาดไหนบ้างคะ แล้วส่งฟรีไหม?"),
                 (
                     "assistant",
-                    "สวัสดีค่ะคุณลูกค้า 🍚🌿 ข้าวบุกสุขใจ (บุก 59% ผสมข้าวหอมมะลิ 29% และน้ำ 12% เพียง 23 kcal/25g) มีโปรโมชั่นดังนี้ค่ะ:\n"
+                    "สวัสดีค่ะคุณลูกค้า 🍚🌿 ข้าวบุกสุขใจ (ข้าวหอมมะลิ 29% ผงบุก 59% น้ำ 12% เพียง 23 kcal/25g) มีโปรโมชั่นดังนี้ค่ะ:\n"
                     "• 60 กรัม (ไซส์ทดลอง): โปร 39.-\n"
                     "• 500 กรัม (ทานประจำ): โปร 239.-\n"
                     "• 1 กิโลกรัม (คุ้มสุด): โปร 459.- (โอนเงินส่งฟรี!)\n"
@@ -558,88 +558,31 @@ async def _handle_line_group_event(
     psid = database.make_session_key(brand_id, "line_group", group_id)
 
     # =========================================================================
-    # DEDICATED AI COACH BOT (@346zyzej Muzart พามู — brand_id == "coachbot")
-    # Strictly for receiving screenshots & comments from Amy/Nut to update AI rules.
-    # NEVER registers for daily sales reports and NEVER sends messages to customers!
+    # DEDICATED 3-PAGE ADMIN MONITOR BOT (พุดดิ้ง🍮 @346zyzej — brand_id == "coachbot")
+    # Strictly silent on normal group chat. Sends daily 3-Page Admin Report at 01:00 AM
+    # or when explicitly triggered via `เช็กแอดมิน` / `สรุปแอดมิน`.
     # =========================================================================
     if brand_id == "coachbot":
+        from . import admin_monitor_report
+
         database.get_or_create_session(
             psid=psid,
             brand_id="coachbot",
             platform="line_group",
             external_user_id=group_id,
-            customer_name=f"กลุ่ม AI Coach ปรับปรุงบอท ({group_id[-6:]})",
+            customer_name=f"กลุ่มมอนิเตอร์แอดมิน 3 เพจ ({group_id[-6:]})",
         )
         database.set_bot_enabled(psid, False)
-
-        if event_type in ("join", "follow"):
-            coach_welcome = (
-                "สวัสดีค่ะ ขออนุญาตรายงานตัวเข้ากลุ่ม AI Coach (รับคอมเมนต์ปรับปรุงแชทบอท) นะคะ 🙏💚\n"
-                "บอทตัวนี้ (@346zyzej) แยกออกมาเฉพาะสำหรับการรับคอมเมนต์และรูปแคปหน้าจอจากคุณแอมมี่และคุณนัดค่ะ "
-                "(ปลอดภัย 100% ไม่มีระบบส่งข้อความออกไปหาลูกค้าเด็ดขาดค่ะ)\n\n"
-                "📌 วิธีใช้งานง่ายๆ ได้ตลอด 24 ชม. (แม้ปิดคอมพิวเตอร์):\n"
-                "1. ส่งรูปแคปหน้าจอแชทลูกค้า + พิมพ์คอมเมนต์บอกจุดที่ต้องการให้ปรับปรุงได้เลยค่ะ\n"
-                "2. หรือพิมพ์สั่งสอนกฎใหม่ / คำพูดที่อยากให้ใช้แทน / คำถาม-คำตอบใหม่ ได้เลยค่ะ\n"
-                "3. ระบบจะอ่านรูปและคอมเมนต์ แล้วอัปเดตแก้ไขวิธีตอบของบอทในระบบออนไลน์ทันที พร้อมตอบกลับยืนยันในกลุ่มนี้ค่ะ 😊"
-            )
-            database.log_message(psid, "bot", coach_welcome, sender_label="AI Coach (@346zyzej)")
-            await messenger.send_omnichannel_text("line", group_id, coach_welcome, "coachbot", reply_token)
-            return
 
         if event_type == "message":
             msg_obj = event.get("message", {})
             msg_type = str(msg_obj.get("type") or "")
-            sender_uid = (event.get("source") or {}).get("userId") or "ผู้บริหาร"
-
-            if msg_type == "image":
-                msg_id = str(msg_obj.get("id") or "").strip()
-                database.log_message(
-                    psid,
-                    "user",
-                    f"[ส่งรูปแคปหน้าจอเข้ามาในกลุ่ม AI Coach (ID: {msg_id})]",
-                    sender_label=f"คุณแอมมี่/คุณนัด ({sender_uid[-6:]})",
-                )
-                data_url = await asyncio.to_thread(
-                    daily_sheet_report.download_line_message_image_b64,
-                    msg_id,
-                    "coachbot",
-                    group_id,
-                )
-                if data_url:
-                    # Wait 20s in case a text comment is being typed right after the screenshot
-                    await asyncio.sleep(20.0)
-                    cached_img = daily_sheet_report._RECENT_GROUP_IMAGES.get(group_id) or {}
-                    if cached_img.get("message_id") == msg_id and not cached_img.get("analyzed"):
-                        coach_res = await asyncio.to_thread(
-                            daily_sheet_report.process_line_group_coaching_feedback,
-                            group_id,
-                            "",
-                            data_url,
-                            sender_uid,
-                        )
-                        if coach_res and coach_res.get("reply_message"):
-                            reply_msg = str(coach_res["reply_message"])
-                            database.log_message(psid, "bot", reply_msg, sender_label="AI Coach (@346zyzej)")
-                            await messenger.send_omnichannel_text("line", group_id, reply_msg, "coachbot", None)
-                return
-
             if msg_type == "text":
                 text = (msg_obj.get("text") or "").strip()
-                if not text:
-                    return
-                database.log_message(psid, "user", text, sender_label=f"คุณแอมมี่/คุณนัด ({sender_uid[-6:]})")
-                coach_res = await asyncio.to_thread(
-                    daily_sheet_report.process_line_group_coaching_feedback,
-                    group_id,
-                    text,
-                    None,
-                    sender_uid,
-                )
-                if coach_res and coach_res.get("reply_message"):
-                    reply_msg = str(coach_res["reply_message"])
-                    database.log_message(psid, "bot", reply_msg, sender_label="AI Coach (@346zyzej)")
+                if text in ("เช็กแอดมิน", "สรุปแอดมิน", "#adminreport"):
+                    reply_msg = admin_monitor_report.format_pudding_line_summary(PUBLIC_BASE_URL)
+                    database.log_message(psid, "bot", reply_msg, sender_label="พุดดิ้ง🍮 (@346zyzej)")
                     await messenger.send_omnichannel_text("line", group_id, reply_msg, "coachbot", reply_token)
-                return
         return
 
     # =========================================================================
@@ -1959,3 +1902,8 @@ async def health():
         "pages_supported": len(load_pages_registry()),
         "database": database.get_database_status(),
     }
+
+
+from . import admin_monitor_report as _admin_monitor_mod  # noqa: E402
+
+_admin_monitor_mod.register_admin_report_routes(app)
