@@ -551,7 +551,11 @@ async def _handle_line_group_event(
     from . import daily_sheet_report
 
     if event_type == "leave":
-        if brand_id != "coachbot":
+        if brand_id == "coachbot":
+            from . import admin_monitor_report
+
+            await asyncio.to_thread(admin_monitor_report.unregister_pudding_admin_group, group_id)
+        else:
             daily_sheet_report.unregister_line_group(group_id)
         return
 
@@ -559,30 +563,13 @@ async def _handle_line_group_event(
 
     # =========================================================================
     # DEDICATED 3-PAGE ADMIN MONITOR BOT (พุดดิ้ง🍮 @346zyzej — brand_id == "coachbot")
-    # Strictly silent on normal group chat. Sends daily 3-Page Admin Report at 01:00 AM
-    # or when explicitly triggered via `เช็กแอดมิน` / `สรุปแอดมิน`.
+    # 100% SILENT when added to a group or when members chat in the group!
+    # Silently records the new Admin Group ID and only sends the scheduled report at 01:00 AM.
     # =========================================================================
     if brand_id == "coachbot":
         from . import admin_monitor_report
 
-        database.get_or_create_session(
-            psid=psid,
-            brand_id="coachbot",
-            platform="line_group",
-            external_user_id=group_id,
-            customer_name=f"กลุ่มมอนิเตอร์แอดมิน 3 เพจ ({group_id[-6:]})",
-        )
-        database.set_bot_enabled(psid, False)
-
-        if event_type == "message":
-            msg_obj = event.get("message", {})
-            msg_type = str(msg_obj.get("type") or "")
-            if msg_type == "text":
-                text = (msg_obj.get("text") or "").strip()
-                if text in ("เช็กแอดมิน", "สรุปแอดมิน", "#adminreport"):
-                    reply_msg = admin_monitor_report.format_pudding_line_summary(PUBLIC_BASE_URL)
-                    database.log_message(psid, "bot", reply_msg, sender_label="พุดดิ้ง🍮 (@346zyzej)")
-                    await messenger.send_omnichannel_text("line", group_id, reply_msg, "coachbot", reply_token)
+        await asyncio.to_thread(admin_monitor_report.register_pudding_admin_group, group_id)
         return
 
     # =========================================================================
@@ -1783,6 +1770,19 @@ async def _boom_morning_stock_scheduler_loop() -> None:
                         None,
                         True,
                         None,
+                    )
+
+            if get_page_by_brand_id("coachbot").get("active", False):
+                from . import admin_monitor_report
+
+                should_send_1am, target_1am_date = await asyncio.to_thread(
+                    admin_monitor_report.should_run_daily_1am_admin_report
+                )
+                if should_send_1am:
+                    logger.info("Sending 01:00 AM 3-Page Admin Report via พุดดิ้ง🍮 (%s)...", target_1am_date)
+                    await asyncio.to_thread(
+                        admin_monitor_report.run_and_send_daily_1am_admin_report,
+                        target_1am_date,
                     )
             cycle += 1
         except Exception as exc:

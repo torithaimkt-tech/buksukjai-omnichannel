@@ -78,8 +78,8 @@
     {
       "brand_id": "coachbot",
       "slot": 6,
-      "name": "Muzart พามู (@346zyzej — AI Coach)",
-      "active": false,
+      "name": "พุดดิ้ง🍮 (@346zyzej — Admin Report)",
+      "active": true,
       "config_file": "config.json",
       "channels": {
         "line_channel_secret": "cf67d9f2284a6ff9e17cf171608e5840",

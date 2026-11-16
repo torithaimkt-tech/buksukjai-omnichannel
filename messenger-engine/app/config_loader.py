@@ -101,6 +101,7 @@ def load_pages_registry() -> list[dict]:
                     "eDkS5MNncETiXi7yvVJ4Cj4kGwKvZ7qfN94SV5uexiHVzNpc0QpoYdKwlrWEPHpKlJqPWnEmMCNxl+iVcCrUB5r7vDHLsbrZ1UJSTKZp5vtT7EJvo5NC2ZKAfb1AkO0E/3bQ2r+OoZPJTkah2HSR/AdB04t89/1O/w1cDnyilFU=",
                 )
         elif p.get("brand_id") == "coachbot":
+            p["active"] = True
             ch = p.setdefault("channels", {})
             if not ch.get("line_channel_secret"):
                 ch["line_channel_secret"] = os.getenv("COACHBOT_LINE_CHANNEL_SECRET", "cf67d9f2284a6ff9e17cf171608e5840")

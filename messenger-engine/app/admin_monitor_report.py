@@ -34,8 +34,8 @@ def load_admin_report_state() -> dict[str, Any]:
         except Exception:
             pass
     return {
-        "target_group_id": COMMENT_TEST_GROUP_ID,
-        "target_group_name": "Comment (ห้องทดสอบก่อนย้ายเข้ากลุ่มจริง)",
+        "target_group_id": "",
+        "target_group_name": "",
         "last_1am_report_date": "",
         "last_sent_at": "",
     }
@@ -49,6 +49,125 @@ def save_admin_report_state(state: dict[str, Any]) -> None:
         )
     except Exception as exc:
         logger.warning("Could not save admin_report_state.json: %s", exc)
+
+
+def register_pudding_admin_group(group_id: str) -> str:
+    """Silently register the newly joined Admin Group ID (ignoring the old Comment test group) without sending any chat reply."""
+    gid = (group_id or "").strip()
+    if not gid or gid == COMMENT_TEST_GROUP_ID:
+        return ""
+
+    group_name = f"กลุ่มแอดมิน ({gid[-6:]})"
+    try:
+        page = get_page_by_brand_id("coachbot") or {}
+        token = (page.get("channels") or {}).get("line_channel_access_token", "").strip()
+        if token:
+            resp = httpx.get(
+                f"https://api.line.me/v2/bot/group/{gid}/summary",
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=8.0,
+            )
+            if resp.status_code == 200:
+                group_name = resp.json().get("groupName") or group_name
+    except Exception:
+        pass
+
+    state = load_admin_report_state()
+    state["target_group_id"] = gid
+    state["target_group_name"] = group_name
+    save_admin_report_state(state)
+
+    try:
+        from . import database
+
+        psid = database.make_session_key("coachbot", "line_group", gid)
+        database.get_or_create_session(
+            psid=psid,
+            brand_id="coachbot",
+            platform="line_group",
+            external_user_id=gid,
+            customer_name=group_name,
+        )
+        database.update_session_meta(psid=psid, customer_name=group_name, notes="ACTIVE_ADMIN_GROUP")
+        database.set_bot_enabled(psid, False)
+    except Exception as exc:
+        logger.warning("Could not persist Pudding admin group in DB: %s", exc)
+
+    logger.info("🍮 Silently locked Pudding (@346zyzej) target Admin Group -> %s (%s)", group_name, gid)
+    return gid
+
+
+def unregister_pudding_admin_group(group_id: str) -> None:
+    """Remove a group when Pudding leaves or is removed."""
+    gid = (group_id or "").strip()
+    if not gid:
+        return
+    state = load_admin_report_state()
+    if state.get("target_group_id") == gid:
+        state["target_group_id"] = ""
+        state["target_group_name"] = ""
+        save_admin_report_state(state)
+    try:
+        from . import database
+
+        psid = database.make_session_key("coachbot", "line_group", gid)
+        database.update_session_meta(psid=psid, notes="LEFT_GROUP")
+    except Exception:
+        pass
+
+
+def get_active_pudding_admin_group_id() -> str:
+    """Resolve the active Admin Group ID from state file or persistent PostgreSQL/SQLite session table."""
+    state = load_admin_report_state()
+    gid = (state.get("target_group_id") or "").strip()
+    if gid and gid != COMMENT_TEST_GROUP_ID:
+        return gid
+    try:
+        from . import database
+
+        for s in database.list_all_sessions():
+            if (
+                s.get("brand_id") == "coachbot"
+                and s.get("platform") == "line_group"
+                and s.get("external_user_id")
+                and s.get("external_user_id") != COMMENT_TEST_GROUP_ID
+                and s.get("notes") != "LEFT_GROUP"
+            ):
+                return str(s["external_user_id"]).strip()
+    except Exception:
+        pass
+    return ""
+
+
+def should_run_daily_1am_admin_report() -> tuple[bool, str]:
+    """Check if it is 01:00–01:59 AM Bangkok time and the 24-hour report for yesterday has not been sent yet."""
+    now_bkk = datetime.now(BKK_TZ)
+    target_date = (now_bkk - timedelta(days=1)).strftime("%Y-%m-%d")
+    if now_bkk.hour != 1:
+        return False, target_date
+    state = load_admin_report_state()
+    if state.get("last_1am_report_date") == target_date:
+        return False, target_date
+    if not get_active_pudding_admin_group_id():
+        return False, target_date
+    return True, target_date
+
+
+def run_and_send_daily_1am_admin_report(target_date: str | None = None) -> dict[str, Any]:
+    """Run and send the 01:00 AM daily 24-hour Admin Report strictly once per night to the locked Admin Group."""
+    now_bkk = datetime.now(BKK_TZ)
+    t_date = target_date or (now_bkk - timedelta(days=1)).strftime("%Y-%m-%d")
+    target_gid = get_active_pudding_admin_group_id()
+    if not target_gid:
+        return {"status": "skipped", "reason": "No active Admin Group registered yet"}
+
+    res = send_pudding_report_to_line_group(group_id=target_gid)
+    if res.get("status") == "ok":
+        state = load_admin_report_state()
+        state["last_1am_report_date"] = t_date
+        state["last_sent_at"] = now_bkk.isoformat()
+        save_admin_report_state(state)
+    return res
 
 
 def format_pudding_line_summary(public_base_url: str = "") -> str:
@@ -117,7 +236,9 @@ def send_pudding_report_to_line_group(
 ) -> dict[str, Any]:
     """Push the concise daily admin report via พุดดิ้ง🍮 (`coachbot` @346zyzej) to the target LINE group."""
     state = load_admin_report_state()
-    target_gid = (group_id or state.get("target_group_id") or COMMENT_TEST_GROUP_ID).strip()
+    target_gid = (group_id or get_active_pudding_admin_group_id()).strip()
+    if not target_gid:
+        return {"status": "error", "message": "No active target Admin Group registered yet"}
 
     page = get_page_by_brand_id("coachbot") or {}
     token = (page.get("channels") or {}).get("line_channel_access_token", "").strip()
@@ -747,11 +868,23 @@ def render_admin_report_html() -> str:
 
 
 def register_admin_report_routes(app: Any) -> None:
-    """Mount `/admin-report` HTML dashboard and `/api/admin-report/send` trigger onto FastAPI app."""
+    """Mount `/admin-report` HTML dashboard, `/api/admin-report/status`, and `/api/admin-report/send` onto FastAPI app."""
 
     @app.get("/admin-report", response_class=HTMLResponse)
     async def view_admin_report():
         return HTMLResponse(content=render_admin_report_html())
+
+    @app.get("/api/admin-report/status")
+    async def get_admin_report_status():
+        state = load_admin_report_state()
+        return {
+            "status": "ok",
+            "bot": "พุดดิ้ง🍮 (@346zyzej)",
+            "silent_mode": True,
+            "schedule_time_bkk": "01:00",
+            "active_admin_group_id": get_active_pudding_admin_group_id(),
+            "state": state,
+        }
 
     @app.post("/api/admin-report/send")
     async def trigger_send_admin_report(group_id: str | None = None):
