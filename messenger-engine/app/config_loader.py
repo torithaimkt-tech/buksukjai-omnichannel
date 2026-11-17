@@ -82,7 +82,22 @@ def load_pages_registry() -> list[dict]:
                 ch["fb_page_id"] = os.getenv("FB_PAGE_ID", "806129109240845")
             if not ch.get("fb_page_access_token"):
                 ch["fb_page_access_token"] = os.getenv("PAGE_ACCESS_TOKEN", "")
-        elif p.get("brand_id") in ("mrbuk", "pada", "aify"):
+        elif p.get("brand_id") == "mrbuk":
+            p["active"] = False
+            ch = p.setdefault("channels", {})
+            ch["line_channel_secret"] = ""
+            ch["line_channel_access_token"] = ""
+            if not ch.get("fb_page_id"):
+                ch["fb_page_id"] = os.getenv("MRBUK_PAGE_ID", "110007064468438")
+            if not ch.get("fb_page_access_token"):
+                ch["fb_page_access_token"] = os.getenv("MRBUK_PAGE_ACCESS_TOKEN", "")
+            if not ch.get("hommali_fb_page_id"):
+                ch["hommali_fb_page_id"] = os.getenv("HOMMALI_PAGE_ID", "772314109306371")
+            if not ch.get("hommali_fb_page_access_token"):
+                ch["hommali_fb_page_access_token"] = os.getenv("HOMMALI_PAGE_ACCESS_TOKEN", "")
+            ch["ig_account_id"] = ""
+            ch["ig_access_token"] = ""
+        elif p.get("brand_id") in ("pada", "aify"):
             p["active"] = False
             ch = p.setdefault("channels", {})
             ch["line_channel_secret"] = ""

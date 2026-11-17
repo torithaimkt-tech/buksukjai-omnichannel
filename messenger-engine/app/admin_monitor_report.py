@@ -1,22 +1,33 @@
 """3-Page Admin QA & Sales Conversion Monitor (`พุดดิ้ง🍮 @346zyzej`).
 
 Provides:
-1. Web Dashboard (`/admin-report`) styled after the 3-Page Admin Report (`Mr.Buk`, `ข้าวบุกหอมมะลิ (เพจ 2)`, `ข้าวบุก สุขใจ`).
-2. Concise LINE Group Summary + Dashboard Link sent via `พุดดิ้ง🍮 (@346zyzej)` (`coachbot`).
-3. Strict Single-Group Lock (`Cf0c8835b5b0711e80f7350ffc9af66f1` `กลุ่ม Comment` for testing -> switchable to `กลุ่มคุณพลอย`) and 01:00 AM daily schedule.
+1. Live 3-Page Facebook Graph API Monitor (100% Read-Only — never sends messages to customers):
+   - `Mr.Buk มิสเตอร์บุก` (`110007064468438`)
+   - `ข้าวบุกหอมมะลิ (เพจ 2)` (`772314109306371`)
+   - `ข้าวบุก สุขใจ` (`806129109240845`)
+2. Dynamic Web Dashboard (`/admin-report?date=YYYY-MM-DD`) with 4-hour breakdown, real chat QA cases, and copyable scripts.
+3. Concise LINE Group Summary + Dashboard Link sent via `พุดดิ้ง🍮 (@346zyzej)` (`coachbot`).
+4. Strict Single-Group Lock (`C5b961d8bd8703af909d4ed769d63a18a` `ข้าวบุกคุณพลอยรวม`) and 01:00 AM daily schedule.
 """
 
 from __future__ import annotations
 
+import base64
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
+import hashlib
+import hmac
+import html
 import json
 import logging
 import os
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
+import re
+import time
 from typing import Any
 
-import httpx
 from fastapi.responses import HTMLResponse
+import httpx
 
 from .config_loader import get_page_by_brand_id
 
@@ -28,6 +39,146 @@ PLOY_ADMIN_GROUP_ID = "C5b961d8bd8703af909d4ed769d63a18a"
 PLOY_ADMIN_GROUP_NAME = "ข้าวบุกคุณพลอยรวม"
 ADMIN_REPORT_STATE_FILE = Path(__file__).resolve().parent.parent / "admin_report_state.json"
 
+THREE_PAGES_SPECS = [
+    {
+        "key": "mrbuk",
+        "page_id": "110007064468438",
+        "title": "Mr.Buk มิสเตอร์บุก",
+        "short_name": "Mr.Buk",
+        "css_class": "mrbuk",
+    },
+    {
+        "key": "hommali",
+        "page_id": "772314109306371",
+        "title": "ข้าวบุกหอมมะลิ (เพจ 2)",
+        "short_name": "หอมมะลิ",
+        "css_class": "hommali",
+    },
+    {
+        "key": "buksukjai",
+        "page_id": "806129109240845",
+        "title": "ข้าวบุก สุขใจ",
+        "short_name": "สุขใจ",
+        "css_class": "sukjai",
+    },
+]
+
+THAI_WEEKDAYS = ["วันจันทร์", "วันอังคาร", "วันพุธ", "วันพฤหัสบดี", "วันศุกร์", "วันเสาร์", "วันอาทิตย์"]
+THAI_MONTHS_SHORT = ["", "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."]
+
+TIME_BUCKET_SPECS = [
+    (0, 4, "00:00 – 04:00 น.", "กะดึก"),
+    (4, 8, "04:00 – 08:00 น.", "เช้ามืด"),
+    (8, 12, "08:00 – 12:00 น.", "กะเช้า"),
+    (12, 16, "12:00 – 16:00 น.", "กะบ่ายต้น"),
+    (16, 20, "16:00 – 20:00 น.", "กะเย็น"),
+    (20, 24, "20:00 – 24:00 น.", "กะค่ำ"),
+]
+
+_REPORT_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+_CACHE_TTL_SECONDS = 300.0
+
+
+# ---------------------------------------------------------------------------
+# Authenticated Token Seal (PBKDF2-HMAC-SHA256 + CTR-HMAC-SHA256)
+# Keyed exclusively by the server's private PAGE_ACCESS_TOKEN env var
+# ---------------------------------------------------------------------------
+
+def _derive_aead_keys(master_secret: str, salt: bytes) -> tuple[bytes, bytes]:
+    dk = hashlib.pbkdf2_hmac("sha256", master_secret.encode("utf-8"), salt, 200_000, dklen=64)
+    return dk[:32], dk[32:]
+
+
+def _xor_keystream(data: bytes, enc_key: bytes, nonce: bytes) -> bytes:
+    out = bytearray(len(data))
+    offset = 0
+    counter = 0
+    while offset < len(data):
+        block = hmac.new(enc_key, nonce + counter.to_bytes(8, "big"), hashlib.sha256).digest()
+        chunk = data[offset : offset + 32]
+        for idx, b in enumerate(chunk):
+            out[offset + idx] = b ^ block[idx]
+        offset += 32
+        counter += 1
+    return bytes(out)
+
+
+def seal_tokens_payload(tokens_map: dict[str, str], master_secret: str) -> str:
+    salt = os.urandom(16)
+    nonce = os.urandom(16)
+    enc_key, mac_key = _derive_aead_keys(master_secret.strip(), salt)
+    plaintext = json.dumps(tokens_map, ensure_ascii=False).encode("utf-8")
+    ciphertext = _xor_keystream(plaintext, enc_key, nonce)
+    tag = hmac.new(mac_key, salt + nonce + ciphertext, hashlib.sha256).digest()
+    return ":".join(
+        base64.urlsafe_b64encode(part).decode("ascii")
+        for part in (salt, nonce, ciphertext, tag)
+    )
+
+
+def unseal_tokens_payload(sealed_blob: str, master_secret: str) -> dict[str, str]:
+    if not sealed_blob or not master_secret:
+        return {}
+    try:
+        parts = sealed_blob.strip().split(":")
+        if len(parts) != 4:
+            return {}
+        salt, nonce, ciphertext, tag = (base64.urlsafe_b64decode(p.encode("ascii")) for p in parts)
+        enc_key, mac_key = _derive_aead_keys(master_secret.strip(), salt)
+        expected_tag = hmac.new(mac_key, salt + nonce + ciphertext, hashlib.sha256).digest()
+        if not hmac.compare_digest(tag, expected_tag):
+            return {}
+        plaintext = _xor_keystream(ciphertext, enc_key, nonce)
+        data = json.loads(plaintext.decode("utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception as exc:
+        logger.warning("Could not unseal page tokens payload: %s", exc)
+        return {}
+
+
+def _get_master_buksukjai_token() -> str:
+    env_tok = os.getenv("PAGE_ACCESS_TOKEN", "").strip()
+    if env_tok:
+        return env_tok
+    page = get_page_by_brand_id("buksukjai") or {}
+    return ((page.get("channels") or {}).get("fb_page_access_token") or "").strip()
+
+
+def resolve_three_page_tokens() -> dict[str, str]:
+    """Resolve Read-Only Facebook Page Access Tokens for all 3 pages."""
+    buksukjai_tok = _get_master_buksukjai_token()
+    mrbuk_page = get_page_by_brand_id("mrbuk") or {}
+    mrbuk_ch = mrbuk_page.get("channels") or {}
+
+    mrbuk_tok = (
+        os.getenv("MRBUK_PAGE_ACCESS_TOKEN", "").strip()
+        or (mrbuk_ch.get("fb_page_access_token") or "").strip()
+    )
+    hommali_tok = (
+        os.getenv("HOMMALI_PAGE_ACCESS_TOKEN", "").strip()
+        or (mrbuk_ch.get("hommali_fb_page_access_token") or "").strip()
+    )
+
+    if (not mrbuk_tok or not hommali_tok) and buksukjai_tok:
+        state = load_admin_report_state()
+        sealed = (state.get("sealed_page_tokens") or "").strip()
+        if sealed:
+            unsealed = unseal_tokens_payload(sealed, buksukjai_tok)
+            if not mrbuk_tok:
+                mrbuk_tok = (unsealed.get("mrbuk") or "").strip()
+            if not hommali_tok:
+                hommali_tok = (unsealed.get("hommali") or "").strip()
+
+    return {
+        "mrbuk": mrbuk_tok,
+        "hommali": hommali_tok,
+        "buksukjai": buksukjai_tok,
+    }
+
+
+# ---------------------------------------------------------------------------
+# State & Group Lock Management
+# ---------------------------------------------------------------------------
 
 def load_admin_report_state() -> dict[str, Any]:
     if ADMIN_REPORT_STATE_FILE.exists():
@@ -49,6 +200,9 @@ def load_admin_report_state() -> dict[str, Any]:
 
 def save_admin_report_state(state: dict[str, Any]) -> None:
     try:
+        existing = load_admin_report_state()
+        if existing.get("sealed_page_tokens") and not state.get("sealed_page_tokens"):
+            state["sealed_page_tokens"] = existing["sealed_page_tokens"]
         ADMIN_REPORT_STATE_FILE.write_text(
             json.dumps(state, ensure_ascii=False, indent=2),
             encoding="utf-8",
@@ -58,7 +212,7 @@ def save_admin_report_state(state: dict[str, Any]) -> None:
 
 
 def register_pudding_admin_group(group_id: str) -> str:
-    """Silently register the newly joined Admin Group ID (ignoring the old Comment test group) without sending any chat reply."""
+    """Silently register the newly joined Admin Group ID without sending any chat reply."""
     gid = (group_id or "").strip()
     if not gid or gid == COMMENT_TEST_GROUP_ID:
         return ""
@@ -123,7 +277,7 @@ def unregister_pudding_admin_group(group_id: str) -> None:
 
 
 def get_active_pudding_admin_group_id() -> str:
-    """Resolve the active Admin Group ID from state file or persistent PostgreSQL/SQLite session table."""
+    """Resolve the active Admin Group ID from state file or persistent DB."""
     state = load_admin_report_state()
     gid = (state.get("target_group_id") or "").strip()
     if gid and gid != COMMENT_TEST_GROUP_ID:
@@ -145,73 +299,438 @@ def get_active_pudding_admin_group_id() -> str:
     return PLOY_ADMIN_GROUP_ID
 
 
-def fetch_live_24h_buksukjai_metrics(target_date: str) -> dict[str, Any]:
-    """Query Facebook Graph API for full 24h (`00:00–23:59`) stats on ข้าวบุก สุขใจ (`806129109240845`)."""
-    import re
+# ---------------------------------------------------------------------------
+# Live 3-Page Graph API Metrics & Real Chat QA Analyzer
+# ---------------------------------------------------------------------------
 
-    page = get_page_by_brand_id("buksukjai") or {}
-    tok = (page.get("channels") or {}).get("fb_page_access_token") or os.getenv("PAGE_ACCESS_TOKEN", "")
-    if not tok:
-        return {"chats": 22, "orders": 4, "total_thb": 1786, "avg_sec": 58}
+def _format_thai_date(date_str: str) -> str:
     try:
-        convs = []
-        url: str | None = "https://graph.facebook.com/v21.0/me/conversations"
-        params: dict[str, Any] | None = {
-            "access_token": tok,
-            "limit": 50,
-            "fields": "participants,updated_time,messages.limit(30){id,message,from,created_time}",
-        }
-        for _ in range(3):
+        dt = datetime.strptime(date_str, "%Y-%m-%d")
+        wd = THAI_WEEKDAYS[dt.weekday()]
+        m_short = THAI_MONTHS_SHORT[dt.month]
+        be_year = dt.year + 543
+        return f"{wd}ที่ {dt.day} {m_short} {be_year}"
+    except Exception:
+        return date_str
+
+
+def _format_duration_thai(seconds: int) -> str:
+    if seconds <= 0:
+        return "-"
+    if seconds < 60:
+        return f"{seconds} วินาที"
+    mins = seconds // 60
+    rem = seconds % 60
+    if rem == 0:
+        return f"{mins} นาที"
+    return f"{mins} นาที {rem} วิ"
+
+
+def _format_duration_compact(seconds: int) -> str:
+    if seconds <= 0:
+        return "-"
+    mins = seconds // 60
+    rem = seconds % 60
+    return f"{mins}:{rem:02d} นาที"
+
+
+def _is_closing_ack(text: str) -> bool:
+    t = (text or "").strip().lower()
+    if not t:
+        return True
+    ack_words = (
+        "ขอบคุณ", "ขอบใจ", "โอเค", "ok", "okay", "ค่ะ", "คะ", "ครับ", "คับ",
+        "จ้า", "จร้า", "ได้ค่ะ", "ได้ครับ", "รับทราบ", "รอรับ", "เรียบร้อย",
+    )
+    if len(t) <= 18 and any(w in t for w in ack_words):
+        return True
+    return False
+
+
+def _fetch_single_page_report(spec: dict[str, str], token: str, target_date: str) -> dict[str, Any]:
+    page_id = spec["page_id"]
+    buckets = [
+        {"label": label, "shift": shift, "orders": 0, "total_thb": 0, "items": [], "chats": 0}
+        for _h0, _h1, label, shift in TIME_BUCKET_SPECS
+    ]
+    result: dict[str, Any] = {
+        "key": spec["key"],
+        "page_id": page_id,
+        "title": spec["title"],
+        "short_name": spec["short_name"],
+        "css_class": spec["css_class"],
+        "token_connected": bool(token),
+        "chats": 0,
+        "orders": 0,
+        "total_thb": 0,
+        "conv_rate": 0.0,
+        "aov": 0,
+        "rev_per_chat": 0,
+        "avg_sec": 0,
+        "avg_label": "-",
+        "avg_compact": "-",
+        "overdue_3h": 0,
+        "overdue_list": [],
+        "small_orders_count": 0,
+        "small_no_upsell": [],
+        "typos": [],
+        "missed_intent": [],
+        "best_orders": [],
+        "buckets": buckets,
+    }
+    if not token:
+        return result
+
+    now_bkk = datetime.now(BKK_TZ)
+    is_today = target_date == now_bkk.strftime("%Y-%m-%d")
+    ref_end_dt = now_bkk if is_today else datetime.strptime(target_date + " 23:59:59", "%Y-%m-%d %H:%M:%S").replace(tzinfo=BKK_TZ)
+
+    convs: list[dict[str, Any]] = []
+    url: str | None = "https://graph.facebook.com/v21.0/me/conversations"
+    params: dict[str, Any] | None = {
+        "access_token": token,
+        "limit": 50,
+        "fields": "participants,updated_time,messages.limit(50){id,message,from,created_time}",
+    }
+    try:
+        for _ in range(8):
             if not url:
                 break
-            resp = httpx.get(url, params=params, timeout=20.0).json()
-            batch = resp.get("data", [])
-            convs.extend(batch)
-            if batch and str(batch[-1].get("updated_time", ""))[:10] < target_date:
+            resp = httpx.get(url, params=params, timeout=25.0).json()
+            batch = resp.get("data") or []
+            if not batch:
                 break
+            convs.extend(batch)
+            last_ut_raw = batch[-1].get("updated_time", "")
+            if last_ut_raw:
+                last_ut_bkk = datetime.strptime(last_ut_raw, "%Y-%m-%dT%H:%M:%S%z").astimezone(BKK_TZ)
+                if last_ut_bkk.strftime("%Y-%m-%d") < target_date:
+                    break
             url = (resp.get("paging") or {}).get("next")
             params = None
-
-        active_chats = 0
-        orders = 0
-        total_thb = 0
-        resp_times = []
-        for c in convs:
-            msgs = list(reversed((c.get("messages") or {}).get("data") or []))
-            day_msgs = []
-            for m in msgs:
-                ct = m.get("created_time", "")
-                if not ct:
-                    continue
-                dt = datetime.strptime(ct, "%Y-%m-%dT%H:%M:%S%z").astimezone(BKK_TZ)
-                if dt.strftime("%Y-%m-%d") == target_date:
-                    day_msgs.append((dt, m.get("from", {}).get("id", ""), m.get("message", "")))
-            if day_msgs:
-                active_chats += 1
-                for i in range(len(day_msgs) - 1):
-                    if day_msgs[i][1] != "806129109240845" and day_msgs[i + 1][1] == "806129109240845":
-                        diff = (day_msgs[i + 1][0] - day_msgs[i][0]).total_seconds()
-                        if 0 < diff < 7200:
-                            resp_times.append(diff)
-                seen_amt = set()
-                for _dt, _sid, txt in day_msgs:
-                    m_b = re.search(r"#\s*BUY\s*(\d+)", txt, re.I)
-                    if m_b:
-                        amt = int(m_b.group(1))
-                        if amt not in seen_amt:
-                            seen_amt.add(amt)
-                            orders += 1
-                            total_thb += amt
-        if active_chats > 0:
-            avg_s = int(sum(resp_times) / len(resp_times)) if resp_times else 58
-            return {"chats": active_chats, "orders": orders, "total_thb": total_thb, "avg_sec": avg_s}
     except Exception as exc:
-        logger.warning("Live 24h BukSukjai query fallback: %s", exc)
-    return {"chats": 22, "orders": 4, "total_thb": 1786, "avg_sec": 58}
+        logger.warning("Graph API conversation fetch warning on %s: %s", spec["key"], exc)
 
+    resp_times: list[float] = []
+    typo_patterns = [
+        ("ปบายทาง", "ปลายทาง"),
+        ("สะดวกกชำระ", "สะดวกชำระ"),
+        ("ข้าวบุกสุกใจ", "ข้าวบุกสุขใจ"),
+        ("คุ้มๆ", "คุ้มๆ"),
+        ("ลดแป้งลงครึ่งหนึ่ง", "ระบุ '23 kcal ต่อข้าวสุก 25 กรัม' แทน"),
+    ]
+
+    for c in convs:
+        participants = (c.get("participants") or {}).get("data") or []
+        cname = next(
+            (p.get("name", "ลูกค้า") for p in participants if str(p.get("id", "")) != page_id),
+            "ลูกค้า",
+        )
+        raw_msgs = list(reversed((c.get("messages") or {}).get("data") or []))
+        day_msgs: list[tuple[datetime, str, str]] = []
+        for m in raw_msgs:
+            ct = m.get("created_time", "")
+            if not ct:
+                continue
+            try:
+                dt = datetime.strptime(ct, "%Y-%m-%dT%H:%M:%S%z").astimezone(BKK_TZ)
+            except Exception:
+                continue
+            if dt.strftime("%Y-%m-%d") == target_date:
+                day_msgs.append((dt, str((m.get("from") or {}).get("id", "")), m.get("message") or ""))
+
+        if not day_msgs:
+            continue
+
+        result["chats"] += 1
+        first_hour = day_msgs[0][0].hour
+        b_idx_chat = min(first_hour // 4, 5)
+        buckets[b_idx_chat]["chats"] += 1
+
+        # 1. Daytime response time (07:00 - 22:59 BKK, excluding night shift 23:00-06:59 & <5s auto-greetings)
+        for i in range(len(day_msgs) - 1):
+            dt_c, sid_c, _txt_c = day_msgs[i]
+            if sid_c != page_id and 7 <= dt_c.hour < 23:
+                for j in range(i + 1, len(day_msgs)):
+                    if day_msgs[j][1] == page_id:
+                        diff = (day_msgs[j][0] - dt_c).total_seconds()
+                        if 5 <= diff < 7200:
+                            resp_times.append(diff)
+                        break
+
+        # 2. #BUY orders on target_date (sent by page, deduplicated within 15 minutes per conversation)
+        conv_buys: list[tuple[datetime, int]] = []
+        for dt_m, sid_m, txt_m in day_msgs:
+            if sid_m != page_id:
+                continue
+            for m_b in re.finditer(r"#\s*BUY\s*(\d+)", txt_m, re.I):
+                amt = int(m_b.group(1))
+                if any(amt == prev_amt and abs((dt_m - prev_dt).total_seconds()) < 900 for prev_dt, prev_amt in conv_buys):
+                    continue
+                conv_buys.append((dt_m, amt))
+                result["orders"] += 1
+                result["total_thb"] += amt
+                b_idx = min(dt_m.hour // 4, 5)
+                buckets[b_idx]["orders"] += 1
+                buckets[b_idx]["total_thb"] += amt
+                buckets[b_idx]["items"].append((dt_m.strftime("%H:%M"), amt, cname))
+
+                # Measure close speed from first customer message of the day
+                cust_before = [x[0] for x in day_msgs if x[1] != page_id and x[0] <= dt_m]
+                close_mins = int(max(1, round((dt_m - cust_before[0]).total_seconds() / 60))) if cust_before else 5
+                result["best_orders"].append({
+                    "time": dt_m.strftime("%H:%M"),
+                    "customer": cname,
+                    "amount": amt,
+                    "close_mins": close_mins,
+                })
+
+                if amt <= 350:
+                    result["small_orders_count"] += 1
+                    page_texts_joined = " ".join(x[2] for x in day_msgs if x[1] == page_id)
+                    if not any(k in page_texts_joined for k in ("1 กิโล", "1กิโล", "1 กก", "1กก", "ส่งฟรี")):
+                        result["small_no_upsell"].append({
+                            "time": dt_m.strftime("%H:%M"),
+                            "customer": cname,
+                            "amount": amt,
+                        })
+
+        # 3. Saved-reply typos & compliance check
+        seen_typo_words: set[str] = set()
+        for dt_m, sid_m, txt_m in day_msgs:
+            if sid_m != page_id or not txt_m:
+                continue
+            for bad_word, fix_word in typo_patterns:
+                if bad_word in txt_m and bad_word not in seen_typo_words:
+                    seen_typo_words.add(bad_word)
+                    result["typos"].append({
+                        "time": dt_m.strftime("%H:%M"),
+                        "customer": cname,
+                        "bad": bad_word,
+                        "fix": fix_word,
+                    })
+
+        # 4. Overdue unanswered customer message (> 3 hours without #BUY)
+        if not conv_buys:
+            last_dt, last_sid, last_txt = day_msgs[-1]
+            wait_sec = (ref_end_dt - last_dt).total_seconds()
+            if last_sid != page_id and wait_sec > 10800 and not _is_closing_ack(last_txt):
+                result["overdue_3h"] += 1
+                result["overdue_list"].append({
+                    "time": last_dt.strftime("%H:%M"),
+                    "customer": cname,
+                    "text": (last_txt or "[ส่งรูปภาพ/สติกเกอร์]").strip()[:60],
+                    "wait_hours": round(wait_sec / 3600, 1),
+                })
+
+            # 5. High-intent customer chat that didn't close (#BUY)
+            cust_texts = [(dt_m, txt_m.strip()) for dt_m, sid_m, txt_m in day_msgs if sid_m != page_id and txt_m.strip()]
+            page_texts = [txt_m.strip() for _dt_m, sid_m, txt_m in day_msgs if sid_m == page_id and txt_m.strip()]
+            for dt_c, c_txt in cust_texts:
+                if c_txt in ("สั่งซื้อเลย", "สนใจ", "สนใจค่ะ", "สนใจครับ", "ขอดูโปรวันนี้"):
+                    continue
+                has_buy_intent = any(w in c_txt for w in ("โอน", "ปลายทาง", "สั่งค่ะ", "สั่งครับ", "รับโปร", "เอา 1", "เอา 2", "รับ 1", "รับ 2", "ซองเล็ก", "500 กรัม", "500g", "1 กิโล"))
+                is_question_only = any(q in c_txt for q in ("เท่าไหร่", "กี่บาท", "ยังไง", "ไหม")) and not any(w in c_txt for w in ("โอน", "ปลายทาง", "สั่งค่ะ", "รับค่ะ"))
+                if has_buy_intent and not is_question_only and (ref_end_dt - dt_c).total_seconds() > 2700:
+                    joined_page = " ".join(page_texts)
+                    sent_bank = any(b in joined_page for b in ("กสิกร", "ไทยพาณิชย์", "เลขบัญชี", "304-4", "136-2", "พร้อมเพย์", "สแกน"))
+                    asked_addr = any(a in joined_page for a in ("ชื่อ", "ที่อยู่", "เบอร์โทร", "จัดส่ง"))
+                    if "โอน" in c_txt and not sent_bank:
+                        reason = "ลูกค้าแจ้งโอนแล้ว แต่ยังไม่ส่งเลขบัญชีเพื่อล็อกออเดอร์ทันที"
+                    elif not asked_addr:
+                        reason = "ลูกค้าเลือกขนาดแล้ว แต่ยังไม่ได้ขอชื่อ-ที่อยู่-เบอร์โทรเพื่อปิดบิล"
+                    else:
+                        reason = "ลูกค้าสนใจสั่งซื้อแต่ยังไม่ส่งที่อยู่/สลิป แนะนำทักตามสั้นๆ ช่วงเช้าค่ะ"
+                    result["missed_intent"].append({
+                        "time": dt_c.strftime("%H:%M"),
+                        "customer": cname,
+                        "cust_text": c_txt[:70].replace("\n", " "),
+                        "reason": reason,
+                        "priority": 1 if ("โอน" in c_txt and not sent_bank) or not asked_addr else 2,
+                    })
+                    break
+
+    if result["chats"] > 0:
+        result["conv_rate"] = round((result["orders"] / result["chats"]) * 100, 1)
+        result["rev_per_chat"] = int(round(result["total_thb"] / result["chats"]))
+    if result["orders"] > 0:
+        result["aov"] = int(round(result["total_thb"] / result["orders"]))
+    if resp_times:
+        avg_s = int(round(sum(resp_times) / len(resp_times)))
+        result["avg_sec"] = avg_s
+        result["avg_label"] = _format_duration_thai(avg_s)
+        result["avg_compact"] = _format_duration_compact(avg_s)
+
+    return result
+
+
+def _synthesize_praise_and_cases(pages_data: list[dict[str, Any]]) -> tuple[str, list[dict[str, str]]]:
+    """Build concise praise summary + top 4 real actionable chat cases from live data."""
+    # 1. Praise line
+    fast_pages = [p for p in pages_data if p["avg_sec"] > 0]
+    fast_pages.sort(key=lambda x: x["avg_sec"])
+    all_best_orders = []
+    for p in pages_data:
+        for bo in p["best_orders"]:
+            all_best_orders.append((bo["amount"], -bo["close_mins"], p["short_name"], bo))
+    all_best_orders.sort(key=lambda x: (x[0], x[1]), reverse=True)
+
+    praise_parts = []
+    if fast_pages:
+        fp = fast_pages[0]
+        praise_parts.append(f"{fp['short_name']} ตอบไวเฉลี่ย {fp['avg_label']}")
+    if all_best_orders:
+        _amt, _neg_m, p_short, bo = all_best_orders[0]
+        praise_parts.append(
+            f"{p_short} ปิดบิลใหญ่ #BUY{bo['amount']:,} (คุณ {bo['customer']}) ได้ครบเรียบร้อยค่ะ 👏💚"
+        )
+    praise_text = " และ ".join(praise_parts) if praise_parts else "ทีมแอดมินดูแลตอบแชทและปิดออเดอร์ต่อเนื่องครบทั้ง 3 เพจค่ะ 👏💚"
+
+    # 2. Actionable cases (up to 4)
+    cases: list[dict[str, str]] = []
+
+    # Priority A: High-intent unclosed chats (especially missing bank / missing address)
+    all_missed = []
+    for p in pages_data:
+        for m in p["missed_intent"]:
+            all_missed.append((m["priority"], p["short_name"], p["title"], m))
+    all_missed.sort(key=lambda x: x[0])
+    for _prio, p_short, p_title, m in all_missed[:2]:
+        cases.append({
+            "line_header": f"{p_short} ({m['time']} น.)",
+            "customer": f"คุณ {m['customer']}",
+            "line_bullet": f"ลูกค้าพิมพ์ \"{m['cust_text']}\" — {m['reason']}",
+            "html_title": f"{p_title} ({m['time']} น.) · ลูกค้า คุณ {m['customer']} — {m['reason']}",
+            "html_detail": f"ข้อความลูกค้า: “{m['cust_text']}”",
+            "html_fix": "เมื่อลูกค้าพิมพ์เลือกขนาดหรือวิธีชำระแล้ว ให้ส่งเลขบัญชี/สรุปยอดพร้อมขอชื่อ-ที่อยู่-เบอร์โทรทันทีเพื่อล็อกออเดอร์ก่อนหลุดค่ะ",
+        })
+
+    # Priority B: Saved-reply typos & compliance words
+    typo_groups: list[str] = []
+    typo_customers: list[str] = []
+    typo_pages: list[str] = []
+    typo_times: list[str] = []
+    for p in pages_data:
+        for t in p["typos"]:
+            if p["short_name"] not in typo_pages:
+                typo_pages.append(p["short_name"])
+            cust_label = f"คุณ {t['customer']}"
+            if cust_label not in typo_customers:
+                typo_customers.append(cust_label)
+            if f"'{t['bad']}'" not in typo_groups:
+                typo_groups.append(f"'{t['bad']}'")
+            typo_times.append(t["time"])
+    if typo_groups:
+        t_range = f"{min(typo_times)} – {max(typo_times)} น." if len(typo_times) > 1 else f"{typo_times[0]} น."
+        cases.append({
+            "line_header": f"{' & '.join(typo_pages)} ({t_range})",
+            "customer": " / ".join(typo_customers[:2]),
+            "line_bullet": f"พบคำในข้อความสำเร็จรูป {', '.join(typo_groups[:4])} ฝากเข้าไปแก้คำผิดและระบุ '23 kcal ต่อข้าวสุก 25 กรัม' นะคะ",
+            "html_title": f"{' & '.join(typo_pages)} ({t_range}) · ลูกค้า {' / '.join(typo_customers[:2])} — คำพิมพ์ผิดในข้อความสำเร็จรูป (Saved Replies)",
+            "html_detail": f"พบคำว่า {', '.join(typo_groups[:4])} ในข้อความที่ส่งหาลูกค้า",
+            "html_fix": "เข้าไปแก้ไขข้อความตอบกลับที่บันทึกไว้ (Saved Replies) ให้ถูกต้องทั้งหมด และระบุหน่วยโภชนาการเป็น '23 kcal ต่อข้าวสุก 25 กรัม' เสมอค่ะ",
+        })
+
+    # Priority C: Overdue unanswered chats > 3h
+    overdue_pages = [p for p in pages_data if p["overdue_3h"] > 0]
+    for p in overdue_pages:
+        sample_names = ", ".join(f"คุณ {x['customer']} ({x['time']})" for x in p["overdue_list"][:2])
+        cases.append({
+            "line_header": f"{p['short_name']} (แชทรอตอบ > 3 ชม.)",
+            "customer": sample_names or f"ค้าง {p['overdue_3h']} แชท",
+            "line_bullet": f"มีแชทลูกค้าค้างเกิน 3 ชม. อยู่ {p['overdue_3h']} แชท ฝากกดตัวกรอง 'ยังไม่ได้อ่าน / การตอบกลับโฆษณา' เคลียร์ให้ครบ 0 แชทนะคะ",
+            "html_title": f"{p['title']} · แชทลูกค้ารอตอบเกิน 3 ชั่วโมง {p['overdue_3h']} แชท",
+            "html_detail": f"ตัวอย่างแชทที่รอตอบ: {sample_names}",
+            "html_fix": "กดตัวกรอง 'ยังไม่ได้อ่าน' และ 'การตอบกลับโฆษณา' ใน Meta Business Suite / Pancake ไล่ตอบให้ครบ 0 แชทก่อนเปลี่ยนกะทุกครั้งค่ะ",
+        })
+
+    # Priority D: Small orders upsell opportunity (if room in top 4)
+    if len(cases) < 4:
+        for p in pages_data:
+            if p["small_orders_count"] >= 2:
+                sample_sm = p["small_no_upsell"][0] if p["small_no_upsell"] else None
+                cust_ref = f"คุณ {sample_sm['customer']} (#BUY{sample_sm['amount']})" if sample_sm else f"บิลเล็ก {p['small_orders_count']} บิล"
+                cases.append({
+                    "line_header": f"{p['short_name']} (โอกาสอัปเซลล์เพิ่มยอดต่อบิล)",
+                    "customer": cust_ref,
+                    "line_bullet": f"มีบิลขนาดเริ่มต้น {p['small_orders_count']} บิล (เฉลี่ยทั้งเพจ {p['aov']:,}฿) แนะนำเชียร์ขยับเป็นโปร 1 กก. โอนส่งฟรี ควบคู่ทุกครั้งค่ะ",
+                    "html_title": f"{p['title']} · มีบิลขนาดเริ่มต้น {p['small_orders_count']} บิล (โอกาสขยับยอดเฉลี่ยสู่เป้า 550฿+)",
+                    "html_detail": f"ยอดเฉลี่ยต่อออเดอร์อยู่ที่ {p['aov']:,}฿ ({cust_ref})",
+                    "html_fix": "เมื่อลูกค้าถาม 500g หรือซองเล็ก ให้เทียบความคุ้มค่า 'ถุงใหญ่ 1 กิโล โอนส่งฟรี ทานได้ 16–20 มื้อ' สั้นๆ ให้ลูกค้าเลือกก่อนสรุปบิลค่ะ",
+                })
+                break
+
+    return praise_text, cases[:4]
+
+
+def get_three_pages_live_report(target_date: str | None = None, force_refresh: bool = False) -> dict[str, Any]:
+    """Fetch and compute full 3-page report for `target_date` (defaults to yesterday at night/morning, or today)."""
+    now_bkk = datetime.now(BKK_TZ)
+    if not target_date:
+        # Between 00:00 and 11:59 BKK, default to yesterday's completed 24h report
+        if now_bkk.hour < 12:
+            target_date = (now_bkk - timedelta(days=1)).strftime("%Y-%m-%d")
+        else:
+            target_date = now_bkk.strftime("%Y-%m-%d")
+
+    cached = _REPORT_CACHE.get(target_date)
+    if cached and not force_refresh and (time.time() - cached[0]) < _CACHE_TTL_SECONDS:
+        return cached[1]
+
+    tokens = resolve_three_page_tokens()
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        futures = [
+            pool.submit(_fetch_single_page_report, spec, tokens.get(spec["key"], ""), target_date)
+            for spec in THREE_PAGES_SPECS
+        ]
+        pages_data = [f.result() for f in futures]
+
+    total_chats = sum(p["chats"] for p in pages_data)
+    total_orders = sum(p["orders"] for p in pages_data)
+    total_thb = sum(p["total_thb"] for p in pages_data)
+    is_today = target_date == now_bkk.strftime("%Y-%m-%d")
+    period_label = (
+        f"ข้อมูลสด 00:00 – {now_bkk.strftime('%H:%M')} น."
+        if is_today
+        else "รอบปิดวัน 24 ชม. · 00:00 – 23:59 น."
+    )
+    praise_text, cases = _synthesize_praise_and_cases(pages_data)
+
+    report = {
+        "target_date": target_date,
+        "thai_date": _format_thai_date(target_date),
+        "is_today": is_today,
+        "period_label": period_label,
+        "generated_at": now_bkk.strftime("%H:%M น."),
+        "total_chats": total_chats,
+        "total_orders": total_orders,
+        "total_thb": total_thb,
+        "pages": pages_data,
+        "praise_text": praise_text,
+        "cases": cases,
+    }
+    _REPORT_CACHE[target_date] = (time.time(), report)
+    return report
+
+
+def fetch_live_24h_buksukjai_metrics(target_date: str) -> dict[str, Any]:
+    """Backward-compatible helper returning live stats for ข้าวบุก สุขใจ."""
+    tokens = resolve_three_page_tokens()
+    res = _fetch_single_page_report(THREE_PAGES_SPECS[2], tokens.get("buksukjai", ""), target_date)
+    return {
+        "chats": res["chats"],
+        "orders": res["orders"],
+        "total_thb": res["total_thb"],
+        "avg_sec": res["avg_sec"],
+    }
+
+
+# ---------------------------------------------------------------------------
+# 01:00 AM Daily Scheduler & LINE Push Formatter
+# ---------------------------------------------------------------------------
 
 def should_run_daily_1am_admin_report() -> tuple[bool, str]:
-    """Check if it is 01:00–01:59 AM Bangkok time and the 24-hour report for yesterday has not been sent yet."""
+    """Check if it is 01:00–01:59 AM Bangkok time and yesterday's 24h report has not been sent yet."""
     now_bkk = datetime.now(BKK_TZ)
     target_date = (now_bkk - timedelta(days=1)).strftime("%Y-%m-%d")
     if now_bkk.hour != 1:
@@ -232,7 +751,7 @@ def run_and_send_daily_1am_admin_report(target_date: str | None = None) -> dict[
     if not target_gid:
         return {"status": "skipped", "reason": "No active Admin Group registered yet"}
 
-    res = send_pudding_report_to_line_group(group_id=target_gid)
+    res = send_pudding_report_to_line_group(group_id=target_gid, target_date=t_date, force_refresh=True)
     if res.get("status") == "ok":
         state = load_admin_report_state()
         state["last_1am_report_date"] = t_date
@@ -241,79 +760,83 @@ def run_and_send_daily_1am_admin_report(target_date: str | None = None) -> dict[
     return res
 
 
-def format_pudding_line_summary(public_base_url: str = "", is_24h_close: bool = False) -> str:
-    """Concise, easy-to-scan LINE summary sent by พุดดิ้ง🍮 (@346zyzej) following the exact bullet pattern."""
+def format_pudding_line_summary(
+    public_base_url: str = "",
+    target_date: str | None = None,
+    force_refresh: bool = False,
+) -> str:
+    """Concise, easy-to-scan LINE summary sent by พุดดิ้ง🍮 (@346zyzej) with live 3-page metrics."""
     base = (
         public_base_url
         or os.getenv("RENDER_EXTERNAL_URL")
         or os.getenv("PUBLIC_BASE_URL")
         or "https://buksukjai-omnichannel-twht.onrender.com"
     ).rstrip("/")
-    report_url = f"{base}/admin-report"
 
     now_bkk = datetime.now(BKK_TZ)
-    target_date = (now_bkk - timedelta(days=1)).strftime("%Y-%m-%d") if (is_24h_close or now_bkk.hour == 1) else "2026-11-16"
-    bsj = fetch_live_24h_buksukjai_metrics(target_date)
-    bsj_chats = max(bsj["chats"], 22)
-    bsj_orders = max(bsj["orders"], 4)
-    bsj_total = max(bsj["total_thb"], 1786)
-    bsj_rate = round((bsj_orders / bsj_chats) * 100, 1) if bsj_chats else 18.2
-    bsj_aov = int(round(bsj_total / bsj_orders)) if bsj_orders else 447
-    period_label = "รอบ 24 ชม. (00:00 – 23:59 น.)" if (is_24h_close or now_bkk.hour == 1) else "รอบ 00:00 – 13:45 น."
+    if not target_date:
+        target_date = (now_bkk - timedelta(days=1)).strftime("%Y-%m-%d") if now_bkk.hour == 1 else now_bkk.strftime("%Y-%m-%d")
 
-    return (
-        "🍮 รายงานสำหรับทีมแอดมิน · ข้าวบุก 3 เพจ\n"
-        f"📅 วันจันทร์ที่ 16 พ.ย. 2569 ({period_label})\n"
-        "━━━━━━━━━━━━━━\n"
-        "📊 1. สรุปผลงานรายเพจ\n"
-        "━━━━━━━━━━━━━━\n"
-        "🔵 Mr.Buk มิสเตอร์บุก\n"
-        "• 💬 แชทแอคทีฟ 29 แชท\n"
-        "• 🚛 ปิดได้ 8 ออเดอร์ (27.6%)\n"
-        "• 💸 ยอดขายรวม 3,865฿\n"
-        "• 💰 เฉลี่ย 483฿/ออเดอร์\n"
-        "• ⚠️ มีแชทโฆษณาค้างเกิน 3 ชม. อยู่ 7 แชท\n"
-        "━━━━━━━━━━━━━━\n"
-        "🔵 ข้าวบุกหอมมะลิ (เพจ 2)\n"
-        "• 💬 แชทแอคทีฟ 16 แชท\n"
-        "• 🚛 ปิดได้ 5 ออเดอร์ (31.3%)\n"
-        "• 💸 ยอดขายรวม 1,943฿\n"
-        "• 💰 เฉลี่ย 389฿/ออเดอร์\n"
-        "• ✅ แชทโฆษณาค้างเกิน 3 ชม. 0 แชท\n"
-        "━━━━━━━━━━━━━━\n"
-        "🔵 ข้าวบุก สุขใจ\n"
-        f"• 💬 แชทแอคทีฟ {bsj_chats} แชท\n"
-        f"• 🚛 ปิดได้ {bsj_orders} ออเดอร์ ({bsj_rate}%)\n"
-        f"• 💸 ยอดขายรวม {bsj_total:,}฿\n"
-        f"• 💰 เฉลี่ย {bsj_aov:,}฿/ออเดอร์\n"
-        f"• ⚡ เวลาตอบเฉลี่ยไวขึ้นมาก ({bsj['avg_sec']} วินาที)\n"
-        "━━━━━━━━━━━━━━\n"
-        "🌟 ชมเชยวันนี้:\n"
-        f"• สุขใจตอบไวขึ้นมาก (เฉลี่ย {bsj['avg_sec']} วิ) และ Mr.Buk ปิดเซ็ตใหญ่ #BUY980 ได้ครบใน 5 นาทีค่ะ 👏💚\n"
-        "━━━━━━━━━━━━━━\n"
-        "💡 2. เคสตัวอย่างวันนี้\n"
-        "━━━━━━━━━━━━━━\n"
-        "1) สุขใจ (13:46 น.)\n"
-        "• ลูกค้า คุณ Ann Gilham\n"
-        "- บอก '3 ซอง / โอน' แต่ยังไม่ส่งเลขบัญชี ข้ามไปเชียร์ 15 ถุงจนลูกค้าตอบว่า 'เยอะไปค่ะ'\n\n"
-        "2) หอมมะลิ (02:11 น.)\n"
-        "• ลูกค้า คุณ ชนัญชิดา สูงเรือง\n"
-        "- ลูกค้ากด Reply บิลเดิมบอก 'สั่งค่ะ ส่งที่อยู่เดิม ปลายทาง' แล้ว แต่แอดมินถามซ้ำว่า 'รับขนาดไหนดีคะ' และ 'ชำระแบบไหนดีคะ'\n\n"
-        "3) หอมมะลิ & สุขใจ (09:11 – 12:57 น.)\n"
-        "• ลูกค้า คุณ Bebe Nuttacha / คุณ Sikharet\n"
-        "- แบ่งจังหวะถามสั้นๆ ได้ดีแล้ว แต่มีคำพิมพ์ผิด 'ปบายทาง', 'สะดวกกชำระ', 'ข้าวบุกสุกใจ' ฝากแก้คำผิดในข้อความสำเร็จรูปนะคะ\n\n"
-        "4) Mr.Buk (ตั้งแต่เช้าถึง 13:45 น.)\n"
-        "• แชทจากโฆษณาค้างเกิน 3 ชม.\n"
-        "- มีค้างอยู่ 7 แชท ฝากกดตัวกรอง 'การตอบกลับโฆษณา' เคลียร์ให้ครบ 0 แชทนะคะ\n"
-        "━━━━━━━━━━━━━━\n"
-        "🌐 กดดูรายละเอียดและสคริปต์พร้อมใช้ได้ที่ลิงก์นี้ค่ะ 👇\n"
-        f"{report_url}"
-    )
+    rep = get_three_pages_live_report(target_date=target_date, force_refresh=force_refresh)
+    report_url = f"{base}/admin-report?date={rep['target_date']}"
+
+    lines = [
+        "🍮 รายงานสำหรับทีมแอดมิน · ข้าวบุก 3 เพจ",
+        f"📅 {rep['thai_date']} ({rep['period_label']})",
+        f"💰 รวม 3 เพจ: {rep['total_orders']} ออเดอร์ ({rep['total_thb']:,}฿) จาก {rep['total_chats']} แชท",
+        "━━━━━━━━━━━━━━",
+        "📊 1. สรุปผลงานรายเพจ",
+        "━━━━━━━━━━━━━━",
+    ]
+
+    for idx, p in enumerate(rep["pages"]):
+        overdue_line = (
+            f"• ⚠️ มีแชทรอตอบเกิน 3 ชม. อยู่ {p['overdue_3h']} แชท"
+            if p["overdue_3h"] > 0
+            else "• ✅ แชทค้างเกิน 3 ชม. 0 แชท"
+        )
+        lines.extend([
+            f"🔵 {p['title']}",
+            f"• 💬 แชทแอคทีฟ {p['chats']} แชท",
+            f"• 🚛 ปิดได้ {p['orders']} ออเดอร์ ({p['conv_rate']}%)",
+            f"• 💸 ยอดขายรวม {p['total_thb']:,}฿",
+            f"• 💰 เฉลี่ย {p['aov']:,}฿/ออเดอร์",
+            f"• ⚡ เวลาตอบเฉลี่ย (ไม่รวมดึก) {p['avg_label']}",
+            overdue_line,
+            "━━━━━━━━━━━━━━",
+        ])
+
+    lines.extend([
+        "🌟 ชมเชยวันนี้:",
+        f"• {rep['praise_text']}",
+        "━━━━━━━━━━━━━━",
+        "💡 2. เคสตัวอย่างวันนี้",
+        "━━━━━━━━━━━━━━",
+    ])
+
+    if rep["cases"]:
+        for c_idx, case in enumerate(rep["cases"], start=1):
+            lines.append(f"{c_idx}) {case['line_header']}")
+            lines.append(f"• {case['customer']}")
+            lines.append(f"- {case['line_bullet']}")
+            if c_idx < len(rep["cases"]):
+                lines.append("")
+    else:
+        lines.append("• วันนี้ยังไม่พบคำพิมพ์ผิดหรือแชทค้างเกิน 3 ชม. รักษามาตรฐานดีมากค่ะ 💚")
+
+    lines.extend([
+        "━━━━━━━━━━━━━━",
+        "🌐 กดดูรายละเอียดรายช่วงเวลาและสคริปต์พร้อมใช้ 👇",
+        report_url,
+    ])
+    return "\n".join(lines)
 
 
 def send_pudding_report_to_line_group(
     group_id: str | None = None,
     public_base_url: str = "",
+    target_date: str | None = None,
+    force_refresh: bool = True,
 ) -> dict[str, Any]:
     """Push the concise daily admin report via พุดดิ้ง🍮 (`coachbot` @346zyzej) to the target LINE group."""
     state = load_admin_report_state()
@@ -326,7 +849,11 @@ def send_pudding_report_to_line_group(
     if not token:
         return {"status": "error", "message": "Missing coachbot (@346zyzej) LINE access token"}
 
-    msg_text = format_pudding_line_summary(public_base_url=public_base_url)
+    msg_text = format_pudding_line_summary(
+        public_base_url=public_base_url,
+        target_date=target_date,
+        force_refresh=force_refresh,
+    )
     resp = httpx.post(
         "https://api.line.me/v2/bot/message/push",
         headers={
@@ -337,7 +864,7 @@ def send_pudding_report_to_line_group(
             "to": target_gid,
             "messages": [{"type": "text", "text": msg_text}],
         },
-        timeout=15.0,
+        timeout=20.0,
     )
     now_bkk = datetime.now(BKK_TZ)
     if resp.status_code == 200:
@@ -357,523 +884,257 @@ def send_pudding_report_to_line_group(
     }
 
 
-def render_admin_report_html() -> str:
-    """Return the full standalone HTML dashboard matching the Claude Artifact style."""
-    return """<!DOCTYPE html>
+# ---------------------------------------------------------------------------
+# Dynamic Standalone HTML Dashboard (`/admin-report`)
+# ---------------------------------------------------------------------------
+
+def render_admin_report_html(target_date: str | None = None, force_refresh: bool = False) -> str:
+    """Render the full live HTML dashboard for all 3 pages."""
+    rep = get_three_pages_live_report(target_date=target_date, force_refresh=force_refresh)
+    now_bkk = datetime.now(BKK_TZ)
+    today_str = now_bkk.strftime("%Y-%m-%d")
+    yesterday_str = (now_bkk - timedelta(days=1)).strftime("%Y-%m-%d")
+
+    cards_html_parts = []
+    for p in rep["pages"]:
+        overdue_html = (
+            f'<span class="bad">{p["overdue_3h"]} แชท (รอตอบ &gt; 3 ชม.)</span>'
+            if p["overdue_3h"] > 0
+            else '<span class="good">0 แชท (เคลียร์ครบ)</span>'
+        )
+        if p["overdue_3h"] > 0:
+            badge_html = f'<div class="badge warn">มีแชทค้าง &gt; 3 ชม. {p["overdue_3h"]} แชท · ฝากเคลียร์ก่อนเปลี่ยนกะ</div>'
+        elif p["aov"] > 0 and p["aov"] < 500:
+            badge_html = f'<div class="badge warn">ยอดเฉลี่ย {p["aov"]:,}฿ · ดันโปร 1 กก. โอนส่งฟรีเพิ่ม</div>'
+        else:
+            badge_html = '<div class="badge ok">ภาพรวมและเวลาตอบอยู่ในเกณฑ์ดีมากค่ะ</div>'
+
+        cards_html_parts.append(f"""
+      <div class="page-card {p['css_class']}">
+        <div class="page-title">{html.escape(p['title'])}</div>
+        <div class="big-rate">{p['conv_rate']}%</div>
+        <div class="rate-caption">% ปิดเฉพาะแชทที่คุยในวัน ({p['orders']} ออเดอร์ ÷ {p['chats']} แชท)</div>
+        <div class="stat-row">
+          <span class="stat-label">แชทแอคทีฟ / ออเดอร์</span>
+          <span class="stat-val">{p['chats']} แชท / {p['orders']} ออเดอร์</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">ยอดขายรวม (#BUY)</span>
+          <span class="stat-val">{p['total_thb']:,}฿</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">ยอดเฉลี่ยต่อออเดอร์</span>
+          <span class="stat-val">{p['aov']:,}฿ <span class="sub">(เป้า 550฿+)</span></span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">ยอดขายต่อ 1 แชท</span>
+          <span class="stat-val">{p['rev_per_chat']:,}฿</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">เวลาตอบเฉลี่ย (07:00–23:00)</span>
+          <span class="stat-val"><span class="good">{html.escape(p['avg_label'])}</span></span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">แชทรอตอบ &gt; 3 ชม.</span>
+          <span class="stat-val">{overdue_html}</span>
+        </div>
+        {badge_html}
+      </div>""")
+
+    bucket_rows_html = []
+    for b_idx, (_h0, _h1, b_label, b_shift) in enumerate(TIME_BUCKET_SPECS):
+        cells = []
+        for p in rep["pages"]:
+            b = p["buckets"][b_idx]
+            if b["orders"] > 0:
+                tags = ", ".join(f"{hhmm} (#BUY{amt})" for hhmm, amt, _c in b["items"][:5])
+                if len(b["items"]) > 5:
+                    tags += f" +{len(b['items']) - 5} บิล"
+                cells.append(
+                    f'<td><strong>{b["orders"]} ออเดอร์ ({b["total_thb"]:,}฿)</strong><br>'
+                    f'<span style="color:#656D76;font-size:12.5px;">{html.escape(tags)}</span></td>'
+                )
+            else:
+                sub_note = f"มีทัก {b['chats']} แชท" if b["chats"] > 0 else "ไม่มีแชทใหม่"
+                cells.append(f'<td>0 ออเดอร์<br><span style="color:#656D76;font-size:12.5px;">{sub_note}</span></td>')
+        bucket_rows_html.append(
+            f"<tr><td><strong>{b_label}</strong> ({b_shift})</td>{''.join(cells)}</tr>"
+        )
+
+    cases_html_parts = []
+    for idx, c in enumerate(rep["cases"], start=1):
+        cases_html_parts.append(f"""
+    <div class="case-card">
+      <div class="case-title">{idx}) {html.escape(c['html_title'])}</div>
+      <div class="chat-line">{html.escape(c['html_detail'])}</div>
+      <div class="fix-box"><b>แนวทางปรับนิดเดียว:</b> {html.escape(c['html_fix'])}</div>
+    </div>""")
+    if not cases_html_parts:
+        cases_html_parts.append("""
+    <div class="case-card good">
+      <div class="case-title">✅ ไม่พบคำพิมพ์ผิดใน Saved Replies และไม่มีแชทค้างเกิน 3 ชั่วโมงค่ะ</div>
+      <div class="chat-line">ทีมแอดมินรักษามาตรฐานความไวและความถูกต้องได้ดีมากค่ะ</div>
+    </div>""")
+
+    p0, p1, p2 = rep["pages"][0], rep["pages"][1], rep["pages"][2]
+    active_y = "active-pill" if rep["target_date"] == yesterday_str else ""
+    active_t = "active-pill" if rep["target_date"] == today_str else ""
+
+    return f"""<!DOCTYPE html>
 <html lang="th">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>รายงานแอดมิน ข้าวบุก 3 เพจ · 16 พ.ย. 2569 (00:00–13:45 น.)</title>
+  <title>รายงานสำหรับทีมแอดมิน · ข้าวบุก 3 เพจ ({html.escape(rep['thai_date'])})</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
-    :root {
-      --bg: #F9F8F4;
-      --card-bg: #FFFFFF;
-      --text: #1F2328;
-      --muted: #656D76;
-      --border: #E5E2DC;
-      --alert-bg: #FDF2F0;
-      --alert-border: #F3C6BF;
-      --alert-text: #9E2A2B;
-      --good-bg: #EFF8F1;
-      --good-border: #BFE3C8;
-      --good-text: #1E6B3A;
-      --mrbuk: #1E6091;
-      --hommali: #8D5524;
-      --sukjai: #2B7A4B;
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      padding: 36px 20px 64px;
-      background: var(--bg);
-      color: var(--text);
-      font-family: 'IBM Plex Sans Thai', -apple-system, BlinkMacSystemFont, sans-serif;
-      line-height: 1.6;
-    }
-    .container {
-      max-width: 960px;
-      margin: 0 auto;
-    }
-    .eyebrow {
-      font-size: 13px;
-      color: var(--muted);
-      margin-bottom: 4px;
-    }
-    h1 {
-      font-size: 28px;
-      font-weight: 700;
-      margin: 0 0 6px;
-      letter-spacing: -0.01em;
-    }
-    .subhead {
-      font-size: 14px;
-      color: var(--muted);
-      margin-bottom: 24px;
-    }
-    .summary-box {
-      background: var(--alert-bg);
-      border: 1px solid var(--alert-border);
-      border-radius: 12px;
-      padding: 18px 22px;
-      margin-bottom: 32px;
-    }
-    .summary-box h3 {
-      margin: 0 0 6px;
-      font-size: 16px;
-      color: #7D1E1F;
-    }
-    .summary-box p {
-      margin: 0;
-      font-size: 15px;
-      color: #2B2B2B;
-    }
-    h2 {
-      font-size: 19px;
-      font-weight: 700;
-      margin: 34px 0 14px;
-      padding-top: 18px;
-      border-top: 2px solid #222;
-    }
-    .cards-grid {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 16px;
-    }
-    @media (max-width: 820px) {
-      .cards-grid { grid-template-columns: 1fr; }
-    }
-    .page-card {
-      background: var(--card-bg);
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      padding: 20px;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.02);
-    }
-    .page-card.mrbuk { border-top: 5px solid var(--mrbuk); }
-    .page-card.hommali { border-top: 5px solid var(--hommali); }
-    .page-card.sukjai { border-top: 5px solid var(--sukjai); }
-    .page-title {
-      font-size: 16px;
-      font-weight: 700;
-      margin-bottom: 4px;
-    }
-    .page-card.mrbuk .page-title { color: var(--mrbuk); }
-    .page-card.hommali .page-title { color: var(--hommali); }
-    .page-card.sukjai .page-title { color: var(--sukjai); }
-    .big-rate {
-      font-size: 36px;
-      font-weight: 700;
-      line-height: 1.15;
-      margin: 2px 0;
-    }
-    .rate-caption {
-      font-size: 12.5px;
-      color: var(--muted);
-      margin-bottom: 14px;
-    }
-    .stat-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: baseline;
-      padding: 7px 0;
-      border-top: 1px solid #F0EEEA;
-      font-size: 14px;
-    }
-    .stat-label { color: var(--muted); }
-    .stat-val { font-weight: 600; text-align: right; }
-    .stat-val .sub { font-weight: 400; color: var(--alert-text); font-size: 12.5px; }
-    .stat-val .good { color: var(--good-text); }
-    .stat-val .bad { color: var(--alert-text); }
-    .badge {
-      display: inline-block;
-      margin-top: 12px;
-      padding: 5px 10px;
-      border-radius: 8px;
-      font-size: 12.5px;
-      font-weight: 600;
-    }
-    .badge.warn { background: var(--alert-bg); color: var(--alert-text); }
-    .badge.ok { background: var(--good-bg); color: var(--good-text); }
-    .footnote {
-      font-size: 12.5px;
-      color: var(--muted);
-      margin-top: 10px;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      background: var(--card-bg);
-      border-radius: 12px;
-      overflow: hidden;
-      border: 1px solid var(--border);
-      font-size: 14px;
-    }
-    th, td {
-      padding: 11px 14px;
-      text-align: left;
-      border-bottom: 1px solid #F0EEEA;
-    }
-    th {
-      background: #F4F2EC;
-      font-weight: 700;
-      color: #333;
-    }
-    .case-card {
-      background: var(--card-bg);
-      border: 1px solid var(--border);
-      border-left: 4px solid #D9534F;
-      border-radius: 10px;
-      padding: 16px 18px;
-      margin-bottom: 14px;
-    }
-    .case-card.good {
-      border-left-color: var(--good-text);
-      background: #FCFDFC;
-    }
-    .case-title {
-      font-weight: 700;
-      font-size: 15px;
-      margin-bottom: 8px;
-      color: #9E2A2B;
-    }
-    .case-card.good .case-title {
-      color: var(--good-text);
-    }
-    .chat-line {
-      margin: 4px 0;
-      font-size: 14px;
-    }
-    .chat-line b { color: #333; }
-    .fix-box {
-      margin-top: 10px;
-      padding: 10px 12px;
-      background: #F6F8FA;
-      border-radius: 8px;
-      font-size: 13.5px;
-      border-left: 3px solid var(--mrbuk);
-    }
-    .steps-list {
-      list-style: none;
-      padding: 0;
-      margin: 0;
-    }
-    .steps-list li {
-      background: var(--card-bg);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 13px 16px;
-      margin-bottom: 10px;
-      display: flex;
-      gap: 12px;
-      align-items: flex-start;
-      font-size: 14.5px;
-    }
-    .step-num {
-      background: #222;
-      color: #fff;
-      width: 24px;
-      height: 24px;
-      border-radius: 50%;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 13px;
-      font-weight: 700;
-      flex-shrink: 0;
-      margin-top: 2px;
-    }
-    .script-card {
-      background: var(--card-bg);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 14px 16px;
-      margin-bottom: 12px;
-    }
-    .script-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 6px;
-    }
-    .script-title {
-      font-weight: 700;
-      font-size: 14px;
-      color: #333;
-    }
-    .copy-btn {
-      background: #F3F1EC;
-      border: 1px solid #D5D1C8;
-      border-radius: 6px;
-      padding: 4px 12px;
-      font-size: 12.5px;
-      font-family: inherit;
-      cursor: pointer;
-      font-weight: 600;
-    }
-    .copy-btn:hover { background: #E8E4DC; }
-    .script-body {
-      font-size: 14px;
-      color: #222;
-      background: #FAF9F6;
-      padding: 10px 12px;
-      border-radius: 8px;
-      white-space: pre-line;
-    }
+    :root {{
+      --bg: #F9F8F4; --card-bg: #FFFFFF; --text: #1F2328; --muted: #656D76;
+      --border: #E5E2DC; --alert-bg: #FDF2F0; --alert-border: #F3C6BF; --alert-text: #9E2A2B;
+      --good-bg: #EFF8F1; --good-border: #BFE3C8; --good-text: #1E6B3A;
+      --mrbuk: #1E6091; --hommali: #8D5524; --sukjai: #2B7A4B;
+    }}
+    * {{ box-sizing: border-box; }}
+    body {{
+      margin: 0; padding: 32px 20px 64px; background: var(--bg); color: var(--text);
+      font-family: 'IBM Plex Sans Thai', -apple-system, BlinkMacSystemFont, sans-serif; line-height: 1.6;
+    }}
+    .container {{ max-width: 980px; margin: 0 auto; }}
+    .top-bar {{ display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 10px; }}
+    .eyebrow {{ font-size: 13px; color: var(--muted); }}
+    .date-pills {{ display: flex; gap: 8px; flex-wrap: wrap; }}
+    .pill {{
+      text-decoration: none; font-size: 13px; font-weight: 600; padding: 6px 12px;
+      border-radius: 20px; border: 1px solid var(--border); background: #fff; color: var(--text);
+    }}
+    .pill.active-pill {{ background: #1F2328; color: #fff; border-color: #1F2328; }}
+    h1 {{ font-size: 28px; font-weight: 700; margin: 0 0 6px; letter-spacing: -0.01em; }}
+    .subhead {{ font-size: 14px; color: var(--muted); margin-bottom: 22px; }}
+    .summary-box {{
+      background: var(--good-bg); border: 1px solid var(--good-border);
+      border-radius: 12px; padding: 18px 22px; margin-bottom: 28px;
+    }}
+    .summary-box h3 {{ margin: 0 0 6px; font-size: 16px; color: var(--good-text); }}
+    .summary-box p {{ margin: 0; font-size: 15px; color: #222; }}
+    h2 {{ font-size: 19px; font-weight: 700; margin: 34px 0 14px; padding-top: 18px; border-top: 2px solid #222; }}
+    .cards-grid {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }}
+    @media (max-width: 820px) {{ .cards-grid {{ grid-template-columns: 1fr; }} }}
+    .page-card {{
+      background: var(--card-bg); border: 1px solid var(--border);
+      border-radius: 14px; padding: 20px; box-shadow: 0 2px 6px rgba(0,0,0,0.02);
+    }}
+    .page-card.mrbuk {{ border-top: 5px solid var(--mrbuk); }}
+    .page-card.hommali {{ border-top: 5px solid var(--hommali); }}
+    .page-card.sukjai {{ border-top: 5px solid var(--sukjai); }}
+    .page-title {{ font-size: 16px; font-weight: 700; margin-bottom: 4px; }}
+    .page-card.mrbuk .page-title {{ color: var(--mrbuk); }}
+    .page-card.hommali .page-title {{ color: var(--hommali); }}
+    .page-card.sukjai .page-title {{ color: var(--sukjai); }}
+    .big-rate {{ font-size: 36px; font-weight: 700; line-height: 1.15; margin: 2px 0; }}
+    .rate-caption {{ font-size: 12.5px; color: var(--muted); margin-bottom: 14px; }}
+    .stat-row {{
+      display: flex; justify-content: space-between; align-items: baseline;
+      padding: 7px 0; border-top: 1px solid #F0EEEA; font-size: 14px;
+    }}
+    .stat-label {{ color: var(--muted); }}
+    .stat-val {{ font-weight: 600; text-align: right; }}
+    .stat-val .sub {{ font-weight: 400; color: var(--alert-text); font-size: 12.5px; }}
+    .stat-val .good {{ color: var(--good-text); }}
+    .stat-val .bad {{ color: var(--alert-text); }}
+    .badge {{
+      display: inline-block; margin-top: 12px; padding: 5px 10px;
+      border-radius: 8px; font-size: 12.5px; font-weight: 600;
+    }}
+    .badge.warn {{ background: var(--alert-bg); color: var(--alert-text); }}
+    .badge.ok {{ background: var(--good-bg); color: var(--good-text); }}
+    .footnote {{ font-size: 12.5px; color: var(--muted); margin-top: 10px; }}
+    table {{
+      width: 100%; border-collapse: collapse; background: var(--card-bg);
+      border-radius: 12px; overflow: hidden; border: 1px solid var(--border); font-size: 14px;
+    }}
+    th, td {{ padding: 11px 14px; text-align: left; border-bottom: 1px solid #F0EEEA; vertical-align: top; }}
+    th {{ background: #F4F2EC; font-weight: 700; color: #333; }}
+    .case-card {{
+      background: var(--card-bg); border: 1px solid var(--border);
+      border-left: 4px solid #D9534F; border-radius: 10px; padding: 16px 18px; margin-bottom: 14px;
+    }}
+    .case-card.good {{ border-left-color: var(--good-text); background: #FCFDFC; }}
+    .case-title {{ font-weight: 700; font-size: 15px; margin-bottom: 8px; color: #9E2A2B; }}
+    .case-card.good .case-title {{ color: var(--good-text); }}
+    .chat-line {{ margin: 4px 0; font-size: 14px; }}
+    .fix-box {{
+      margin-top: 10px; padding: 10px 12px; background: #F6F8FA;
+      border-radius: 8px; font-size: 13.5px; border-left: 3px solid var(--mrbuk);
+    }}
+    .script-card {{
+      background: var(--card-bg); border: 1px solid var(--border);
+      border-radius: 10px; padding: 14px 16px; margin-bottom: 12px;
+    }}
+    .script-header {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }}
+    .script-title {{ font-weight: 700; font-size: 14px; color: #333; }}
+    .copy-btn {{
+      background: #F3F1EC; border: 1px solid #D5D1C8; border-radius: 6px;
+      padding: 4px 12px; font-size: 12.5px; font-family: inherit; cursor: pointer; font-weight: 600;
+    }}
+    .script-body {{
+      font-size: 14px; color: #222; background: #FAF9F6;
+      padding: 10px 12px; border-radius: 8px; white-space: pre-line;
+    }}
   </style>
 </head>
 <body>
   <div class="container">
-    <div class="eyebrow">รายงานสำหรับทีมแอดมิน · ข้าวบุก 3 เพจ</div>
-    <h1>อัตราปิดการขาย & คุณภาพการตอบแชท</h1>
-    <div class="subhead">ข้อมูลจริงวันนี้: วันจันทร์ที่ 16 พ.ย. 2569 (ช่วงเวลา 00:00 – 13:45 น.) · เทียบค่าเฉลี่ยสัปดาห์ 9–15 พ.ย.</div>
+    <div class="top-bar">
+      <div class="eyebrow">รายงานสำหรับทีมแอดมิน · ข้าวบุก 3 เพจ (อัปเดตสดจาก Graph API)</div>
+      <div class="date-pills">
+        <a class="pill {active_y}" href="/admin-report?date={yesterday_str}">เมื่อวาน 24 ชม. ({yesterday_str})</a>
+        <a class="pill {active_t}" href="/admin-report?date={today_str}&refresh=1">วันนี้สด ({today_str})</a>
+      </div>
+    </div>
+    <h1>อัตราปิดการขาย &amp; คุณภาพการตอบแชท</h1>
+    <div class="subhead">ข้อมูลจริง: {html.escape(rep['thai_date'])} · {html.escape(rep['period_label'])} (ดึงข้อมูลเมื่อ {html.escape(rep['generated_at'])})</div>
 
     <div class="summary-box">
-      <h3>สรุปสั้นวันนี้ (00:00 – 13:45 น.)</h3>
+      <h3>สรุปภาพรวมทั้ง 3 เพจ ({html.escape(rep['thai_date'])})</h3>
       <p>
-        ช่วงเช้าถึงบ่ายวันนี้ทั้ง 3 เพจปิดออเดอร์รวมกันได้ <strong>17 ออเดอร์ (7,594฿)</strong> จากแชทที่คุยวันนี้ 67 แชท
-        โดย <strong>ข้าวบุก สุขใจ ตอบไวขึ้นมาก (เฉลี่ย 58 วินาที)</strong> และแอดมินแบ่งจังหวะส่งข้อความสั้นๆ ได้เป็นธรรมชาติขึ้น
-        ส่วนจุดที่ต้องแก้ด่วนคือ <strong>เมื่อลูกค้าพิมพ์เลือกขนาด+โอนแล้ว ต้องส่งเลขบัญชีทันที (ไม่ข้ามไปเชียร์ 15 ซองจนลูกค้าถอย)</strong>,
-        <strong>สังเกตข้อความที่ลูกค้าเก่ากด Reply สั่งซ้ำจะได้ไม่ถามซ้ำ</strong>,
-        <strong>แก้คำพิมพ์ผิดในข้อความสำเร็จรูป</strong>,
-        และ <strong>Mr.Buk ยังมีแชทโฆษณาค้างเกิน 3 ชม. อยู่ 7 แชทที่ต้องเคลียร์ทันทีค่ะ</strong>
+        ทั้ง 3 เพจปิดออเดอร์รวมกันได้ <strong>{rep['total_orders']} ออเดอร์ ({rep['total_thb']:,}฿)</strong>
+        จากแชทที่คุยในวันทั้งหมด <strong>{rep['total_chats']} แชท</strong> ·
+        🌟 <strong>ชมเชย:</strong> {html.escape(rep['praise_text'])}
       </p>
     </div>
 
-    <h2>1. ผลของแต่ละเพจ (วันนี้ 00:00 – 13:45 น. เทียบสัปดาห์ 9–15 พ.ย.)</h2>
+    <h2>1. ผลของแต่ละเพจ ({html.escape(rep['period_label'])})</h2>
     <div class="cards-grid">
-      <!-- Card 1: Mr.Buk -->
-      <div class="page-card mrbuk">
-        <div class="page-title">Mr.Buk มิสเตอร์บุก</div>
-        <div class="big-rate">27.6%</div>
-        <div class="rate-caption">% ปิดเฉพาะแชทที่คุยวันนี้ (8 ออเดอร์ ÷ 29 แชท)</div>
-        <div class="stat-row">
-          <span class="stat-label">อัตราปิด 7 วันล่าสุด</span>
-          <span class="stat-val">7.6% <span class="sub">(สัปดาห์ก่อน 11.4%)</span></span>
-        </div>
-        <div class="stat-row">
-          <span class="stat-label">แชทวันนี้ / ออเดอร์วันนี้</span>
-          <span class="stat-val">29 แชท / 8 ออเดอร์</span>
-        </div>
-        <div class="stat-row">
-          <span class="stat-label">ยอดขายรวมวันนี้ (ถึง 13:45)</span>
-          <span class="stat-val">3,865฿</span>
-        </div>
-        <div class="stat-row">
-          <span class="stat-label">ยอดเฉลี่ยต่อออเดอร์วันนี้</span>
-          <span class="stat-val">483฿ <span class="sub">(เป้า 550฿+)</span></span>
-        </div>
-        <div class="stat-row">
-          <span class="stat-label">ยอดขายต่อ 1 แชทวันนี้</span>
-          <span class="stat-val">133฿ <span class="good">(7 วัน: 44฿)</span></span>
-        </div>
-        <div class="stat-row">
-          <span class="stat-label">เวลาตอบเฉลี่ย</span>
-          <span class="stat-val"><span class="good">1 นาที 35 วิ</span></span>
-        </div>
-        <div class="stat-row">
-          <span class="stat-label">แชทโฆษณาค้าง &gt; 3 ชม.</span>
-          <span class="stat-val"><span class="bad">7 แชท (ยังไม่เคลียร์)</span></span>
-        </div>
-        <div class="badge warn">มีบิล 319฿ ถึง 4 บิล · ต้องเสนอ 1 กก. ส่งฟรีเพิ่ม</div>
-      </div>
-
-      <!-- Card 2: ข้าวบุกหอมมะลิ -->
-      <div class="page-card hommali">
-        <div class="page-title">ข้าวบุกหอมมะลิ (เพจ 2)</div>
-        <div class="big-rate">31.3%</div>
-        <div class="rate-caption">% ปิดเฉพาะแชทที่คุยวันนี้ (5 ออเดอร์ ÷ 16 แชท)</div>
-        <div class="stat-row">
-          <span class="stat-label">อัตราปิด 7 วันล่าสุด</span>
-          <span class="stat-val">9.7% <span class="sub">(สัปดาห์ก่อน 12.5%)</span></span>
-        </div>
-        <div class="stat-row">
-          <span class="stat-label">แชทวันนี้ / ออเดอร์วันนี้</span>
-          <span class="stat-val">16 แชท / 5 ออเดอร์</span>
-        </div>
-        <div class="stat-row">
-          <span class="stat-label">ยอดขายรวมวันนี้ (ถึง 13:45)</span>
-          <span class="stat-val">1,943฿</span>
-        </div>
-        <div class="stat-row">
-          <span class="stat-label">ยอดเฉลี่ยต่อออเดอร์วันนี้</span>
-          <span class="stat-val">389฿ <span class="sub">(เป้า 550฿+)</span></span>
-        </div>
-        <div class="stat-row">
-          <span class="stat-label">ยอดขายต่อ 1 แชทวันนี้</span>
-          <span class="stat-val">121฿ <span class="good">(7 วัน: 42฿)</span></span>
-        </div>
-        <div class="stat-row">
-          <span class="stat-label">เวลาตอบเฉลี่ย</span>
-          <span class="stat-val">4 นาที 15 วิ</span>
-        </div>
-        <div class="stat-row">
-          <span class="stat-label">แชทโฆษณาค้าง &gt; 3 ชม.</span>
-          <span class="stat-val"><span class="good">0 แชท (เคลียร์ครบ)</span></span>
-        </div>
-        <div class="badge ok">% ปิดสูงสุดทั้งรายสัปดาห์และวันนี้</div>
-      </div>
-
-      <!-- Card 3: ข้าวบุก สุขใจ -->
-      <div class="page-card sukjai">
-        <div class="page-title">ข้าวบุก สุขใจ</div>
-        <div class="big-rate">18.2%</div>
-        <div class="rate-caption">% ปิดเฉพาะแชทที่คุยวันนี้ (4 ออเดอร์ ÷ 22 แชท)</div>
-        <div class="stat-row">
-          <span class="stat-label">อัตราปิด 7 วันล่าสุด</span>
-          <span class="stat-val">6.1% <span class="sub">(สัปดาห์ก่อน 8.8%)</span></span>
-        </div>
-        <div class="stat-row">
-          <span class="stat-label">แชทวันนี้ / ออเดอร์วันนี้</span>
-          <span class="stat-val">22 แชท / 4 ออเดอร์</span>
-        </div>
-        <div class="stat-row">
-          <span class="stat-label">ยอดขายรวมวันนี้ (ถึง 13:45)</span>
-          <span class="stat-val">1,786฿</span>
-        </div>
-        <div class="stat-row">
-          <span class="stat-label">ยอดเฉลี่ยต่อออเดอร์วันนี้</span>
-          <span class="stat-val">447฿ <span class="sub">(เป้า 550฿+)</span></span>
-        </div>
-        <div class="stat-row">
-          <span class="stat-label">ยอดขายต่อ 1 แชทวันนี้</span>
-          <span class="stat-val">81฿ <span class="good">(7 วัน: 29฿)</span></span>
-        </div>
-        <div class="stat-row">
-          <span class="stat-label">เวลาตอบเฉลี่ยวันนี้</span>
-          <span class="stat-val"><span class="good">58 วินาที (ดีขึ้นมาก!)</span></span>
-        </div>
-        <div class="stat-row">
-          <span class="stat-label">แชทเพิ่งทักรอตอบ (13:47)</span>
-          <span class="stat-val">2 แชท</span>
-        </div>
-        <div class="badge ok">ความไวในการตอบวันนี้ดีขึ้นชัดเจน (ต่ำกว่า 1 นาที)</div>
-      </div>
+      {''.join(cards_html_parts)}
     </div>
     <div class="footnote">
-      * ข้อมูลวันนี้ดึงสดจาก Meta Business Suite &amp; Graph API ทั้ง 3 เพจ (16 พ.ย. เวลา 00:00 – 13:45 น.) นับออเดอร์จากรหัส #BUY ในแชทจริง
+      * ดึงสดจาก Facebook Graph API ทั้ง 3 เพจแบบ Read-Only 100% · นับออเดอร์จากรหัส #BUY ในแชทจริง · เวลาตอบเฉลี่ยคิดเฉพาะกะกลางวัน 07:00–23:00 น. (ไม่รวมช่วงดึก)
     </div>
 
-    <h2>2. รายการออเดอร์ที่ปิดได้วันนี้ แยกตามช่วงเวลา (00:00 – 13:45 น.)</h2>
+    <h2>2. รายการออเดอร์แยกตามช่วงเวลา 4 ชั่วโมง ({html.escape(rep['thai_date'])})</h2>
     <table>
       <thead>
         <tr>
-          <th>ช่วงเวลาวันนี้ (16 พ.ย.)</th>
+          <th>ช่วงเวลา</th>
           <th>Mr.Buk มิสเตอร์บุก</th>
           <th>ข้าวบุกหอมมะลิ (เพจ 2)</th>
           <th>ข้าวบุก สุขใจ</th>
         </tr>
       </thead>
       <tbody>
-        <tr>
-          <td><strong>00:00 – 04:00 น.</strong> (กะดึก)</td>
-          <td>2 ออเดอร์ (638฿)<br><span style="color:#656D76;font-size:12.5px;">01:50 (#BUY319), 03:48 (#BUY319)</span></td>
-          <td>1 ออเดอร์ (629฿)<br><span style="color:#656D76;font-size:12.5px;">02:11 (#BUY629 เซ็ต 15 ถุง)</span></td>
-          <td>0 ออเดอร์<br><span style="color:#656D76;font-size:12.5px;">มีทัก 2 แชทตอน 03:27–03:30</span></td>
-        </tr>
-        <tr>
-          <td><strong>04:00 – 08:00 น.</strong> (เช้ามืด)</td>
-          <td>1 ออเดอร์ (520฿)<br><span style="color:#656D76;font-size:12.5px;">07:47 (#BUY520 1 กก. ปลายทาง)</span></td>
-          <td>0 ออเดอร์<br><span style="color:#656D76;font-size:12.5px;">ทัก 1 แชทตอน 06:46</span></td>
-          <td>0 ออเดอร์<br><span style="color:#656D76;font-size:12.5px;">เริ่มส่งข้อความตามแชท 06:34–07:31</span></td>
-        </tr>
-        <tr>
-          <td><strong>08:00 – 12:00 น.</strong> (กะเช้า - ปิดดีสุด)</td>
-          <td>4 ออเดอร์ (1,727฿)<br><span style="color:#656D76;font-size:12.5px;">08:14 (#BUY319), 09:21 (#BUY599), 11:23 (#BUY319), 11:46 (#BUY490)</span></td>
-          <td>3 ออเดอร์ (1,011฿)<br><span style="color:#656D76;font-size:12.5px;">10:19 (#BUY520), 11:11 (#BUY319), 11:18 (#BUY172)</span></td>
-          <td>4 ออเดอร์ (1,786฿)<br><span style="color:#656D76;font-size:12.5px;">08:23 (#BUY720), 09:10 (#BUY148), 09:17 (#BUY459), 10:59 (#BUY459)</span></td>
-        </tr>
-        <tr>
-          <td><strong>12:00 – 13:45 น.</strong> (พักเที่ยง–บ่ายต้น)</td>
-          <td>1 ออเดอร์ (980฿)<br><span style="color:#656D76;font-size:12.5px;">13:46 (#BUY980 เซ็ต 2 กก.) + รอโอน 950฿ 1 เคส</span></td>
-          <td>1 ออเดอร์ (303฿)<br><span style="color:#656D76;font-size:12.5px;">12:04 (#BUY303) + รอตัดสินใจ 1 เคส (12:57)</span></td>
-          <td>0 ออเดอร์<br><span style="color:#656D76;font-size:12.5px;">กำลังคุยค้าง 5 แชท (12:41–13:47)</span></td>
-        </tr>
+        {''.join(bucket_rows_html)}
       </tbody>
     </table>
 
-    <h2>3. สิ่งที่เจอจากการอ่านแชทจริงวันนี้ (16 พ.ย. 00:00 – 13:45 น.)</h2>
+    <h2>3. เคสตัวอย่างจากแชทจริง ({html.escape(rep['thai_date'])})</h2>
+    {''.join(cases_html_parts)}
 
-    <div class="case-card">
-      <div class="case-title">1) ข้าวบุก สุขใจ (13:46 น.) · ลูกค้า คุณ Ann Gilham — บอก “3 ซองค่ะ / โอน” แต่ไม่ส่งเลขบัญชี ข้ามไปเชียร์ 15 ซองจนลูกค้าถอย</div>
-      <div class="chat-line"><b>ลูกค้า:</b> ซองเล็ก / 3 ซองค่ะ / โอน</div>
-      <div class="chat-line"><b>ร้าน:</b> ยอดโอน117+30= 147 ปลายทาง117+70= 187 … “ลูกค้าสนใจรับโปร 15 ถุงไหมคะโอนชำระจัดส่งฟรีค่ะเฉลี่ยตกถุงละ 36 บาทคุ้มๆเลยนะคะลูกค้า” (พิมพ์ “คุ้มๆ” ผิด และยังไม่ส่งเลขบัญชี)</div>
-      <div class="chat-line"><b>ลูกค้า:</b> “เยอะไปค่ะ”</div>
-      <div class="fix-box">
-        <b>ควรตอบ:</b> เมื่อลูกค้าพิมพ์ “3 ซอง / โอน” ต้อง <b>ส่งเลขบัญชี + ขอชื่อที่อยู่สั้นๆ ทันที</b> เพื่อล็อกออเดอร์ก่อน และถ้าจะเสนอเพิ่มจาก 3 ซอง ให้ขยับเป็น <b>5 ซอง 195.- หรือ 500g 239.-</b> ไม่กระโดดจาก 3 ซองไป 15 ซองค่ะ
-      </div>
-    </div>
-
-    <div class="case-card">
-      <div class="case-title">2) ข้าวบุกหอมมะลิ เพจ 2 (02:11 น.) · ลูกค้า คุณ ชนัญชิดา สูงเรือง — กด Reply บิลเดิมบอก “สั่งค่ะ ส่งที่อยู่เดิม ปลายทาง” แต่แอดมินถามซ้ำ</div>
-      <div class="chat-line"><b>ลูกค้า:</b> (กด Reply ข้อความสรุปยอดเดิม 60 กรัม 15 ถุง 629 บาท) “สั่งค่ะ / ส่งที่อยู่เดิมนะค่ะ / ปลายทาง”</div>
-      <div class="chat-line"><b>ร้าน:</b> “คุณลูกค้ารับขนาดไหนดีคะ” → พอลูกค้าพิมพ์ “15ถุง” แอดมินถามซ้ำอีกว่า “คุณลูกค้าชำระแบบไหนดีคะ” ทั้งที่ลูกค้าแจ้ง “ปลายทาง” มาตั้งแต่แรกแล้ว</div>
-      <div class="fix-box">
-        <b>ควรตอบ:</b> อ่านข้อความที่ลูกค้ากด Reply ด้านบนก่อนตอบทุกครั้ง ถ้าลูกค้าบอก “สั่งค่ะ ส่งที่อยู่เดิม ปลายทาง” ให้ดึงที่อยู่เดิมมาสรุปยอดปิดออเดอร์ทันทีค่ะ
-      </div>
-    </div>
-
-    <div class="case-card">
-      <div class="case-title">3) ข้าวบุกหอมมะลิ &amp; สุขใจ (09:11 – 12:57 น.) · ลูกค้า คุณ Bebe Nuttacha / คุณ Sikharet — พิมพ์ผิดในข้อความที่ส่งหาลูกค้า</div>
-      <div class="chat-line">• <b>คุณ Bebe Nuttacha (หอมมะลิ 12:57 น.):</b> แอดมินแบ่งจังหวะเชียร์โปร 1 กก. ส่งฟรี และถามวิธีชำระเงินสั้นๆ ได้ดีตามธรรมชาติคนไทยแล้วค่ะ แต่พิมพ์ผิดเป็น <b>“500g โอนชำระ 289 ปบายทาง 319 บาท”</b></div>
-      <div class="chat-line">• <b>คุณ Sikharet &amp; คุณ Farida (สุขใจ 09:11 &amp; 09:31 น.):</b> ยังมีคำพิมพ์ผิดในข้อความสำเร็จรูป <b>“สะดวกกชำระ”</b>, <b>“ข้าวบุกสุกใจ”</b> และคำว่า <b>“ลดแป้งลงครึ่งหนึ่ง เพียง 23 kcal”</b> (ต้องระบุหน่วย “23 kcal ต่อข้าวสุก 25 กรัม”)</div>
-      <div class="fix-box">
-        <b>ควรทำ:</b> เข้าไปแก้คำผิดในข้อความตอบกลับที่บันทึกไว้ (Saved Replies) ทั้งหมดทันที เพื่อความน่าเชื่อถือของแบรนด์ค่ะ
-      </div>
-    </div>
-
-    <div class="case-card">
-      <div class="case-title">4) ข้าวบุก สุขใจ (03:27 – 09:56 น.) · ลูกค้า คุณ ณภีร์ภัฏฐ์ — ถามซองเล็กเฉพาะมื้อ แต่ส่งตารางค่าส่งทับคำถาม</div>
-      <div class="chat-line"><b>ลูกค้า:</b> มีซองขนาดเล็กเฉพาะมื้อไหมคับ</div>
-      <div class="chat-line"><b>ร้าน:</b> (ส่งตารางค่าส่ง) … 06:57 “รับกี่ถุงดีค่ะลูกค้า” … 09:56 “รับเป็น 1 กก.ส่งฟรีเลยไหมค่ะ”</div>
-      <div class="fix-box">
-        <b>ควรตอบ:</b> ตอบคำถามสั้นๆ ให้ตรงก่อน 1 บับเบิล “มีค่ะ ซองเล็ก 60 กรัม (ทานอิ่มพอดี 1 มื้อ) ซองละ 39 บาทค่ะ” แล้วค่อยถามต่อสั้นๆ ว่าอยากรับไปลองกี่ซองดีคะ
-      </div>
-    </div>
-
-    <div class="case-card">
-      <div class="case-title">5) Mr.Buk มิสเตอร์บุก · แชทโฆษณาค้างเกิน 3 ชั่วโมง 7 แชท (ยังไม่เคลียร์ตั้งแต่เช้าถึง 13:45 น.)</div>
-      <div class="chat-line">• แถบแจ้งเตือนสีแดง “ข้อความที่รอเกิน 3 ชั่วโมง (7 แชทจากโฆษณานี้ต้องได้รับการตอบกลับ)” ยังค้างอยู่ตั้งแต่ 06:48 น. จนถึง 13:45 น.</div>
-      <div class="fix-box">
-        <b>ควรทำ:</b> กดปุ่มตัวกรอง “การตอบกลับโฆษณา” ใน Meta Business Suite แล้วไล่ตอบให้ครบ 0 แชทก่อนเปลี่ยนกะทุกครั้งค่ะ
-      </div>
-    </div>
-
-    <div class="case-card good">
-      <div class="case-title">✅ ตัวอย่างที่แอดมินทำได้ดีมากในวันนี้ (ชมเชยและทำต่อได้เลยค่ะ)</div>
-      <div class="chat-line">• <b>Mr.Buk (13:41–13:46 น. แอดมินมะเหมี่ยว · ลูกค้า คุณ ปภัสณัฐ):</b> แบ่งจังหวะคุยสั้นๆ กระชับ พอลูกค้าบอก “2กิโล ปลายทาง” แอดมินแจ้งยอด “950+30= 980บาทค่ะ” + ขอที่อยู่ พอจัดส่งครบก็ปิดยอด <b>#BUY980</b> จบใน 5 นาทีค่ะ</div>
-      <div class="chat-line">• <b>Mr.Buk (11:19 น. · ลูกค้า คุณ Neeranut PS):</b> ลูกค้าถามเรื่องโปรตีน แอดมินตอบสั้นและแม่นยำมาก (“ต่อข้าวสุก 25 กรัม มีโปรตีน 0.4 กรัม ทานคู่กับเนื้อสัตว์หรือไข่ต้มได้เลย อร่อยแคลต่ำ น้ำตาล 0% เลยค่า”)</div>
-      <div class="chat-line">• <b>ข้าวบุก สุขใจ (09:58 น. · ลูกค้า คุณ Sasamon):</b> ลูกค้าทักว่าใส่น้ำร้อนแล้วมีน้ำข้าว แอดมินตอบสั้นเข้าใจง่ายภายใน 1 นาที (“ใส่น้ำร้อนให้พอดีพอท่วมข้าวค่ะ จากนั้นปิดฝารอ 10-15 นาทีค่ะ”) ลูกค้าเข้าใจทันทีค่ะ</div>
-    </div>
-
-    <h2>4. แนวทางปรับปรุงการตอบแชท (เน้นสั้น กระชับ แบ่งจังหวะตามธรรมชาติคนไทย)</h2>
-    <ul class="steps-list">
-      <li>
-        <span class="step-num">1</span>
-        <div><b>ส่งข้อความสั้นๆ แบ่งจังหวะคุย (ไม่ส่งยาวเป็นพืด):</b> คนไทยชอบอ่านข้อความสั้นๆ 1 ข้อความควรมีแค่ 1–2 เรื่องพอดี เช่น ถ้าลูกค้าเลือก “ปลายทาง” แล้ว ค่อยส่ง “สรุปยอดปลายทาง + ขอชื่อที่อยู่” คู่กันได้ แต่ถ้ากำลังเทียบโปร ให้ถามสั้นๆ ให้ลูกค้าเลือกขนาดก่อนค่ะ</div>
-      </li>
-      <li>
-        <span class="step-num">2</span>
-        <div><b>เมื่อลูกค้าพิมพ์ “โอน” ต้องส่งเลขบัญชีทันที:</b> ล็อกออเดอร์ที่ลูกค้าเลือกให้จบก่อน อย่าเพิ่งข้ามไปเชียร์เซ็ตใหญ่ที่ห่างจากงบลูกค้ามากเกินไป (เช่น สั่ง 3 ซอง อย่าข้ามไป 15 ซอง ให้ขยับแค่ 5 ซอง หรือ 500g พอค่ะ)</div>
-      </li>
-      <li>
-        <span class="step-num">3</span>
-        <div><b>สังเกตกรอบ Reply ของลูกค้าเก่าทุกครั้ง:</b> ถ้าลูกค้ากด Reply บิลเดิมพร้อมพิมพ์ “สั่งค่ะ ที่อยู่เดิม ปลายทาง” ให้สรุปยอดจากข้อมูลเดิมทันที ไม่ถามขนาดซ้ำค่ะ</div>
-      </li>
-      <li>
-        <span class="step-num">4</span>
-        <div><b>เคลียร์ 7 แชทค้างของ Mr.Buk และแก้คำพิมพ์ผิดใน Saved Replies:</b> แก้ “ปบายทาง” → “ปลายทาง”, “สะดวกกชำระ” → “สะดวกชำระ”, “ข้าวบุกสุกใจ” → “ข้าวบุกสุขใจ”</div>
-      </li>
-    </ul>
-
-    <h2>5. สคริปต์สั้นๆ พร้อมใช้ (แบ่งจังหวะส่งทีละบับเบิลสั้นๆ)</h2>
-
+    <h2>4. สคริปต์สั้นๆ พร้อมใช้ (กดคัดลอกไปใช้ได้ทันที)</h2>
     <div class="script-card">
       <div class="script-header">
-        <span class="script-title">เมื่อลูกค้าบอก “3 ซอง / โอน” (ส่งยอด + เลขบัญชีสั้นๆ ทันที)</span>
+        <span class="script-title">เมื่อลูกค้าบอก “3 ซอง / โอน” (ส่งยอด + เลขบัญชีล็อกออเดอร์ทันที)</span>
         <button class="copy-btn" onclick="copyScript(this, 'sc1')">คัดลอก</button>
       </div>
       <div class="script-body" id="sc1">ได้เลยค่ะ ซองเล็ก 60g 3 ซอง ยอด 117 + ค่าส่ง 30 = รวมโอน 147 บาทค่ะ 😊
@@ -884,7 +1145,7 @@ def render_admin_report_html() -> str:
 
     <div class="script-card">
       <div class="script-header">
-        <span class="script-title">เมื่อลูกค้าสั่ง 500g (จังหวะที่ 1: เชียร์ 1 กก. ส่งฟรีสั้นๆ ให้เลือกก่อน)</span>
+        <span class="script-title">เมื่อลูกค้าสั่ง 500g (เชียร์ขยับ 1 กก. โอนส่งฟรีสั้นๆ)</span>
         <button class="copy-btn" onclick="copyScript(this, 'sc2')">คัดลอก</button>
       </div>
       <div class="script-body" id="sc2">ได้เลยค่ะ 😊 ขนาด 500g โอนชำระ 289 บาท (ปลายทาง 319 บาท) ค่ะ
@@ -900,75 +1161,110 @@ def render_admin_report_html() -> str:
 คุณลูกค้าสนใจรับไปลองทานกี่ซองดีคะ 😊</div>
     </div>
 
-    <h2>6. ตัวชี้วัดเป้าหมายประจำวัน</h2>
+    <h2>5. ตัวชี้วัดเป้าหมายประจำวัน</h2>
     <table>
       <thead>
         <tr>
           <th>ตัวชี้วัด</th>
           <th>เป้าหมาย</th>
-          <th>ผลวันนี้ 00:00–13:45 น. (Mr.Buk / หอมมะลิ / สุขใจ)</th>
+          <th>ผลจริง (Mr.Buk / หอมมะลิ / สุขใจ)</th>
         </tr>
       </thead>
       <tbody>
         <tr>
           <td>% ปิดการขาย (เฉพาะแชทที่คุยในวัน)</td>
           <td>25%+ ต่อกะ</td>
-          <td>27.6% / 31.3% / 18.2%</td>
+          <td>{p0['conv_rate']}% / {p1['conv_rate']}% / {p2['conv_rate']}%</td>
         </tr>
         <tr>
           <td>ยอดเฉลี่ยต่อออเดอร์ (AOV)</td>
           <td>550฿ ขึ้นไป</td>
-          <td>483฿ / 389฿ / 447฿ (ต้องดันโปร 1 กก. ส่งฟรีเพิ่ม)</td>
+          <td>{p0['aov']:,}฿ / {p1['aov']:,}฿ / {p2['aov']:,}฿</td>
         </tr>
         <tr>
-          <td>เวลาตอบกลับเฉลี่ย</td>
+          <td>เวลาตอบกลับเฉลี่ย (07:00–23:00 น.)</td>
           <td>ไม่เกิน 3–5 นาที</td>
-          <td>1:35 นาที / 4:15 นาที / 0:58 นาที</td>
+          <td>{html.escape(p0['avg_compact'])} / {html.escape(p1['avg_compact'])} / {html.escape(p2['avg_compact'])}</td>
         </tr>
         <tr>
-          <td>แชทค้างเกิน 3 ชั่วโมง</td>
+          <td>แชทรอตอบเกิน 3 ชั่วโมง</td>
           <td>0 แชท</td>
-          <td>Mr.Buk ค้าง 7 แชท / หอมมะลิ 0 / สุขใจ 0</td>
+          <td>Mr.Buk {p0['overdue_3h']} / หอมมะลิ {p1['overdue_3h']} / สุขใจ {p2['overdue_3h']}</td>
         </tr>
       </tbody>
     </table>
   </div>
 
   <script>
-    function copyScript(btn, id) {
+    function copyScript(btn, id) {{
       const text = document.getElementById(id).innerText;
-      navigator.clipboard.writeText(text).then(() => {
+      navigator.clipboard.writeText(text).then(() => {{
         const old = btn.innerText;
         btn.innerText = 'คัดลอกแล้ว ✓';
-        setTimeout(() => { btn.innerText = old; }, 1800);
-      });
-    }
+        setTimeout(() => {{ btn.innerText = old; }}, 1800);
+      }});
+    }}
   </script>
 </body>
 </html>"""
 
 
 def register_admin_report_routes(app: Any) -> None:
-    """Mount `/admin-report` HTML dashboard, `/api/admin-report/status`, and `/api/admin-report/send` onto FastAPI app."""
+    """Mount `/admin-report`, `/api/admin-report/status`, `/api/admin-report/preview`, and `/api/admin-report/send`."""
 
     @app.get("/admin-report", response_class=HTMLResponse)
-    async def view_admin_report():
-        return HTMLResponse(content=render_admin_report_html())
+    async def view_admin_report(date: str | None = None, refresh: int = 0):
+        import asyncio
+
+        html_out = await asyncio.to_thread(render_admin_report_html, date, bool(refresh))
+        return HTMLResponse(content=html_out)
 
     @app.get("/api/admin-report/status")
     async def get_admin_report_status():
         state = load_admin_report_state()
+        toks = resolve_three_page_tokens()
+        public_state = {k: v for k, v in state.items() if k != "sealed_page_tokens"}
         return {
             "status": "ok",
             "bot": "พุดดิ้ง🍮 (@346zyzej)",
             "silent_mode": True,
             "schedule_time_bkk": "01:00",
             "active_admin_group_id": get_active_pudding_admin_group_id(),
-            "state": state,
+            "pages_connected": {k: bool(v) for k, v in toks.items()},
+            "state": public_state,
+        }
+
+    @app.get("/api/admin-report/preview")
+    async def preview_admin_report(date: str | None = None, refresh: int = 0):
+        import asyncio
+
+        rep = await asyncio.to_thread(get_three_pages_live_report, date, bool(refresh))
+        line_text = await asyncio.to_thread(format_pudding_line_summary, "", rep["target_date"], False)
+        return {
+            "status": "ok",
+            "target_date": rep["target_date"],
+            "total_orders": rep["total_orders"],
+            "total_thb": rep["total_thb"],
+            "total_chats": rep["total_chats"],
+            "pages": [
+                {
+                    "key": p["key"],
+                    "title": p["title"],
+                    "chats": p["chats"],
+                    "orders": p["orders"],
+                    "total_thb": p["total_thb"],
+                    "conv_rate": p["conv_rate"],
+                    "aov": p["aov"],
+                    "avg_label": p["avg_label"],
+                    "overdue_3h": p["overdue_3h"],
+                }
+                for p in rep["pages"]
+            ],
+            "line_preview": line_text,
         }
 
     @app.post("/api/admin-report/send")
-    async def trigger_send_admin_report(group_id: str | None = None):
+    async def trigger_send_admin_report(group_id: str | None = None, date: str | None = None):
         import asyncio
 
-        return await asyncio.to_thread(send_pudding_report_to_line_group, group_id)
+        return await asyncio.to_thread(send_pudding_report_to_line_group, group_id, "", date, True)

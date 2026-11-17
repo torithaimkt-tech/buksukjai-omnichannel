@@ -24,8 +24,10 @@
       "channels": {
         "line_channel_secret": "",
         "line_channel_access_token": "",
-        "fb_page_id": "",
+        "fb_page_id": "110007064468438",
         "fb_page_access_token": "",
+        "hommali_fb_page_id": "772314109306371",
+        "hommali_fb_page_access_token": "",
         "ig_account_id": "",
         "ig_access_token": ""
       }
