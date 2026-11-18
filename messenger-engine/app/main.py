@@ -1834,18 +1834,49 @@ class JstCookieUpdatePayload(BaseModel):
 async def api_update_jst_cookie_direct(body: JstCookieUpdatePayload):
     """Update JST ERP session cookie directly and verify live Buk Sukjai warehouse stock."""
     import asyncio
-    from . import daily_sheet_report, jst_erp
+    from . import jst_erp
 
     jst_erp.set_jst_cookie(body.cookie.strip())
     await asyncio.to_thread(jst_erp.check_jst_cookie_health, False)
     live_wh = await asyncio.to_thread(jst_erp.get_warehouse_stock_summary)
-    if live_wh.get("status") == "ok":
-        cfg = daily_sheet_report.load_line_group_config()
-        cfg["last_warehouse_stock"] = live_wh
-        daily_sheet_report.save_line_group_config(cfg)
     return {
         "status": live_wh.get("status", "unknown"),
         "warehouse_stock": live_wh,
+    }
+
+
+@app.get("/api/jst/cookie-sync")
+async def api_export_jst_cookie_for_pre_push(ts: str = "", sig: str = ""):
+    """HMAC-protected endpoint allowing local pre-push hook to pull Render's latest renewed sliding cookie
+    so a `git push` never overwrites a newer cloud cookie with an older local file.
+    """
+    import hashlib
+    import hmac
+    import time as _time
+    from . import config_loader, jst_erp
+
+    page = config_loader.get_page_by_brand_id("workbot") or {}
+    secret = (
+        os.getenv("LINE_WORKBOT_CHANNEL_SECRET")
+        or (page.get("channels") or {}).get("line_channel_secret")
+        or ""
+    ).strip()
+    if not secret or not ts or not sig:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    try:
+        if abs(_time.time() - float(ts)) > 300:
+            raise HTTPException(status_code=403, detail="Expired timestamp")
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Invalid timestamp")
+    expected = hmac.new(secret.encode("utf-8"), f"jst-sync:{ts}".encode("utf-8"), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(expected, sig):
+        raise HTTPException(status_code=403, detail="Invalid signature")
+
+    st = jst_erp.get_daily_sync_state()
+    return {
+        "status": "ok",
+        "cookie_refreshed_at": st.get("cookie_refreshed_at", ""),
+        "persisted_cookie": st.get("persisted_cookie", ""),
     }
 
 

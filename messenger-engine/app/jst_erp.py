@@ -539,6 +539,8 @@ def save_daily_sync_state(updates: dict[str, Any]) -> dict[str, Any]:
                     ensure_ascii=False,
                 )
                 db.commit()
+        if "persisted_cookie" in updates:
+            database.save_persistent_snapshot()
     except Exception:
         pass
     return st
@@ -3171,6 +3173,17 @@ def get_warehouse_stock_summary() -> dict[str, Any]:
     h["Referer"] = "https://asia.jsterp.com/Wms/Inventory/SkuInventory"
 
     try:
+        for _renew_url in (
+            "https://asia.jsterp.com/Wms/Inventory/SkuInventory",
+            "https://asia.jsterp.com/Account/Shop/GetAuthorizeData",
+        ):
+            try:
+                _ar = httpx.get(_renew_url, headers=h, timeout=8.0, follow_redirects=False)
+                if update_cookie_from_response(_ar):
+                    h["Cookie"] = get_jst_cookie()
+            except Exception:
+                pass
+
         resp = httpx.post(
             "https://asia.jsterp.com/wms/Inventory/GetSkuInventorys",
             headers=h,
@@ -3179,10 +3192,16 @@ def get_warehouse_stock_summary() -> dict[str, Any]:
                 "DataPage": {"pageSize": 50, "pageIndex": 1, "total": 0, "sizes": [50, 100]},
             },
             timeout=15.0,
+            follow_redirects=False,
         )
         update_cookie_from_response(resp)
+        if resp.status_code in (301, 302, 401, 403):
+            raise RuntimeError(f"HTTP {resp.status_code} Redirect/Unauthorized ({resp.headers.get('location', '')})")
         resp.raise_for_status()
-        data = (resp.json() or {}).get("Data") or []
+        payload = resp.json() or {}
+        if payload.get("Success") is False:
+            raise RuntimeError(str(payload.get("Message") or "JST GetSkuInventorys Success=False"))
+        data = payload.get("Data") or []
     except Exception as exc:
         logger.warning("Failed to fetch live warehouse stock from JST ERP: %s", exc)
         err_s = str(exc).lower()
@@ -3232,9 +3251,16 @@ def get_warehouse_stock_summary() -> dict[str, Any]:
     s60 = skus_map.get("BSJ60G1", {})
     s500 = skus_map.get("BSJ500G1", {})
     s1k = skus_map.get("BSJ1KG1", {})
+    mod_candidates = [
+        str(x.get("modified") or "").strip()
+        for x in (s60, s500, s1k)
+        if str(x.get("modified") or "").strip()
+    ]
+    latest_modified = max(mod_candidates) if mod_candidates else ""
 
     return {
         "status": "ok",
+        "latest_modified": latest_modified,
         "available_60g": int(s60.get("available_qty", 0)),
         "physical_60g": int(s60.get("physical_qty", 0)),
         "lock_60g": int(s60.get("order_lock", 0)),

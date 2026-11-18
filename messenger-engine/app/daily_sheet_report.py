@@ -548,11 +548,13 @@ def load_line_group_config() -> dict[str, Any]:
         if k == boom_gid and k not in BLOCKED_NON_BOOM_GROUP_IDS
     }
     cfg["group_meta"] = meta_clean
+    cfg.pop("last_warehouse_stock", None)
     return cfg
 
 
 def save_line_group_config(cfg: dict[str, Any]) -> None:
     """Persist registered กลุ่มบูม group ID, morning stock state, and AI Coach learned rules."""
+    cfg.pop("last_warehouse_stock", None)
     boom_gid = str(cfg.get("boom_stock_group_id") or "").strip()
     if boom_gid in BLOCKED_NON_BOOM_GROUP_IDS:
         boom_gid = ""
@@ -731,16 +733,28 @@ def format_buksukjai_stock_only_report(wh: dict[str, Any] | None = None) -> str:
         lines.append(f"  (ในคลัง {phys_1k:,} | รอแพ็ค {lock_1k:,})")
 
     low_items: list[str] = []
-    if avail_60 <= 100 or (0 < int(wh.get("days_60g") or 0) <= 5):
+    days_60 = int(wh.get("days_60g") or 0)
+    days_500 = int(wh.get("days_500g") or 0)
+    days_1k = int(wh.get("days_1kg") or 0)
+
+    if avail_60 <= 100:
         low_items.append(f"• 60 กรัม เหลือพร้อมขาย {avail_60:,} ซอง")
-    if avail_500 <= 30 or (0 < int(wh.get("days_500g") or 0) <= 5):
+    elif 0 < days_60 <= 5:
+        low_items.append(f"• 60 กรัม เหลือ {avail_60:,} ซอง (พอขาย ~{days_60} วัน)")
+
+    if avail_500 <= 30:
         low_items.append(f"• 500 กรัม เหลือพร้อมขาย {avail_500:,} ถุง")
-    if avail_1k <= 30 or (0 < int(wh.get("days_1kg") or 0) <= 5):
+    elif 0 < days_500 <= 5:
+        low_items.append(f"• 500 กรัม เหลือ {avail_500:,} ถุง (พอขาย ~{days_500} วัน)")
+
+    if avail_1k <= 30:
         low_items.append(f"• 1 กิโลกรัม เหลือพร้อมขาย {avail_1k:,} ถุง")
+    elif 0 < days_1k <= 5:
+        low_items.append(f"• 1 กิโลกรัม เหลือ {avail_1k:,} ถุง (พอขาย ~{days_1k} วัน)")
 
     lines.append("━━━━━━━━━━━━━━━")
     if low_items:
-        lines.append("⚠️ รายการใกล้หมด :")
+        lines.append("⚠️ รายการใกล้หมด / หมุนไว :")
         lines.extend(low_items)
     else:
         lines.append("✅ สต็อกเพียงพอพร้อมขายทุกรายการค่ะ")
@@ -798,14 +812,13 @@ def send_boom_morning_stock_report(
             "group_id": gid,
         }
     if not isinstance(wh, dict) or wh.get("status") != "ok":
+        send_jst_cookie_expired_alert_to_line_groups(str((wh or {}).get("message") or "jst_stock_not_ok"))
         return {
             "status": "aborted_live_stock_unavailable",
             "reason": "jst_cookie_expired_or_live_stock_not_ok_never_send_stale_data",
             "group_id": gid,
             "live_response": wh,
         }
-    cfg["last_warehouse_stock"] = wh
-    save_line_group_config(cfg)
     stock_text = format_buksukjai_stock_only_report(wh)
     headers = {
         "Authorization": f"Bearer {token}",
@@ -1544,12 +1557,9 @@ def get_or_fetch_warehouse_stock() -> dict[str, Any]:
     """Fetch LIVE warehouse stock from JST ERP only.
     Never returns stale cached stock or hardcoded mock numbers as status='ok'.
     """
-    st = load_line_group_config()
     try:
         live_wh = jst_erp.get_warehouse_stock_summary()
         if live_wh and live_wh.get("status") == "ok":
-            st["last_warehouse_stock"] = live_wh
-            save_line_group_config(st)
             return live_wh
         return live_wh if isinstance(live_wh, dict) else {"status": "error", "message": "live_stock_unavailable"}
     except Exception as exc:
@@ -1677,8 +1687,48 @@ _RECENT_ESCALATION_CACHE: dict[str, float] = {}
 
 
 def send_jst_cookie_expired_alert_to_line_groups(error_detail: str = "") -> dict[str, Any]:
-    """Disabled: BUK TEAM (`workbot`) is strictly locked to `กลุ่มบูม` for Buk Sukjai morning stock only."""
-    return {"status": "disabled_boom_stock_only"}
+    """Alert ONLY internal admin Comment group (`Cf0c8835b5b0711e80f7350ffc9af66f1`) via `coachbot`
+    at most once every 12 hours during 06:00–21:59 BKK when JST ERP session expires.
+    NEVER sends error alerts into `กลุ่มบูม`.
+    """
+    from .messenger import LINE_PUSH_URL, _get_channel_token
+
+    now_bkk = datetime.now(BKK_TZ)
+    if now_bkk.hour < 6 or now_bkk.hour >= 22:
+        return {"status": "quiet_hours"}
+    cfg = load_line_group_config()
+    last_alert_str = str(cfg.get("last_jst_cookie_alert_at") or "").strip()
+    if last_alert_str:
+        try:
+            last_dt = datetime.fromisoformat(last_alert_str)
+            if (now_bkk - last_dt).total_seconds() < 43200:
+                return {"status": "cooldown_active", "last_alert_at": last_alert_str}
+        except Exception:
+            pass
+    coach_token = _get_channel_token("coachbot", "line")
+    admin_group_id = "Cf0c8835b5b0711e80f7350ffc9af66f1"
+    if not coach_token:
+        return {"status": "no_coachbot_token"}
+    msg = (
+        "⚠️ แจ้งเตือนหลังบ้าน (เฉพาะแอดมิน)\n"
+        "เซสชันคลัง JST ERP หมดอายุค่ะ\n"
+        "ระบบระงับส่งสต็อกเก่าเข้ากลุ่มบูมไว้แล้ว\n"
+        "รบกวนเปิดหน้า JST ERP เพื่อต่ออายุคุกกี้นะคะ 🙏"
+    )
+    try:
+        r = httpx.post(
+            LINE_PUSH_URL,
+            headers={"Authorization": f"Bearer {coach_token}", "Content-Type": "application/json"},
+            json={"to": admin_group_id, "messages": [{"type": "text", "text": msg}]},
+            timeout=10.0,
+        )
+        if r.status_code == 200:
+            cfg["last_jst_cookie_alert_at"] = now_bkk.isoformat()
+            save_line_group_config(cfg)
+            return {"status": "alerted_admin_comment_group"}
+    except Exception as exc:
+        logger.warning("Admin JST cookie alert failed: %s", exc)
+    return {"status": "alert_failed"}
 
 
 def check_and_alert_fb_page_token_health(brand_id: str = "buksukjai") -> dict[str, Any]:
