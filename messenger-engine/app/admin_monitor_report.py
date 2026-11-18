@@ -337,14 +337,103 @@ def _format_duration_compact(seconds: int) -> str:
 def _is_closing_ack(text: str) -> bool:
     t = (text or "").strip().lower()
     if not t:
-        return True
+        # Empty text in Graph API means attachment (payment slip, photo, sticker, voice) — NEVER treat as closing ack!
+        return False
     ack_words = (
         "ขอบคุณ", "ขอบใจ", "โอเค", "ok", "okay", "ค่ะ", "คะ", "ครับ", "คับ",
         "จ้า", "จร้า", "ได้ค่ะ", "ได้ครับ", "รับทราบ", "รอรับ", "เรียบร้อย",
+        "เข้าใจแล้ว", "คำนวณดูก่อน", "ดูก่อนนะ", "ไว้ก่อน", "ยังครับ", "ยังค่ะ",
     )
-    if len(t) <= 18 and any(w in t for w in ack_words):
+    if any(k in t for k in ("โอน", "ปลายทาง", "สั่ง", "เอา", "รับโปร", "กิโล", "กรัม", "ซอง", "ถุง")) and not any(
+        d in t for d in ("ดูก่อน", "คำนวณดูก่อน", "ยังครับ", "ยังค่ะ", "ไว้ก่อน")
+    ):
+        return False
+    if len(t) <= 28 and any(w in t for w in ack_words):
+        return True
+    if any(d in t for d in ("คำนวณดูก่อน", "ขอดูก่อน", "ตัดสินใจก่อน", "ไว้โอกาสหน้า")):
         return True
     return False
+
+
+_SYSTEM_OR_AUTO_MARKERS = (
+    "ตอบกลับโฆษณา",
+    "คุณกำลังตอบกลับความคิดเห็น",
+    "ข้อความนี้ถูกย้ายไปยัง",
+    "messenger automatically created",
+    "ทำเครื่องหมายคำสั่งซื้อ",
+)
+
+_AUTO_WELCOME_SNIPPETS = (
+    "ยินดีต้อนรับสู่ mr.buk",
+    "โปรโมชั่น ข้าวบุกสุขใจ",
+    "สวัสดีค่ะ ขอบคุณที่สนใจข้าวบุกสุขใจ",
+    "ใครกำลัง “อยากลดแป้ง",
+    "ใครกำลัง \"อยากลดแป้ง",
+    "น้องแอดมินมาให้บริการคุณลูกค้าแล้วค่า",
+    "สวัสดีค่ะน้องแอดมินส่งรายละเอียดเพิ่มเติมให้นะคะ",
+)
+
+
+def _is_system_page_notice(text: str) -> bool:
+    low = (text or "").strip().lower()
+    if not low:
+        return False
+    return any(m in low for m in _SYSTEM_OR_AUTO_MARKERS)
+
+
+def _is_auto_welcome_reply(text: str, diff_sec: float, prev_cust_text: str) -> bool:
+    if _is_system_page_notice(text):
+        return True
+    low = (text or "").strip().lower()
+    c_low = (prev_cust_text or "").strip().lower()
+    if diff_sec < 5.0:
+        return True
+    if low and c_low and low == c_low and diff_sec <= 15.0:
+        return True
+    if diff_sec <= 22.0 and any(sn in low for sn in _AUTO_WELCOME_SNIPPETS):
+        return True
+    if diff_sec <= 15.0 and not low and c_low in ("สนใจ", "สนใจค่ะ", "สนใจครับ", "ราคา", "ขอดูโปรวันนี้", "สั่งซื้อเลย"):
+        return True
+    return False
+
+
+def _extract_summary_bill_amount(text: str) -> int | None:
+    """Detect a completed official admin order summary when #BUY tag was forgotten.
+    Strictly requires order header + filled shipping address/phone + explicit net Baht price.
+    """
+    if not text:
+        return None
+    has_header = any(
+        h in text
+        for h in ("ขออนุญาตสรุปยอด", "สรุปยอดให้กับ", "สรุปคำสั่งซื้อ", "สรุปรายการสั่งซื้อ", "สินค้า : ข้าวบุก")
+    )
+    has_shipping = any(s in text for s in ("ข้อมูลจัดส่ง", "จัดส่ง :", "จัดส่ง:"))
+    has_contact = bool(re.search(r"0[689][\d\s-]{7,11}|\b\d{5}\b", text))
+    if not (has_header and has_shipping and has_contact):
+        return None
+
+    m_price_line = re.search(r"(?:ราคา|ยอดรวม|รวมทั้งสิ้น|ยอดชำระ)\s*[:：][^\n]+", text)
+    if not m_price_line:
+        return None
+    nums = [int(n.replace(",", "")) for n in re.findall(r"\d[\d,]*", m_price_line.group(0))]
+    if not nums:
+        return None
+    amt = nums[-1]
+    if 60 <= amt <= 30000:
+        return amt
+    return None
+
+
+def _is_customer_question(text: str) -> bool:
+    t = (text or "").strip()
+    if not t:
+        return False
+    q_markers = (
+        "?", "ไหม", "มั้ย", "มัย", "หรือเปล่า", "รึเปล่า", "หรือไม่", "หรือต้อง",
+        "หรือว่า", "เท่าไหร่", "เท่าไร", "กี่บาท", "กี่กรัม", "กี่ถุง", "กี่ซอง",
+        "ยังไง", "อย่างไร", "แบบไหน", "ส่งฟรีไหม", "มีปลายทาง",
+    )
+    return any(q in t for q in q_markers)
 
 
 def _fetch_single_page_report(spec: dict[str, str], token: str, target_date: str) -> dict[str, Any]:
@@ -361,6 +450,7 @@ def _fetch_single_page_report(spec: dict[str, str], token: str, target_date: str
         "css_class": spec["css_class"],
         "token_connected": bool(token),
         "chats": 0,
+        "followup_only_chats": 0,
         "orders": 0,
         "total_thb": 0,
         "conv_rate": 0.0,
@@ -374,6 +464,8 @@ def _fetch_single_page_report(spec: dict[str, str], token: str, target_date: str
         "small_orders_count": 0,
         "small_no_upsell": [],
         "typos": [],
+        "missing_buy_tags": [],
+        "unclosed_address": [],
         "missed_intent": [],
         "best_orders": [],
         "buckets": buckets,
@@ -393,7 +485,7 @@ def _fetch_single_page_report(spec: dict[str, str], token: str, target_date: str
         "fields": "participants,updated_time,messages.limit(50){id,message,from,created_time}",
     }
     try:
-        for _ in range(8):
+        for _ in range(12):
             if not url:
                 break
             resp = httpx.get(url, params=params, timeout=25.0).json()
@@ -427,6 +519,25 @@ def _fetch_single_page_report(spec: dict[str, str], token: str, target_date: str
             "ลูกค้า",
         )
         raw_msgs = list(reversed((c.get("messages") or {}).get("data") or []))
+
+        # If a busy conversation hit the 50-message cap and its oldest message is still on/after target_date,
+        # fetch up to 100 messages for this specific conversation so morning #BUY tags are never truncated.
+        if len(raw_msgs) >= 50 and c.get("id"):
+            try:
+                oldest_ct = raw_msgs[0].get("created_time", "")
+                if oldest_ct:
+                    oldest_bkk = datetime.strptime(oldest_ct, "%Y-%m-%dT%H:%M:%S%z").astimezone(BKK_TZ)
+                    if oldest_bkk.strftime("%Y-%m-%d") >= target_date:
+                        more_resp = httpx.get(
+                            f"https://graph.facebook.com/v21.0/{c['id']}/messages",
+                            params={"access_token": token, "limit": 100, "fields": "id,message,from,created_time"},
+                            timeout=15.0,
+                        ).json()
+                        if more_resp.get("data"):
+                            raw_msgs = list(reversed(more_resp["data"]))
+            except Exception:
+                pass
+
         day_msgs: list[tuple[datetime, str, str]] = []
         for m in raw_msgs:
             ct = m.get("created_time", "")
@@ -442,58 +553,115 @@ def _fetch_single_page_report(spec: dict[str, str], token: str, target_date: str
         if not day_msgs:
             continue
 
+        # Ignore Facebook auto-spam filtered threads
+        if any('ข้อความนี้ถูกย้ายไปยัง "สแปม"' in x[2] for x in day_msgs if x[1] == page_id):
+            continue
+
+        # 1. Extract closed orders on target_date:
+        #    - Primary: #BUY<amount> (supports commas like #BUY1,339)
+        #    - Amendment rule: if the page sends an updated #BUY within 2 hours (7,200s) in the same chat
+        #      (e.g. changing COD 319 -> Transfer 289, or fixing typo #BUY529 -> #BUY520), replace the prior entry!
+        #    - Fallback: completed official order summary with full shipping info where admin forgot #BUY.
+        conv_buys: list[tuple[datetime, int, bool]] = []  # (dt, amount, is_missing_buy_tag)
+        for dt_m, sid_m, txt_m in day_msgs:
+            if sid_m != page_id or not txt_m:
+                continue
+            for m_b in re.finditer(r"#\s*BUY\s*([\d,]+)", txt_m, re.I):
+                amt = int(m_b.group(1).replace(",", ""))
+                if not (30 <= amt <= 50000):
+                    continue
+                if conv_buys and abs((dt_m - conv_buys[-1][0]).total_seconds()) <= 7200:
+                    # Amended bill or duplicate #BUY in the same customer session -> keep latest net amount
+                    conv_buys[-1] = (dt_m, amt, False)
+                else:
+                    conv_buys.append((dt_m, amt, False))
+
+        if not conv_buys:
+            for dt_m, sid_m, txt_m in day_msgs:
+                if sid_m != page_id or not txt_m:
+                    continue
+                fallback_amt = _extract_summary_bill_amount(txt_m)
+                if fallback_amt is not None:
+                    if conv_buys and abs((dt_m - conv_buys[-1][0]).total_seconds()) <= 7200:
+                        conv_buys[-1] = (dt_m, fallback_amt, True)
+                    else:
+                        conv_buys.append((dt_m, fallback_amt, True))
+
+        has_cust_msg = any(x[1] != page_id for x in day_msgs)
+        if not has_cust_msg and not conv_buys:
+            # Page-only outbound follow-up / morning GIF to silent old chat — do NOT inflate active chats!
+            result["followup_only_chats"] += 1
+            continue
+
         result["chats"] += 1
-        first_hour = day_msgs[0][0].hour
-        b_idx_chat = min(first_hour // 4, 5)
+        first_cust_dt = next((x[0] for x in day_msgs if x[1] != page_id), day_msgs[0][0])
+        b_idx_chat = min(first_cust_dt.hour // 4, 5)
         buckets[b_idx_chat]["chats"] += 1
 
-        # 1. Daytime response time (07:00 - 22:59 BKK, excluding night shift 23:00-06:59 & <5s auto-greetings)
-        for i in range(len(day_msgs) - 1):
-            dt_c, sid_c, _txt_c = day_msgs[i]
-            if sid_c != page_id and 7 <= dt_c.hour < 23:
-                for j in range(i + 1, len(day_msgs)):
-                    if day_msgs[j][1] == page_id:
-                        diff = (day_msgs[j][0] - dt_c).total_seconds()
-                        if 5 <= diff < 7200:
-                            resp_times.append(diff)
-                        break
+        # Commit deduplicated/verified orders to page totals & time buckets
+        for dt_b, amt, missing_tag in conv_buys:
+            result["orders"] += 1
+            result["total_thb"] += amt
+            b_idx = min(dt_b.hour // 4, 5)
+            buckets[b_idx]["orders"] += 1
+            buckets[b_idx]["total_thb"] += amt
+            buckets[b_idx]["items"].append((dt_b.strftime("%H:%M"), amt, cname))
 
-        # 2. #BUY orders on target_date (sent by page, deduplicated within 15 minutes per conversation)
-        conv_buys: list[tuple[datetime, int]] = []
-        for dt_m, sid_m, txt_m in day_msgs:
-            if sid_m != page_id:
-                continue
-            for m_b in re.finditer(r"#\s*BUY\s*(\d+)", txt_m, re.I):
-                amt = int(m_b.group(1))
-                if any(amt == prev_amt and abs((dt_m - prev_dt).total_seconds()) < 900 for prev_dt, prev_amt in conv_buys):
-                    continue
-                conv_buys.append((dt_m, amt))
-                result["orders"] += 1
-                result["total_thb"] += amt
-                b_idx = min(dt_m.hour // 4, 5)
-                buckets[b_idx]["orders"] += 1
-                buckets[b_idx]["total_thb"] += amt
-                buckets[b_idx]["items"].append((dt_m.strftime("%H:%M"), amt, cname))
-
-                # Measure close speed from first customer message of the day
-                cust_before = [x[0] for x in day_msgs if x[1] != page_id and x[0] <= dt_m]
-                close_mins = int(max(1, round((dt_m - cust_before[0]).total_seconds() / 60))) if cust_before else 5
-                result["best_orders"].append({
-                    "time": dt_m.strftime("%H:%M"),
+            if missing_tag:
+                result["missing_buy_tags"].append({
+                    "time": dt_b.strftime("%H:%M"),
                     "customer": cname,
                     "amount": amt,
-                    "close_mins": close_mins,
                 })
 
-                if amt <= 350:
-                    result["small_orders_count"] += 1
-                    page_texts_joined = " ".join(x[2] for x in day_msgs if x[1] == page_id)
-                    if not any(k in page_texts_joined for k in ("1 กิโล", "1กิโล", "1 กก", "1กก", "ส่งฟรี")):
-                        result["small_no_upsell"].append({
-                            "time": dt_m.strftime("%H:%M"),
-                            "customer": cname,
-                            "amount": amt,
-                        })
+            cust_before = [x[0] for x in day_msgs if x[1] != page_id and x[0] <= dt_b]
+            close_mins = int(max(1, round((dt_b - cust_before[0]).total_seconds() / 60))) if cust_before else 5
+            result["best_orders"].append({
+                "time": dt_b.strftime("%H:%M"),
+                "customer": cname,
+                "amount": amt,
+                "close_mins": close_mins,
+            })
+
+            if amt <= 350:
+                result["small_orders_count"] += 1
+                page_texts_joined = " ".join(x[2] for x in day_msgs if x[1] == page_id)
+                if not any(k in page_texts_joined for k in ("1 กิโล", "1กิโล", "1 กก", "1กก", "ส่งฟรี")):
+                    result["small_no_upsell"].append({
+                        "time": dt_b.strftime("%H:%M"),
+                        "customer": cname,
+                        "amount": amt,
+                    })
+
+        # 2. Turn-based human daytime response time (07:00 - 22:59 BKK, excluding auto-welcomes & system notices)
+        idx_m = 0
+        n_msgs = len(day_msgs)
+        while idx_m < n_msgs:
+            dt_c, sid_c, txt_c = day_msgs[idx_m]
+            if sid_c != page_id:
+                # Advance through consecutive customer bubbles in the same turn
+                turn_start_dt = dt_c
+                first_cust_txt = txt_c
+                last_cust_txt = txt_c
+                j = idx_m + 1
+                while j < n_msgs and day_msgs[j][1] != page_id:
+                    if day_msgs[j][2].strip():
+                        last_cust_txt = day_msgs[j][2]
+                    j += 1
+                # Find first genuine human admin reply after this customer turn
+                k = j
+                while k < n_msgs:
+                    if day_msgs[k][1] == page_id:
+                        diff_from_start = (day_msgs[k][0] - turn_start_dt).total_seconds()
+                        if not _is_auto_welcome_reply(day_msgs[k][2], diff_from_start, first_cust_txt):
+                            if 7 <= turn_start_dt.hour < 23 and not _is_closing_ack(last_cust_txt):
+                                if 5 <= diff_from_start <= 28800:
+                                    resp_times.append(diff_from_start)
+                            break
+                    k += 1
+                idx_m = j
+            else:
+                idx_m += 1
 
         # 3. Saved-reply typos & compliance check
         seen_typo_words: set[str] = set()
@@ -510,45 +678,100 @@ def _fetch_single_page_report(spec: dict[str, str], token: str, target_date: str
                         "fix": fix_word,
                     })
 
-        # 4. Overdue unanswered customer message (> 3 hours without #BUY)
+        # 4. Overdue unanswered customer chats (> 3h) & high-value unclosed leads
         if not conv_buys:
-            last_dt, last_sid, last_txt = day_msgs[-1]
-            wait_sec = (ref_end_dt - last_dt).total_seconds()
-            if last_sid != page_id and wait_sec > 10800 and not _is_closing_ack(last_txt):
-                result["overdue_3h"] += 1
-                result["overdue_list"].append({
-                    "time": last_dt.strftime("%H:%M"),
-                    "customer": cname,
-                    "text": (last_txt or "[ส่งรูปภาพ/สติกเกอร์]").strip()[:60],
-                    "wait_hours": round(wait_sec / 3600, 1),
-                })
-
-            # 5. High-intent customer chat that didn't close (#BUY)
-            cust_texts = [(dt_m, txt_m.strip()) for dt_m, sid_m, txt_m in day_msgs if sid_m != page_id and txt_m.strip()]
-            page_texts = [txt_m.strip() for _dt_m, sid_m, txt_m in day_msgs if sid_m == page_id and txt_m.strip()]
-            for dt_c, c_txt in cust_texts:
-                if c_txt in ("สั่งซื้อเลย", "สนใจ", "สนใจค่ะ", "สนใจครับ", "ขอดูโปรวันนี้"):
-                    continue
-                has_buy_intent = any(w in c_txt for w in ("โอน", "ปลายทาง", "สั่งค่ะ", "สั่งครับ", "รับโปร", "เอา 1", "เอา 2", "รับ 1", "รับ 2", "ซองเล็ก", "500 กรัม", "500g", "1 กิโล"))
-                is_question_only = any(q in c_txt for q in ("เท่าไหร่", "กี่บาท", "ยังไง", "ไหม")) and not any(w in c_txt for w in ("โอน", "ปลายทาง", "สั่งค่ะ", "รับค่ะ"))
-                if has_buy_intent and not is_question_only and (ref_end_dt - dt_c).total_seconds() > 2700:
-                    joined_page = " ".join(page_texts)
-                    sent_bank = any(b in joined_page for b in ("กสิกร", "ไทยพาณิชย์", "เลขบัญชี", "304-4", "136-2", "พร้อมเพย์", "สแกน"))
-                    asked_addr = any(a in joined_page for a in ("ชื่อ", "ที่อยู่", "เบอร์โทร", "จัดส่ง"))
-                    if "โอน" in c_txt and not sent_bank:
-                        reason = "ลูกค้าแจ้งโอนแล้ว แต่ยังไม่ส่งเลขบัญชีเพื่อล็อกออเดอร์ทันที"
-                    elif not asked_addr:
-                        reason = "ลูกค้าเลือกขนาดแล้ว แต่ยังไม่ได้ขอชื่อ-ที่อยู่-เบอร์โทรเพื่อปิดบิล"
-                    else:
-                        reason = "ลูกค้าสนใจสั่งซื้อแต่ยังไม่ส่งที่อยู่/สลิป แนะนำทักตามสั้นๆ ช่วงเช้าค่ะ"
-                    result["missed_intent"].append({
-                        "time": dt_c.strftime("%H:%M"),
+            last_cust_idx = max((idx for idx, x in enumerate(day_msgs) if x[1] != page_id), default=-1)
+            if last_cust_idx != -1:
+                last_c_dt, _last_c_sid, last_c_txt = day_msgs[last_cust_idx]
+                after_page_msgs = [x for x in day_msgs[last_cust_idx + 1 :] if x[1] == page_id]
+                has_human_reply = any(
+                    not _is_auto_welcome_reply(px[2], (px[0] - last_c_dt).total_seconds(), last_c_txt)
+                    for px in after_page_msgs
+                )
+                wait_sec = (ref_end_dt - last_c_dt).total_seconds()
+                if not has_human_reply and wait_sec > 10800 and not _is_closing_ack(last_c_txt):
+                    result["overdue_3h"] += 1
+                    result["overdue_list"].append({
+                        "time": last_c_dt.strftime("%H:%M"),
                         "customer": cname,
-                        "cust_text": c_txt[:70].replace("\n", " "),
-                        "reason": reason,
-                        "priority": 1 if ("โอน" in c_txt and not sent_bank) or not asked_addr else 2,
+                        "text": (last_c_txt or "[ส่งรูปภาพ/สลิป/สติกเกอร์]").strip()[:60],
+                        "wait_hours": round(wait_sec / 3600, 1),
                     })
-                    break
+
+            # 5A. Customer already sent shipping address / 10-digit phone number, but order not closed with #BUY yet!
+            cust_msgs_nonempty = [(dt_m, txt_m.strip()) for dt_m, sid_m, txt_m in day_msgs if sid_m != page_id and txt_m.strip()]
+            cust_joined_all = " ".join(t for _dt, t in cust_msgs_nonempty)
+            cust_digits = re.sub(r"[-\s]", "", cust_joined_all)
+            has_phone_or_zip = bool(re.search(r"0[689]\d{8}", cust_digits)) or (
+                bool(re.search(r"\b[1-9]\d{4}\b", cust_joined_all))
+                and any(a in cust_joined_all for a in ("ต.", "ตำบล", "อ.", "อำเภอ", "แขวง", "เขต", "จ.", "จังหวัด", "หมู่", "ถ."))
+            )
+            declined_later = any(
+                d in (cust_msgs_nonempty[-1][1] if cust_msgs_nonempty else "")
+                for d in ("ยังครับ", "ยังค่ะ", "ยกเลิก", "ไม่รับ", "เยอะไป", "ดูก่อน")
+            )
+            if has_phone_or_zip and not declined_later:
+                addr_dt = next(
+                    (
+                        dt_m
+                        for dt_m, t in cust_msgs_nonempty
+                        if re.search(r"0[689][\d\s-]{7,11}|\b[1-9]\d{4}\b", t)
+                    ),
+                    cust_msgs_nonempty[-1][0],
+                )
+                page_after_addr = " ".join(
+                    txt_m for dt_m, sid_m, txt_m in day_msgs if sid_m == page_id and dt_m >= addr_dt and txt_m
+                )
+                if "โอนชำระ" in page_after_addr and "ปลายทาง" in page_after_addr:
+                    note = "ลูกค้าส่งชื่อ-ที่อยู่สั่งซื้อแล้ว แอดมินรวมยอดให้เลือกโอน/ปลายทางแล้ว แนะนำทักตามปิดบิลช่วงเช้าค่ะ"
+                else:
+                    note = "ลูกค้าแจ้งชื่อ-ที่อยู่จัดส่งแล้ว แต่ยังไม่ได้สรุปยอดและติดรหัส #BUY ปิดออเดอร์ค่ะ"
+                result["unclosed_address"].append({
+                    "time": addr_dt.strftime("%H:%M"),
+                    "customer": cname,
+                    "cust_text": cust_joined_all[:75].replace("\n", " "),
+                    "reason": note,
+                })
+            elif not declined_later:
+                # 5B. Genuine explicit purchase statement (NOT a question!) where admin missed bank account or address prompt
+                page_texts = [txt_m.strip() for _dt_m, sid_m, txt_m in day_msgs if sid_m == page_id and txt_m.strip()]
+                joined_page = " ".join(page_texts)
+                sent_bank = any(b in joined_page for b in ("กสิกร", "ไทยพาณิชย์", "เลขที่บัญชี", "เลขบัญชี", "304-4", "989-2", "3044075455", "9892136243"))
+                asked_addr = any(a in joined_page for a in ("ชื่อ", "ที่อยู่", "เบอร์โทร", "ข้อมูลจัดส่ง"))
+
+                for dt_c, c_txt in cust_msgs_nonempty:
+                    if c_txt in ("สั่งซื้อเลย", "สนใจ", "สนใจค่ะ", "สนใจครับ", "ขอดูโปรวันนี้", "ราคา"):
+                        continue
+                    if _is_customer_question(c_txt) or _is_closing_ack(c_txt):
+                        continue
+                    c_norm = c_txt.strip()
+                    chose_transfer = bool(
+                        re.match(r"^(?:ขอ)?โอน(?:เงิน|ชำระ|เลย|จ้า|ค่ะ|คะ|ครับ|คับ)?$", c_norm)
+                        or any(p in c_norm for p in ("โอนค่ะ", "โอนครับ", "โอนชำระค่ะ", "แบบโอนค่ะ", "ขอเลขบัญชี"))
+                    )
+                    explicit_order = any(
+                        p in c_norm
+                        for p in ("สั่งค่ะ", "สั่งครับ", "สั่ง ", "เอา ", "รับโปร", "รับ 1", "รับ 2", "รับ 3", "เอา 1", "เอา 2")
+                    )
+                    if (chose_transfer or explicit_order) and (ref_end_dt - dt_c).total_seconds() > 2700:
+                        if chose_transfer and not sent_bank:
+                            result["missed_intent"].append({
+                                "time": dt_c.strftime("%H:%M"),
+                                "customer": cname,
+                                "cust_text": c_norm[:70].replace("\n", " "),
+                                "reason": "ลูกค้าแจ้งเลือกโอนเงินแล้ว แต่ยังไม่ได้ส่งเลขบัญชีเพื่อล็อกออเดอร์ทันทีค่ะ",
+                                "priority": 1,
+                            })
+                            break
+                        if explicit_order and not asked_addr and not sent_bank:
+                            result["missed_intent"].append({
+                                "time": dt_c.strftime("%H:%M"),
+                                "customer": cname,
+                                "cust_text": c_norm[:70].replace("\n", " "),
+                                "reason": "ลูกค้าพิมพ์สั่งซื้อแล้ว แต่ยังไม่ได้ส่งเลขบัญชีหรือขอชื่อ-ที่อยู่-เบอร์โทรค่ะ",
+                                "priority": 1,
+                            })
+                            break
 
     if result["chats"] > 0:
         result["conv_rate"] = round((result["orders"] / result["chats"]) * 100, 1)
@@ -565,7 +788,7 @@ def _fetch_single_page_report(spec: dict[str, str], token: str, target_date: str
 
 
 def _synthesize_praise_and_cases(pages_data: list[dict[str, Any]]) -> tuple[str, list[dict[str, str]]]:
-    """Build concise praise summary + top 4 real actionable chat cases from live data."""
+    """Build concise praise summary + top 4 verified real chat QA cases from live data."""
     # 1. Praise line
     fast_pages = [p for p in pages_data if p["avg_sec"] > 0]
     fast_pages.sort(key=lambda x: x["avg_sec"])
@@ -586,26 +809,54 @@ def _synthesize_praise_and_cases(pages_data: list[dict[str, Any]]) -> tuple[str,
         )
     praise_text = " และ ".join(praise_parts) if praise_parts else "ทีมแอดมินดูแลตอบแชทและปิดออเดอร์ต่อเนื่องครบทั้ง 3 เพจค่ะ 👏💚"
 
-    # 2. Actionable cases (up to 4)
+    # 2. Actionable cases (up to 4, strictly verified)
     cases: list[dict[str, str]] = []
 
-    # Priority A: High-intent unclosed chats (especially missing bank / missing address)
+    # Priority 1: Closed summary bill where admin forgot to type #BUY<amount>
+    for p in pages_data:
+        for mb in p.get("missing_buy_tags", []):
+            cases.append({
+                "line_header": f"{p['short_name']} ({mb['time']} น. · ลืมติด #BUY)",
+                "customer": f"คุณ {mb['customer']}",
+                "line_bullet": f"ส่งใบสรุปยอด {mb['amount']:,}฿ แล้วแต่ลืมพิมพ์ #BUY{mb['amount']} กำกับ (ระบบนับยอดรวมให้แล้ว ฝากพิมพ์ #BUY ทุกบิลนะคะ)",
+                "html_title": f"{p['title']} ({mb['time']} น.) · ลูกค้า คุณ {mb['customer']} — สรุปบิล {mb['amount']:,}฿ แล้วแต่ลืมพิมพ์ #BUY{mb['amount']}",
+                "html_detail": f"แอดมินส่งใบสรุปยอดและที่อยู่จัดส่งครบถ้วนแล้ว ({mb['amount']:,}฿) แต่ไม่มีข้อความ #BUY{mb['amount']} ปิดท้าย",
+                "html_fix": f"ฝากพิมพ์ #BUY{mb['amount']} แยก 1 บับเบิลทุกครั้งหลังสรุปยอด เพื่อให้ระบบนับยอดแอดและติดแท็กอัตโนมัติไม่ตกหล่นค่ะ",
+            })
+
+    # Priority 2: Customer already sent shipping address / phone number, waiting to close #BUY
+    for p in pages_data:
+        for ua in p.get("unclosed_address", [])[:2]:
+            if len(cases) >= 3:
+                break
+            cases.append({
+                "line_header": f"{p['short_name']} ({ua['time']} น. · รอสรุปปิดบิล)",
+                "customer": f"คุณ {ua['customer']}",
+                "line_bullet": f"{ua['reason']}",
+                "html_title": f"{p['title']} ({ua['time']} น.) · ลูกค้า คุณ {ua['customer']} — {ua['reason']}",
+                "html_detail": f"ข้อความลูกค้า: “{ua['cust_text']}”",
+                "html_fix": "ตรวจสอบแชทที่ลูกค้าส่งชื่อ-ที่อยู่ไว้แล้ว ทักยืนยันยอด/วิธีชำระสั้นๆ และสรุปบิลพร้อมติด #BUY ทันทีค่ะ",
+            })
+
+    # Priority 3: Explicit purchase intent where admin missed sending bank / asking address
     all_missed = []
     for p in pages_data:
         for m in p["missed_intent"]:
             all_missed.append((m["priority"], p["short_name"], p["title"], m))
     all_missed.sort(key=lambda x: x[0])
     for _prio, p_short, p_title, m in all_missed[:2]:
+        if len(cases) >= 3:
+            break
         cases.append({
             "line_header": f"{p_short} ({m['time']} น.)",
             "customer": f"คุณ {m['customer']}",
             "line_bullet": f"ลูกค้าพิมพ์ \"{m['cust_text']}\" — {m['reason']}",
             "html_title": f"{p_title} ({m['time']} น.) · ลูกค้า คุณ {m['customer']} — {m['reason']}",
             "html_detail": f"ข้อความลูกค้า: “{m['cust_text']}”",
-            "html_fix": "เมื่อลูกค้าพิมพ์เลือกขนาดหรือวิธีชำระแล้ว ให้ส่งเลขบัญชี/สรุปยอดพร้อมขอชื่อ-ที่อยู่-เบอร์โทรทันทีเพื่อล็อกออเดอร์ก่อนหลุดค่ะ",
+            "html_fix": "เมื่อลูกค้ายืนยันสั่งซื้อหรือเลือกโอนแล้ว ให้ส่งเลขบัญชีและขอชื่อ-ที่อยู่-เบอร์โทรทันทีเพื่อล็อกออเดอร์ค่ะ",
         })
 
-    # Priority B: Saved-reply typos & compliance words
+    # Priority 4: Saved-reply typos & compliance words
     typo_groups: list[str] = []
     typo_customers: list[str] = []
     typo_pages: list[str] = []
@@ -620,7 +871,7 @@ def _synthesize_praise_and_cases(pages_data: list[dict[str, Any]]) -> tuple[str,
             if f"'{t['bad']}'" not in typo_groups:
                 typo_groups.append(f"'{t['bad']}'")
             typo_times.append(t["time"])
-    if typo_groups:
+    if typo_groups and len(cases) < 4:
         t_range = f"{min(typo_times)} – {max(typo_times)} น." if len(typo_times) > 1 else f"{typo_times[0]} น."
         cases.append({
             "line_header": f"{' & '.join(typo_pages)} ({t_range})",
@@ -631,20 +882,22 @@ def _synthesize_praise_and_cases(pages_data: list[dict[str, Any]]) -> tuple[str,
             "html_fix": "เข้าไปแก้ไขข้อความตอบกลับที่บันทึกไว้ (Saved Replies) ให้ถูกต้องทั้งหมด และระบุหน่วยโภชนาการเป็น '23 kcal ต่อข้าวสุก 25 กรัม' เสมอค่ะ",
         })
 
-    # Priority C: Overdue unanswered chats > 3h
+    # Priority 5: Overdue unanswered chats > 3h
     overdue_pages = [p for p in pages_data if p["overdue_3h"] > 0]
     for p in overdue_pages:
+        if len(cases) >= 4:
+            break
         sample_names = ", ".join(f"คุณ {x['customer']} ({x['time']})" for x in p["overdue_list"][:2])
         cases.append({
             "line_header": f"{p['short_name']} (แชทรอตอบ > 3 ชม.)",
             "customer": sample_names or f"ค้าง {p['overdue_3h']} แชท",
-            "line_bullet": f"มีแชทลูกค้าค้างเกิน 3 ชม. อยู่ {p['overdue_3h']} แชท ฝากกดตัวกรอง 'ยังไม่ได้อ่าน / การตอบกลับโฆษณา' เคลียร์ให้ครบ 0 แชทนะคะ",
+            "line_bullet": f"มีแชทลูกค้ารอตอบเกิน 3 ชม. อยู่ {p['overdue_3h']} แชท ฝากกดตัวกรอง 'ยังไม่ได้อ่าน / การตอบกลับโฆษณา' เคลียร์ให้ครบ 0 แชทนะคะ",
             "html_title": f"{p['title']} · แชทลูกค้ารอตอบเกิน 3 ชั่วโมง {p['overdue_3h']} แชท",
             "html_detail": f"ตัวอย่างแชทที่รอตอบ: {sample_names}",
             "html_fix": "กดตัวกรอง 'ยังไม่ได้อ่าน' และ 'การตอบกลับโฆษณา' ใน Meta Business Suite / Pancake ไล่ตอบให้ครบ 0 แชทก่อนเปลี่ยนกะทุกครั้งค่ะ",
         })
 
-    # Priority D: Small orders upsell opportunity (if room in top 4)
+    # Priority 6: Small orders upsell opportunity (if room in top 4)
     if len(cases) < 4:
         for p in pages_data:
             if p["small_orders_count"] >= 2:
@@ -772,10 +1025,6 @@ def format_pudding_line_summary(
         or os.getenv("PUBLIC_BASE_URL")
         or "https://buksukjai-omnichannel-twht.onrender.com"
     ).rstrip("/")
-
-    now_bkk = datetime.now(BKK_TZ)
-    if not target_date:
-        target_date = (now_bkk - timedelta(days=1)).strftime("%Y-%m-%d") if now_bkk.hour == 1 else now_bkk.strftime("%Y-%m-%d")
 
     rep = get_three_pages_live_report(target_date=target_date, force_refresh=force_refresh)
     report_url = f"{base}/admin-report?date={rep['target_date']}"
