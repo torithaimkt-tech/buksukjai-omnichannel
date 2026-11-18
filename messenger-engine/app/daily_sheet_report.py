@@ -377,13 +377,13 @@ DEFAULT_LEARNED_RULES = [
     "เมื่อลูกค้าถามเกี่ยวกับระยะเวลาการเก็บรักษา ให้ตอบว่า 'ข้าวบุกสุขใจสามารถเก็บได้นาน 1 ปีในอุณหภูมิห้องปกติ ไม่จำเป็นต้องแช่ตู้เย็นเลยค่ะ'",
     "เมื่อลูกค้าเลือกชำระแบบโอนเงิน (เช่น โอนค่ะ / โอนคะ / โอนเรยคะ / แบบโอน / แบโอน / ขอโอน / ขอเลขบัญชี) ต้องส่งแยกเป็น 2 ข้อความเสมอ (คั่นด้วย |||) คือ ข้อความที่ 1: 'ได้เลยค่ะคุณลูกค้า 🍚 สามารถโอนชำระได้ที่\\n\\nAccount Name: บริษัท ดิจิสท์ ฮับ จำกัด\\nธนาคาร : ธนาคารไทยพาณิชย์ จำกัด (มหาชน) / สาขา สำโรง\\nAccount Number / เลขที่บัญชี : 304-407545-5' และข้อความที่ 2 ส่งเฉพาะตัวเลขล้วน '3044075455' แยกอีก 1 กล่องข้อความเพื่อให้ลูกค้าก๊อปปี้ไปโอนได้ง่ายและสะดวกที่สุด (แม้เป็นลูกค้าเก่าที่เคยซื้อแล้วก็ต้องส่งเลขบัญชีให้ทันที ห้ามตอบเป็นข้อความถามไถ่หลังการขายเด็ดขาด)",
     "เมื่อลูกค้าถามว่าร้านอยู่ไหน อยู่แถวไหน อยู่ใกล้บ้าน มีหน้าร้านไหม หรือขอแวะมาดู/รับสินค้าเอง ต้องแจ้งลูกค้าว่าทางร้านไม่มีให้เยี่ยมชม สินค้าอยู่ที่คลังสินค้าและจัดส่งผ่านขนส่งอย่างเดียวเท่านั้นค่ะ (ห้ามบอกว่ามีสาขาสำโรงหรือชวนแวะมาเยี่ยมชม/รับสินค้าเองเด็ดขาด)",
-    "เมื่อลูกค้าถามเรื่องโรคไต ไตเสื่อม หรือโรคประจำตัวเฉพาะทาง (เช่น ไตเสื่อมทานได้ไหม) ให้ตอบว่า ข้าวบุกสุขใจทำจากบุก 59% ผสมข้าวหอมมะลิ 29% และน้ำ 12% ไม่ใส่สารกันบูด แต่หากมีภาวะไตเสื่อมหรือโรคประจำตัวเฉพาะทาง แนะนำปรึกษาแพทย์เพิ่มเติมก่อนทานนะคะ (ไม่ต้องตั้ง needs_human=true)",
+    "เมื่อลูกค้าถามเรื่องโรคไต ไตเสื่อม หรือโรคประจำตัวเฉพาะทาง (เช่น ไตเสื่อมทานได้ไหม) ให้ตอบว่า ข้าวบุกสุขใจมีส่วนผสมของข้าวหอมมะลิ 29% ผงบุก 59% และน้ำ 12% ไม่ใส่สารกันบูด แต่หากมีภาวะไตเสื่อมหรือโรคประจำตัวเฉพาะทาง แนะนำปรึกษาแพทย์เพิ่มเติมก่อนทานนะคะ (ไม่ต้องตั้ง needs_human=true)",
 ]
 
 DEFAULT_LEARNED_FAQ = [
     {
         "question": "ไตเสื่อมทานได้ไหม / โรคไตทานได้ไหม / มีโรคประจำตัวทานได้ไหม",
-        "answer": "ข้าวบุกสุขใจทำจากบุกธรรมชาติ 59% ผสมข้าวหอมมะลิ 29% และน้ำ 12% ไม่ใส่สารกันบูดค่ะ แต่สำหรับผู้ที่มีภาวะไตเสื่อมหรือโรคประจำตัวเฉพาะทาง แนะนำปรึกษาแพทย์เพิ่มเติมก่อนทานนะคะ 🙏💚",
+        "answer": "ข้าวบุกสุขใจมีส่วนผสมของข้าวหอมมะลิ 29% ผงบุก 59% และน้ำ 12% ไม่ใส่สารกันบูดค่ะ แต่สำหรับผู้ที่มีภาวะไตเสื่อมหรือโรคประจำตัวเฉพาะทาง แนะนำปรึกษาแพทย์เพิ่มเติมก่อนทานนะคะ 🙏💚",
         "updated_at": "2026-11-06T20:55:00+07:00",
     },
     {
@@ -787,7 +787,25 @@ def send_boom_morning_stock_report(
     if not token:
         return {"status": "error", "reason": "missing_workbot_line_token"}
 
-    wh = get_or_fetch_warehouse_stock()
+    # STRICT GUARD: Only send when LIVE warehouse stock from JST ERP succeeds (`status == "ok"`).
+    # NEVER send cached, stale, or fallback numbers out to the LINE group!
+    try:
+        wh = jst_erp.get_warehouse_stock_summary()
+    except Exception as exc:
+        return {
+            "status": "aborted_live_stock_unavailable",
+            "reason": f"jst_live_fetch_error: {exc}",
+            "group_id": gid,
+        }
+    if not isinstance(wh, dict) or wh.get("status") != "ok":
+        return {
+            "status": "aborted_live_stock_unavailable",
+            "reason": "jst_cookie_expired_or_live_stock_not_ok_never_send_stale_data",
+            "group_id": gid,
+            "live_response": wh,
+        }
+    cfg["last_warehouse_stock"] = wh
+    save_line_group_config(cfg)
     stock_text = format_buksukjai_stock_only_report(wh)
     headers = {
         "Authorization": f"Bearer {token}",
@@ -1523,7 +1541,9 @@ def fetch_report_from_google_sheet(target_date: str | None = None) -> dict[str, 
 
 
 def get_or_fetch_warehouse_stock() -> dict[str, Any]:
-    """Fetch live warehouse stock from JST ERP, or fall back to cached stock in line_group_config.json."""
+    """Fetch LIVE warehouse stock from JST ERP only.
+    Never returns stale cached stock or hardcoded mock numbers as status='ok'.
+    """
     st = load_line_group_config()
     try:
         live_wh = jst_erp.get_warehouse_stock_summary()
@@ -1531,29 +1551,10 @@ def get_or_fetch_warehouse_stock() -> dict[str, Any]:
             st["last_warehouse_stock"] = live_wh
             save_line_group_config(st)
             return live_wh
+        return live_wh if isinstance(live_wh, dict) else {"status": "error", "message": "live_stock_unavailable"}
     except Exception as exc:
-        logger.debug("Live warehouse stock fetch skipped: %s", exc)
-
-    cached_wh = st.get("last_warehouse_stock")
-    if isinstance(cached_wh, dict) and cached_wh.get("status") == "ok":
-        return cached_wh
-
-    return {
-        "status": "ok",
-        "available_60g": 1066,
-        "physical_60g": 1088,
-        "lock_60g": 22,
-        "days_60g": 11,
-        "available_500g": 135,
-        "physical_500g": 135,
-        "lock_500g": 0,
-        "days_500g": 32,
-        "available_1kg": 135,
-        "physical_1kg": 139,
-        "lock_1kg": 4,
-        "days_1kg": 17,
-        "warnings": [],
-    }
+        logger.debug("Live warehouse stock fetch failed: %s", exc)
+        return {"status": "error", "message": str(exc)}
 
 
 def load_or_build_daily_report(target_date: str) -> dict[str, Any]:
