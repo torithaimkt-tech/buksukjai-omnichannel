@@ -1,16 +1,120 @@
-name: Render Cloud 24-7 Keep-Alive (Buk Sukjai Bot)
+name: Render Cloud 24-7 Keep-Alive & JST Cookie Vault Sync
 
 on:
   schedule:
-    # Ping every 10 minutes 24/7 so Render Free never sleeps and JST ERP sliding cookie stays renewed
+    # Run every 10 minutes 24/7 so Render never sleeps, JST 48h sliding cookie auto-renews,
+    # and the encrypted cookie vault stays permanently synced across container restarts/deploys.
     - cron: "*/10 * * * *"
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
-  ping:
+  ping-and-sync-vault:
     runs-on: ubuntu-latest
     steps:
-      - name: Wake Render Cloud and keep JST sliding cookie alive
+      - name: Checkout jst-vault branch if present
         run: |
-          curl -fsSL --retry 3 --retry-delay 10 --max-time 60 "https://buksukjai-omnichannel-twht.onrender.com/health"
-          curl -fsSL --retry 2 --retry-delay 5 --max-time 60 "https://buksukjai-omnichannel-twht.onrender.com/api/jst/stock-live" > /dev/null
+          git init vault_repo
+          cd vault_repo
+          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if git ls-remote --exit-code --heads origin jst-vault >/dev/null 2>&1; then
+            git fetch --depth=1 origin jst-vault
+            git checkout -B jst-vault FETCH_HEAD
+          else
+            git checkout --orphan jst-vault
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Wake Render Cloud, Restore Vault if Needed, Trigger Sliding Renewal, and Persist Updated Vault
+        run: |
+          python3 - << 'PY'
+          import json, os, subprocess, urllib.request
+
+          BASE = "https://buksukjai-omnichannel-twht.onrender.com"
+          VAULT_PATH = "vault_repo/jst_cookie_vault.json"
+
+          def http_json(url, data=None, timeout=45):
+              req = urllib.request.Request(
+                  url,
+                  data=(json.dumps(data).encode("utf-8") if data is not None else None),
+                  headers={"Content-Type": "application/json", "User-Agent": "buksukjai-vault-keeper/1.0"},
+                  method=("POST" if data is not None else "GET"),
+              )
+              with urllib.request.urlopen(req, timeout=timeout) as r:
+                  return json.loads(r.read().decode("utf-8"))
+
+          # 1. Wake Render
+          for _ in range(3):
+              try:
+                  h = http_json(f"{BASE}/health", timeout=60)
+                  print("Render /health:", h.get("status"))
+                  break
+              except Exception as e:
+                  print("Wake retry:", e)
+
+          # 2. Load saved encrypted vault from jst-vault branch
+          saved_vault = {}
+          if os.path.exists(VAULT_PATH):
+              try:
+                  saved_vault = json.load(open(VAULT_PATH, "r", encoding="utf-8"))
+              except Exception:
+                  saved_vault = {}
+          saved_ts = str(saved_vault.get("cookie_refreshed_at") or "")
+
+          # 3. Compare with Render's current in-memory vault BEFORE stock check
+          try:
+              rem_before = http_json(f"{BASE}/api/jst/cookie-vault")
+          except Exception as e:
+              print("Vault endpoint not ready yet:", e)
+              rem_before = {}
+          rem_ts_before = str(rem_before.get("cookie_refreshed_at") or "")
+
+          # If Render restarted/redeployed with an older cookie, restore newer vault immediately
+          if saved_ts and saved_vault.get("persisted_cookie_enc") and (not rem_ts_before or saved_ts > rem_ts_before):
+              res_push = http_json(f"{BASE}/api/jst/cookie-vault", data={
+                  "version": str(saved_vault.get("version") or "1"),
+                  "cookie_refreshed_at": saved_ts,
+                  "persisted_cookie_enc": saved_vault["persisted_cookie_enc"],
+                  "vault_sig": saved_vault.get("vault_sig", ""),
+              })
+              print("Restored newer vault to Render:", res_push)
+
+          # 4. Trigger live JST stock check & dual-domain 48h sliding cookie renewal
+          try:
+              st_live = http_json(f"{BASE}/api/jst/stock-live", timeout=45)
+              print("JST live status:", st_live.get("live_jst_status"))
+          except Exception as e:
+              print("Stock-live check warning:", e)
+
+          # 5. Re-read Render's vault AFTER sliding renewal; if newer, overwrite single-commit jst-vault branch
+          try:
+              rem_after = http_json(f"{BASE}/api/jst/cookie-vault")
+          except Exception:
+              rem_after = {}
+          rem_ts_after = str(rem_after.get("cookie_refreshed_at") or "")
+          rem_enc_after = str(rem_after.get("persisted_cookie_enc") or "")
+          rem_sig_after = str(rem_after.get("vault_sig") or "")
+
+          if rem_ts_after and rem_enc_after and rem_sig_after and rem_ts_after > saved_ts:
+              new_vault = {
+                  "version": "1",
+                  "cookie_refreshed_at": rem_ts_after,
+                  "persisted_cookie_enc": rem_enc_after,
+                  "vault_sig": rem_sig_after,
+              }
+              with open(VAULT_PATH, "w", encoding="utf-8") as f:
+                  json.dump(new_vault, f, indent=2)
+              subprocess.run(["git", "-C", "vault_repo", "config", "user.name", "BukSukjai Vault Bot"], check=True)
+              subprocess.run(["git", "-C", "vault_repo", "config", "user.email", "buksukjai@gmail.com"], check=True)
+              subprocess.run(["git", "-C", "vault_repo", "checkout", "--orphan", "jst-vault-next"], check=True)
+              subprocess.run(["git", "-C", "vault_repo", "add", "jst_cookie_vault.json"], check=True)
+              subprocess.run(["git", "-C", "vault_repo", "commit", "-m", f"chore(vault): sync renewed JST sliding cookie ({rem_ts_after})"], check=True)
+              subprocess.run(["git", "-C", "vault_repo", "branch", "-M", "jst-vault"], check=True)
+              subprocess.run(["git", "-C", "vault_repo", "push", "--force", "origin", "jst-vault"], check=True)
+              print("Synced new encrypted sliding cookie to jst-vault:", rem_ts_after)
+          else:
+              print("Vault already up to date:", saved_ts or rem_ts_after)
+          PY

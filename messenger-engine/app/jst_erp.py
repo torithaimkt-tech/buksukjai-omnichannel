@@ -64,7 +64,180 @@ def get_shop_id_for_brand(brand_id: str = "buksukjai") -> int:
     return JST_SHOP_ID
 
 
+# Permanently purge any legacy static JST_ERP_COOKIE env var from runtime memory
+os.environ.pop("JST_ERP_COOKIE", None)
+
 _RUNTIME_COOKIE: str = ""
+JST_VAULT_REPO = "torithaimkt-tech/buksukjai-omnichannel"
+JST_VAULT_BRANCH = "jst-vault"
+JST_VAULT_FILE = "jst_cookie_vault.json"
+
+
+def _get_vault_secret_bytes() -> bytes:
+    """Derive 256-bit master key from private env secret (`LINE_CHANNEL_SECRET` / `JST_VAULT_SECRET`), NEVER in Git."""
+    import hashlib
+
+    raw_sec = (
+        os.getenv("JST_VAULT_SECRET")
+        or os.getenv("LINE_CHANNEL_SECRET")
+        or os.getenv("PAGE_ACCESS_TOKEN")
+        or ""
+    ).strip()
+    if not raw_sec:
+        return b""
+    return hashlib.sha256(f"buksukjai-jst-vault-v1:{raw_sec}".encode("utf-8")).digest()
+
+
+def encrypt_cookie_blob(plaintext: str) -> str:
+    """Encrypt-then-MAC (SHA256-CTR + HMAC-SHA256) using stdlib only so zero plaintext cookies sit on disk/Git."""
+    import base64
+    import hashlib
+    import hmac
+    import secrets
+
+    clean = (plaintext or "").strip()
+    if not clean:
+        return ""
+    master = _get_vault_secret_bytes()
+    if not master:
+        return ""
+    nonce = secrets.token_bytes(16)
+    enc_key = hmac.new(master, b"enc:" + nonce, hashlib.sha256).digest()
+    mac_key = hmac.new(master, b"mac:" + nonce, hashlib.sha256).digest()
+    pt_bytes = clean.encode("utf-8")
+    out = bytearray(len(pt_bytes))
+    for blk_idx in range((len(pt_bytes) + 31) // 32):
+        ks = hmac.new(enc_key, blk_idx.to_bytes(8, "big"), hashlib.sha256).digest()
+        start = blk_idx * 32
+        end = min(start + 32, len(pt_bytes))
+        for i in range(start, end):
+            out[i] = pt_bytes[i] ^ ks[i - start]
+    ct_bytes = bytes(out)
+    tag = hmac.new(mac_key, nonce + ct_bytes, hashlib.sha256).digest()
+    return "v1:" + base64.urlsafe_b64encode(nonce + tag + ct_bytes).decode("ascii")
+
+
+def decrypt_cookie_blob(token: str) -> str:
+    """Verify HMAC-SHA256 tag in constant time and decrypt SHA256-CTR cookie blob."""
+    import base64
+    import hashlib
+    import hmac
+
+    tok = (token or "").strip()
+    if not tok.startswith("v1:"):
+        return ""
+    master = _get_vault_secret_bytes()
+    if not master:
+        return ""
+    try:
+        raw = base64.urlsafe_b64decode(tok[3:].encode("ascii"))
+        if len(raw) <= 48:
+            return ""
+        nonce, tag, ct_bytes = raw[:16], raw[16:48], raw[48:]
+        mac_key = hmac.new(master, b"mac:" + nonce, hashlib.sha256).digest()
+        expected_tag = hmac.new(mac_key, nonce + ct_bytes, hashlib.sha256).digest()
+        if not hmac.compare_digest(tag, expected_tag):
+            return ""
+        enc_key = hmac.new(master, b"enc:" + nonce, hashlib.sha256).digest()
+        out = bytearray(len(ct_bytes))
+        for blk_idx in range((len(ct_bytes) + 31) // 32):
+            ks = hmac.new(enc_key, blk_idx.to_bytes(8, "big"), hashlib.sha256).digest()
+            start = blk_idx * 32
+            end = min(start + 32, len(ct_bytes))
+            for i in range(start, end):
+                out[i] = ct_bytes[i] ^ ks[i - start]
+        return bytes(out).decode("utf-8")
+    except Exception:
+        return ""
+
+
+def sign_vault_envelope(cookie_refreshed_at: str, persisted_cookie_enc: str) -> str:
+    import hashlib
+    import hmac
+
+    master = _get_vault_secret_bytes()
+    if not master or not cookie_refreshed_at or not persisted_cookie_enc:
+        return ""
+    msg = f"vault-v1:{cookie_refreshed_at}:{persisted_cookie_enc}".encode("utf-8")
+    return hmac.new(master, msg, hashlib.sha256).hexdigest()
+
+
+def export_encrypted_cookie_vault() -> dict[str, str]:
+    """Export encrypted-only vault envelope safe for syncing to the `jst-vault` branch."""
+    st = get_daily_sync_state()
+    ck = get_jst_cookie()
+    enc = str(st.get("persisted_cookie_enc") or "").strip()
+    if ck and not enc:
+        enc = encrypt_cookie_blob(ck)
+    ref_at = str(st.get("cookie_refreshed_at") or "").strip()
+    if ck and not ref_at:
+        ref_at = datetime.now(timezone(timedelta(hours=7))).isoformat()
+    sig = sign_vault_envelope(ref_at, enc)
+    return {
+        "version": "1",
+        "cookie_refreshed_at": ref_at,
+        "persisted_cookie_enc": enc,
+        "vault_sig": sig,
+    }
+
+
+def import_encrypted_cookie_vault(envelope: dict[str, Any], force: bool = False) -> dict[str, Any]:
+    """Verify and adopt an encrypted vault envelope if authentic and newer than local state."""
+    import hmac
+
+    global _RUNTIME_COOKIE
+    if not isinstance(envelope, dict):
+        return {"status": "invalid_envelope"}
+    ref_at = str(envelope.get("cookie_refreshed_at") or "").strip()
+    enc = str(envelope.get("persisted_cookie_enc") or "").strip()
+    sig = str(envelope.get("vault_sig") or "").strip()
+    if not ref_at or not enc or not sig:
+        return {"status": "missing_fields"}
+    expected_sig = sign_vault_envelope(ref_at, enc)
+    if not expected_sig or not hmac.compare_digest(sig, expected_sig):
+        return {"status": "invalid_signature"}
+    decrypted = decrypt_cookie_blob(enc)
+    if not decrypted or "GlobalAuthCookie=" not in decrypted:
+        return {"status": "decryption_failed"}
+
+    cur_st = get_daily_sync_state()
+    cur_ref = str(cur_st.get("cookie_refreshed_at") or "").strip()
+    cur_ck = get_jst_cookie()
+    if not force and cur_ck and cur_ref and ref_at < cur_ref:
+        return {"status": "kept_newer_local", "local_refreshed_at": cur_ref, "vault_refreshed_at": ref_at}
+
+    _RUNTIME_COOKIE = decrypted
+    save_daily_sync_state({"persisted_cookie_enc": enc, "cookie_refreshed_at": ref_at})
+    return {"status": "adopted", "cookie_refreshed_at": ref_at}
+
+
+def restore_cookie_from_cloud_vault() -> dict[str, Any]:
+    """On Render container startup/restart, pull the latest encrypted sliding cookie from `jst-vault` branch."""
+    import json
+
+    ts_now = int(time.time())
+    urls = [
+        (
+            f"https://api.github.com/repos/{JST_VAULT_REPO}/contents/{JST_VAULT_FILE}?ref={JST_VAULT_BRANCH}&t={ts_now}",
+            {"Accept": "application/vnd.github.raw", "User-Agent": "buksukjai-omnichannel-vault/1.0"},
+        ),
+        (
+            f"https://raw.githubusercontent.com/{JST_VAULT_REPO}/{JST_VAULT_BRANCH}/{JST_VAULT_FILE}?t={ts_now}",
+            {"Cache-Control": "no-cache", "User-Agent": "buksukjai-omnichannel-vault/1.0"},
+        ),
+    ]
+    for u, hdrs in urls:
+        try:
+            r = httpx.get(u, headers=hdrs, timeout=8.0, follow_redirects=True)
+            if r.status_code == 200 and r.text.strip().startswith("{"):
+                env = json.loads(r.text)
+                res = import_encrypted_cookie_vault(env, force=False)
+                if res.get("status") in ("adopted", "kept_newer_local"):
+                    logger.info("Cloud JST Cookie Vault check complete (%s): %s", res.get("status"), res.get("cookie_refreshed_at") or res.get("local_refreshed_at"))
+                    return res
+        except Exception as exc:
+            logger.debug("Cloud vault fetch attempt warning (%s): %s", u, exc)
+    return {"status": "vault_unreachable"}
 
 # Fix 4: Load AUTO_SYNC_ENABLED from persisted state so it survives Render restarts.
 # Previously this was always False on boot, causing JST sync to silently stop for days.
@@ -285,9 +458,90 @@ KNOWN_SKUS: dict[str, dict[str, Any]] = {
 }
 
 
+def _rsa_pkcs1_v15_encrypt_b64(plaintext: str, spki_b64: str) -> str:
+    """Pure-Python RSA PKCS#1 v1.5 encryption matching JSEncrypt for JST ERP `/Account/Login/Login`."""
+    import base64
+    import secrets
+
+    der = base64.b64decode(spki_b64)
+    # Extract BIT STRING -> SEQUENCE { INTEGER modulus, INTEGER exponent } from standard 2048-bit SPKI DER
+    idx = der.find(b"\x02\x82\x01\x01")
+    if idx == -1:
+        raise ValueError("Unsupported SPKI modulus header")
+    n_bytes = der[idx + 4 : idx + 4 + 257]
+    n = int.from_bytes(n_bytes, "big")
+    e_idx = idx + 4 + 257
+    if der[e_idx] != 0x02:
+        raise ValueError("Unsupported SPKI exponent header")
+    e_len = der[e_idx + 1]
+    e = int.from_bytes(der[e_idx + 2 : e_idx + 2 + e_len], "big")
+    k = (n.bit_length() + 7) // 8
+    msg = plaintext.encode("utf-8")
+    ps_len = k - len(msg) - 3
+    ps = bytearray()
+    while len(ps) < ps_len:
+        b = secrets.token_bytes(1)
+        if b != b"\x00":
+            ps.extend(b)
+    em = b"\x00\x02" + bytes(ps) + b"\x00" + msg
+    c = pow(int.from_bytes(em, "big"), e, n)
+    return base64.b64encode(c.to_bytes(k, "big")).decode("ascii")
+
+
+def auto_login_jst_if_configured() -> bool:
+    """Self-healing fallback: if `JST_LOGIN_EMAIL` and `JST_LOGIN_PASSWORD` env vars are configured
+    and JST does not require CAPTCHA (`IsNeedCaptcha == '0'`), automatically mint a fresh session cookie.
+    """
+    email = (os.getenv("JST_LOGIN_EMAIL") or "").strip()
+    password = (os.getenv("JST_LOGIN_PASSWORD") or "").strip()
+    if not email or not password:
+        return False
+    try:
+        with httpx.Client(timeout=15.0, follow_redirects=False) as client:
+            page_r = client.get("https://asia.jsterp.com/Account/Login/index")
+            m_pk = re.search(r"PublicKey\s*:\s*'([^']+)'", page_r.text)
+            if not m_pk:
+                return False
+            pub_key = m_pk.group(1).strip()
+            cap_r = client.post("https://asia.jsterp.com/Account/Login/IsNeedCaptcha", json={"AccountId": email})
+            cap_j = cap_r.json() or {}
+            if not cap_j.get("Success") or str(cap_j.get("Data")) == "1":
+                logger.warning("JST auto-login skipped: CAPTCHA required or IsNeedCaptcha failed.")
+                return False
+            enc_pw = _rsa_pkcs1_v15_encrypt_b64(password, pub_key)
+            login_r = client.post(
+                "https://asia.jsterp.com/Account/Login/Login",
+                json={
+                    "AccountId": email,
+                    "Password": enc_pw,
+                    "CaptchaCode": "",
+                    "CacheKey": "",
+                    "ClientIp": "",
+                    "Address": "",
+                    "ClientTimeZone": 7,
+                    "IsNeedCaptcha": False,
+                },
+            )
+            body = login_r.json() or {}
+            if body.get("Success"):
+                cookie_pairs = [f"{k}={v}" for k, v in client.cookies.items()]
+                for sc in login_r.headers.get_list("set-cookie"):
+                    fp = sc.split(";", 1)[0].strip()
+                    if "=" in fp and fp not in cookie_pairs:
+                        cookie_pairs.append(fp)
+                merged = "; ".join(cookie_pairs)
+                if "GlobalAuthCookie=" in merged:
+                    set_jst_cookie(merged)
+                    logger.info("JST ERP self-healing RSA auto-login succeeded for %s!", email)
+                    return True
+    except Exception as exc:
+        logger.warning("JST auto-login warning: %s", exc)
+    return False
+
+
 def update_cookie_from_response(resp: httpx.Response) -> bool:
-    """Capture any Set-Cookie headers returned by JST ERP (such as sliding-expiration
-    renewals of `.AspNetCore.GlobalAuthCookie`) and merge them into `_RUNTIME_COOKIE`.
+    """Capture any Set-Cookie headers returned by JST ERP (such as 48h sliding-expiration
+    renewals of `.AspNetCore.GlobalAuthCookie`) and persist encrypted into state.
     """
     global _RUNTIME_COOKIE
     try:
@@ -297,8 +551,9 @@ def update_cookie_from_response(resp: httpx.Response) -> bool:
     if not set_cookies:
         return False
 
+    base_cookie = _RUNTIME_COOKIE or get_jst_cookie()
     cookie_map: dict[str, str] = {}
-    for part in (_RUNTIME_COOKIE or "").split(";"):
+    for part in (base_cookie or "").split(";"):
         part = part.strip()
         if "=" in part:
             k, v = part.split("=", 1)
@@ -318,38 +573,62 @@ def update_cookie_from_response(resp: httpx.Response) -> bool:
         new_cookie_str = "; ".join(f"{k}={v}" for k, v in cookie_map.items())
         _RUNTIME_COOKIE = new_cookie_str
         try:
-            save_daily_sync_state({"persisted_cookie": new_cookie_str, "cookie_refreshed_at": datetime.now(timezone(timedelta(hours=7))).isoformat()})
+            enc = encrypt_cookie_blob(new_cookie_str)
+            save_daily_sync_state({
+                "persisted_cookie_enc": enc,
+                "cookie_refreshed_at": datetime.now(timezone(timedelta(hours=7))).isoformat(),
+            })
         except Exception:
             pass
     return updated
 
 
-def check_jst_cookie_health(alert_line_on_expired: bool = True) -> dict[str, Any]:
-    """Verify whether the current JST ERP session cookie is still active and valid,
-    and automatically capture any sliding-session `Set-Cookie` renewal headers.
-    If expired/unauthorized and `alert_line_on_expired` is True, sends an immediate alert
-    to the LINE Summary Work Group (with a 6-hour cooldown so it does not spam).
+def touch_jst_sliding_renewal() -> bool:
+    """Touch BOTH `asia-web.jsterp.com` AND `asia.jsterp.com` gateways so ASP.NET Core's 48h sliding
+    cookie (`SlidingExpiration=true`, re-issued after >24h) is captured and renewed automatically.
     """
+    renewed_any = False
+    h = _headers(json_body=True)
+    if not h.get("Cookie"):
+        return False
+    try:
+        r_web = httpx.post(
+            "https://asia-web.jsterp.com/Account/User/GetAccount",
+            headers={**h, "Origin": "https://asia-web.jsterp.com", "Referer": "https://asia-web.jsterp.com/"},
+            json={},
+            timeout=8.0,
+            follow_redirects=False,
+        )
+        if update_cookie_from_response(r_web):
+            renewed_any = True
+            h["Cookie"] = get_jst_cookie()
+    except Exception:
+        pass
+
+    h_asia = {**h, "Origin": "https://asia.jsterp.com", "Referer": "https://asia.jsterp.com/Wms/Inventory/SkuInventory"}
+    for _renew_url in (
+        "https://asia.jsterp.com/Wms/Inventory/SkuInventory",
+        "https://asia.jsterp.com/Account/Shop/GetAuthorizeData",
+    ):
+        try:
+            auth_resp = httpx.get(_renew_url, headers=h_asia, timeout=8.0, follow_redirects=False)
+            if update_cookie_from_response(auth_resp):
+                renewed_any = True
+                h_asia["Cookie"] = get_jst_cookie()
+        except Exception:
+            pass
+    return renewed_any
+
+
+def check_jst_cookie_health(alert_line_on_expired: bool = True) -> dict[str, Any]:
+    """Verify whether the current JST ERP session cookie is active, trigger dual-domain sliding renewal,
+    and attempt cloud-vault restore or self-healing RSA auto-login before declaring expiration.
+    """
+    touch_jst_sliding_renewal()
     h = _headers(json_body=True)
     h["Origin"] = "https://asia.jsterp.com"
     h["Referer"] = "https://asia.jsterp.com/Wms/Inventory/SkuInventory"
     try:
-        for _renew_url in (
-            "https://asia.jsterp.com/Wms/Inventory/SkuInventory",
-            "https://asia.jsterp.com/Account/Shop/GetAuthorizeData",
-        ):
-            try:
-                auth_resp = httpx.get(
-                    _renew_url,
-                    headers=h,
-                    timeout=10.0,
-                    follow_redirects=False,
-                )
-                if update_cookie_from_response(auth_resp):
-                    h["Cookie"] = get_jst_cookie()
-            except Exception:
-                pass
-
         resp = httpx.post(
             "https://asia.jsterp.com/wms/Inventory/GetSkuInventorys",
             headers=h,
@@ -361,6 +640,19 @@ def check_jst_cookie_health(alert_line_on_expired: bool = True) -> dict[str, Any
             follow_redirects=False,
         )
         update_cookie_from_response(resp)
+        if resp.status_code in (301, 302, 401, 403):
+            # Try restoring from Cloud Vault or self-healing RSA login before failing!
+            vault_res = restore_cookie_from_cloud_vault()
+            if vault_res.get("status") == "adopted" or auto_login_jst_if_configured():
+                h["Cookie"] = get_jst_cookie()
+                resp = httpx.post(
+                    "https://asia.jsterp.com/wms/Inventory/GetSkuInventorys",
+                    headers=h,
+                    json={"RequestModel": {}, "DataPage": {"pageSize": 10, "pageIndex": 1, "total": 0, "sizes": [10, 50]}},
+                    timeout=12.0,
+                    follow_redirects=False,
+                )
+                update_cookie_from_response(resp)
         if resp.status_code in (301, 302, 401, 403):
             reason = f"HTTP {resp.status_code} (Session Redirect/Unauthorized)"
             if alert_line_on_expired:
@@ -387,16 +679,20 @@ def check_jst_cookie_health(alert_line_on_expired: bool = True) -> dict[str, Any
 
 
 def get_jst_cookie() -> str:
-    """Return ONLY the sliding auto-renewing cookie (`persisted_cookie` in `jst_sync_state.json` / DB).
-    Legacy static `JST_ERP_COOKIE` env fallback has been permanently removed.
+    """Return ONLY the decrypted sliding auto-renewing cookie (`persisted_cookie_enc`).
+    All legacy plaintext and static `JST_ERP_COOKIE` sources are permanently purged.
     """
     global _RUNTIME_COOKIE
+    if _RUNTIME_COOKIE:
+        return _RUNTIME_COOKIE
     try:
         st = get_daily_sync_state()
-        persisted = str(st.get("persisted_cookie") or "").strip()
-        if persisted:
-            _RUNTIME_COOKIE = persisted
-            return _RUNTIME_COOKIE
+        enc = str(st.get("persisted_cookie_enc") or "").strip()
+        if enc:
+            dec = decrypt_cookie_blob(enc)
+            if dec:
+                _RUNTIME_COOKIE = dec
+                return _RUNTIME_COOKIE
     except Exception:
         pass
     return _RUNTIME_COOKIE
@@ -407,8 +703,9 @@ def set_jst_cookie(cookie: str) -> None:
     clean_c = cookie.strip()
     _RUNTIME_COOKIE = clean_c
     try:
+        enc = encrypt_cookie_blob(clean_c)
         save_daily_sync_state({
-            "persisted_cookie": clean_c,
+            "persisted_cookie_enc": enc,
             "cookie_refreshed_at": datetime.now(timezone(timedelta(hours=7))).isoformat(),
         })
     except Exception:
@@ -486,12 +783,16 @@ def get_daily_sync_state() -> dict[str, Any]:
         "pending_jst_retry_queue": {},
         "used_slip_refs": {},
         "alerted_rejected_slip_oids": [],
+        "persisted_cookie_enc": "",
+        "cookie_refreshed_at": "",
     }
     if os.path.exists(JST_SYNC_STATE_PATH):
         try:
             with open(JST_SYNC_STATE_PATH, "r", encoding="utf-8") as f:
                 saved = json.load(f)
-            default_state.update(saved)
+            if isinstance(saved, dict):
+                saved.pop("persisted_cookie", None)
+                default_state.update(saved)
         except Exception:
             pass
     try:
@@ -502,18 +803,25 @@ def get_daily_sync_state() -> dict[str, Any]:
                 if isinstance(db_st, dict):
                     db_ref = str(db_st.get("cookie_refreshed_at") or "")
                     file_ref = str(default_state.get("cookie_refreshed_at") or "")
-                    if db_st.get("persisted_cookie") and db_ref >= file_ref:
-                        default_state["persisted_cookie"] = db_st["persisted_cookie"]
+                    if db_st.get("persisted_cookie_enc") and db_ref >= file_ref:
+                        default_state["persisted_cookie_enc"] = db_st["persisted_cookie_enc"]
                         default_state["cookie_refreshed_at"] = db_ref
     except Exception:
         pass
+    default_state.pop("persisted_cookie", None)
     return default_state
 
 
 def save_daily_sync_state(updates: dict[str, Any]) -> dict[str, Any]:
     import json
     st = get_daily_sync_state()
-    st.update(updates)
+    clean_updates = dict(updates or {})
+    if "persisted_cookie" in clean_updates:
+        raw_ck = str(clean_updates.pop("persisted_cookie") or "").strip()
+        if raw_ck:
+            clean_updates["persisted_cookie_enc"] = encrypt_cookie_blob(raw_ck)
+    st.update(clean_updates)
+    st.pop("persisted_cookie", None)
     try:
         with open(JST_SYNC_STATE_PATH, "w", encoding="utf-8") as f:
             json.dump(st, f, ensure_ascii=False, indent=2)
@@ -533,13 +841,13 @@ def save_daily_sync_state(updates: dict[str, Any]) -> dict[str, Any]:
             if u is not None:
                 u.notes = json.dumps(
                     {
-                        "persisted_cookie": st.get("persisted_cookie", ""),
+                        "persisted_cookie_enc": st.get("persisted_cookie_enc", ""),
                         "cookie_refreshed_at": st.get("cookie_refreshed_at", ""),
                     },
                     ensure_ascii=False,
                 )
                 db.commit()
-        if "persisted_cookie" in updates:
+        if "persisted_cookie_enc" in clean_updates:
             database.save_persistent_snapshot()
     except Exception:
         pass
@@ -3168,22 +3476,12 @@ def sync_all_confirmed_orders_to_jst(days_lookback: int = 2, mark_daily_batch: b
 
 def get_warehouse_stock_summary() -> dict[str, Any]:
     """Query live warehouse stock from JST ERP (`/wms/Inventory/GetSkuInventorys`) for 60g, 500g, and 1kg."""
+    touch_jst_sliding_renewal()
     h = _headers(json_body=True)
     h["Origin"] = "https://asia.jsterp.com"
     h["Referer"] = "https://asia.jsterp.com/Wms/Inventory/SkuInventory"
 
     try:
-        for _renew_url in (
-            "https://asia.jsterp.com/Wms/Inventory/SkuInventory",
-            "https://asia.jsterp.com/Account/Shop/GetAuthorizeData",
-        ):
-            try:
-                _ar = httpx.get(_renew_url, headers=h, timeout=8.0, follow_redirects=False)
-                if update_cookie_from_response(_ar):
-                    h["Cookie"] = get_jst_cookie()
-            except Exception:
-                pass
-
         resp = httpx.post(
             "https://asia.jsterp.com/wms/Inventory/GetSkuInventorys",
             headers=h,
@@ -3195,6 +3493,18 @@ def get_warehouse_stock_summary() -> dict[str, Any]:
             follow_redirects=False,
         )
         update_cookie_from_response(resp)
+        if resp.status_code in (301, 302, 401, 403):
+            vault_res = restore_cookie_from_cloud_vault()
+            if vault_res.get("status") == "adopted" or auto_login_jst_if_configured():
+                h["Cookie"] = get_jst_cookie()
+                resp = httpx.post(
+                    "https://asia.jsterp.com/wms/Inventory/GetSkuInventorys",
+                    headers=h,
+                    json={"RequestModel": {}, "DataPage": {"pageSize": 50, "pageIndex": 1, "total": 0, "sizes": [50, 100]}},
+                    timeout=15.0,
+                    follow_redirects=False,
+                )
+                update_cookie_from_response(resp)
         if resp.status_code in (301, 302, 401, 403):
             raise RuntimeError(f"HTTP {resp.status_code} Redirect/Unauthorized ({resp.headers.get('location', '')})")
         resp.raise_for_status()

@@ -228,6 +228,14 @@ async def lifespan(app: FastAPI):
         CONFIG["brand_persona"]["bot_name"],
     )
 
+    try:
+        import asyncio
+        from . import jst_erp as _jst_boot
+
+        await asyncio.to_thread(_jst_boot.restore_cookie_from_cloud_vault)
+    except Exception as _v_err:
+        logger.warning("Startup JST Cloud Vault check warning: %s", _v_err)
+
     followup_task = None
     boom_stock_task = None
     buksukjai_active = bool(get_page_by_brand_id("buksukjai").get("active", False))
@@ -1540,12 +1548,17 @@ async def api_audit_jst_reconcile(days_lookback: int = 2):
 
 @app.get("/api/jst/status")
 async def api_jst_status():
-    """Check JST ERP connection and configuration."""
+    """Check JST ERP connection, encrypted vault status, and legacy cookie purge status."""
     from . import jst_erp
     cookie = jst_erp.get_jst_cookie()
+    st = jst_erp.get_daily_sync_state()
     return {
         "status": "ok",
         "configured": bool(cookie),
+        "vault_encrypted": bool(st.get("persisted_cookie_enc")),
+        "plaintext_cookie_purged": ("persisted_cookie" not in st),
+        "legacy_env_cookie_purged": ("JST_ERP_COOKIE" not in os.environ),
+        "cookie_refreshed_at": st.get("cookie_refreshed_at", ""),
         "shop_id": jst_erp.JST_SHOP_ID,
         "scb_account": jst_erp.JST_SCB_ACCOUNT,
         "known_skus": list(jst_erp.KNOWN_SKUS.keys()),
@@ -1845,39 +1858,30 @@ async def api_update_jst_cookie_direct(body: JstCookieUpdatePayload):
     }
 
 
-@app.get("/api/jst/cookie-sync")
-async def api_export_jst_cookie_for_pre_push(ts: str = "", sig: str = ""):
-    """HMAC-protected endpoint allowing local pre-push hook to pull Render's latest renewed sliding cookie
-    so a `git push` never overwrites a newer cloud cookie with an older local file.
-    """
-    import hashlib
-    import hmac
-    import time as _time
-    from . import config_loader, jst_erp
+class JstVaultEnvelopePayload(BaseModel):
+    version: str = "1"
+    cookie_refreshed_at: str
+    persisted_cookie_enc: str
+    vault_sig: str
 
-    page = config_loader.get_page_by_brand_id("workbot") or {}
-    secret = (
-        os.getenv("LINE_WORKBOT_CHANNEL_SECRET")
-        or (page.get("channels") or {}).get("line_channel_secret")
-        or ""
-    ).strip()
-    if not secret or not ts or not sig:
-        raise HTTPException(status_code=403, detail="Forbidden")
-    try:
-        if abs(_time.time() - float(ts)) > 300:
-            raise HTTPException(status_code=403, detail="Expired timestamp")
-    except ValueError:
-        raise HTTPException(status_code=403, detail="Invalid timestamp")
-    expected = hmac.new(secret.encode("utf-8"), f"jst-sync:{ts}".encode("utf-8"), hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(expected, sig):
-        raise HTTPException(status_code=403, detail="Invalid signature")
 
-    st = jst_erp.get_daily_sync_state()
-    return {
-        "status": "ok",
-        "cookie_refreshed_at": st.get("cookie_refreshed_at", ""),
-        "persisted_cookie": st.get("persisted_cookie", ""),
-    }
+@app.get("/api/jst/cookie-vault")
+async def api_get_jst_cookie_vault():
+    """Export encrypted-only JST sliding cookie vault envelope (zero plaintext)."""
+    from . import jst_erp
+
+    env = jst_erp.export_encrypted_cookie_vault()
+    return {"status": "ok", **env}
+
+
+@app.post("/api/jst/cookie-vault")
+async def api_post_jst_cookie_vault(body: JstVaultEnvelopePayload):
+    """Verify HMAC + decrypt and adopt a newer JST sliding cookie vault envelope."""
+    import asyncio
+    from . import jst_erp
+
+    res = await asyncio.to_thread(jst_erp.import_encrypted_cookie_vault, body.model_dump(), False)
+    return res
 
 
 @app.get("/api/jst/stock-live")
