@@ -230,15 +230,19 @@ async def lifespan(app: FastAPI):
 
     try:
         import asyncio
-        from . import jst_erp as _jst_boot
+        from . import jst_erp as _jst_boot, parcel_tracker as _pt_boot
 
         await asyncio.to_thread(_jst_boot.restore_cookie_from_cloud_vault)
+        await asyncio.to_thread(_pt_boot.restore_parcel_vault_from_cloud)
     except Exception as _v_err:
-        logger.warning("Startup JST Cloud Vault check warning: %s", _v_err)
+        logger.warning("Startup JST/Parcel Cloud Vault check warning: %s", _v_err)
 
     followup_task = None
     boom_stock_task = None
-    buksukjai_active = bool(get_page_by_brand_id("buksukjai").get("active", False))
+    parcel_tracker_task = None
+    buksukjai_page = get_page_by_brand_id("buksukjai")
+    buksukjai_active = bool(buksukjai_page.get("active", False))
+    buksukjai_parcel_only = bool(buksukjai_page.get("parcel_tracking_enabled", False))
     workbot_active = bool(get_page_by_brand_id("workbot").get("active", False))
     if buksukjai_active and os.getenv("ENABLE_FOLLOWUP", "false").lower() in ("1", "true", "yes"):
         import asyncio
@@ -246,7 +250,13 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(messenger.sync_recent_facebook_conversations("buksukjai", limit=40))
         followup_task = asyncio.create_task(followup.followup_loop(CONFIG, lambda: PUBLIC_BASE_URL))
     else:
-        logger.info("Customer chatbots for 'buksukjai' are currently DISABLED (active=False).")
+        logger.info("Customer sales chatbot for 'buksukjai' is DISABLED (active=False).")
+
+    if buksukjai_parcel_only:
+        import asyncio
+
+        parcel_tracker_task = asyncio.create_task(_buksukjai_parcel_tracker_loop())
+        logger.info("Buk Sukjai 2-Stage Parcel Tracking Notifier started (locked to 09:00-20:00 BKK, sales bot OFF).")
 
     if workbot_active:
         import asyncio
@@ -256,6 +266,8 @@ async def lifespan(app: FastAPI):
     yield
     if followup_task:
         followup_task.cancel()
+    if parcel_tracker_task:
+        parcel_tracker_task.cancel()
     if boom_stock_task:
         boom_stock_task.cancel()
     if _TUNNEL_PROC:
@@ -317,7 +329,25 @@ async def receive_meta_webhook(request: Request, background_tasks: BackgroundTas
     for entry in payload.get("entry", []):
         recipient_page_id = entry.get("id", "")
         brand_id = resolve_brand_by_meta_id(recipient_page_id, platform=platform)
-        if not get_page_by_brand_id(brand_id).get("active", False):
+        page_cfg = get_page_by_brand_id(brand_id)
+        if not page_cfg.get("active", False):
+            # Silent Listener Mode for Buk Sukjai Parcel Tracking (logs phone/address ONLY, zero AI replies!)
+            if brand_id == "buksukjai" and platform == "facebook" and page_cfg.get("parcel_tracking_enabled", False):
+                from . import parcel_tracker as _pt_meta
+
+                for ev in entry.get("messaging", []):
+                    msg = ev.get("message", {}) or {}
+                    txt = (msg.get("text") or "").strip()
+                    if not txt:
+                        continue
+                    if msg.get("is_echo"):
+                        rec_id = (ev.get("recipient") or {}).get("id")
+                        if rec_id:
+                            _pt_meta.record_silent_customer_contact(brand_id, "facebook", str(rec_id), text=txt, role="admin")
+                    else:
+                        snd_id = (ev.get("sender") or {}).get("id")
+                        if snd_id:
+                            _pt_meta.record_silent_customer_contact(brand_id, "facebook", str(snd_id), text=txt, role="user")
             continue
         for event in entry.get("messaging", []):
             sender_id = event.get("sender", {}).get("id")
@@ -459,7 +489,11 @@ async def receive_line_webhook(
     except Exception:
         return {"status": "ok"}
 
-    if not get_page_by_brand_id(brand_id).get("active", False):
+    page_cfg = get_page_by_brand_id(brand_id)
+    if not page_cfg.get("active", False):
+        if brand_id == "buksukjai" and page_cfg.get("parcel_tracking_enabled", False):
+            background_tasks.add_task(_handle_silent_line_parcel_listener, brand_id, payload)
+            return {"status": "ok", "mode": "parcel_tracking_silent_listener"}
         return {"status": "disabled"}
 
     for event in payload.get("events", []):
@@ -1863,6 +1897,147 @@ class JstVaultEnvelopePayload(BaseModel):
     cookie_refreshed_at: str
     persisted_cookie_enc: str
     vault_sig: str
+
+
+class ParcelVaultEnvelopePayload(BaseModel):
+    version: str = "1"
+    state_updated_at: str
+    persisted_state_enc: str
+    vault_sig: str
+
+
+async def _handle_silent_line_parcel_listener(brand_id: str, payload: dict) -> None:
+    """Silently record 1-on-1 LINE OA customer userId, displayName, and 10-digit phone numbers
+    while keeping AI sales replies 100% OFF so human admins chat freely in LINE OA Manager.
+    """
+    from . import parcel_tracker
+
+    if brand_id != "buksukjai":
+        return
+
+    for event in payload.get("events", []):
+        source = event.get("source", {}) or {}
+        if source.get("type", "user") != "user":
+            continue
+        user_id = str(source.get("userId") or "").strip()
+        if not user_id:
+            continue
+
+        event_type = event.get("type")
+        psid = database.make_session_key(brand_id, "line", user_id)
+        existing = database.get_or_create_session(
+            psid=psid,
+            brand_id=brand_id,
+            platform="line",
+            external_user_id=user_id,
+        )
+        disp_name = existing.customer_name or ""
+        if not disp_name or disp_name.startswith("ลูกค้า"):
+            fetched_name = await messenger.fetch_line_user_display_name(user_id, brand_id=brand_id)
+            if fetched_name:
+                disp_name = fetched_name
+
+        if event_type == "follow":
+            parcel_tracker.record_silent_customer_contact(
+                brand_id=brand_id,
+                platform="line",
+                external_user_id=user_id,
+                text="",
+                customer_name=disp_name,
+                role="user",
+            )
+        elif event_type == "message":
+            msg_obj = event.get("message", {}) or {}
+            if msg_obj.get("type") == "text":
+                txt = str(msg_obj.get("text") or "").strip()
+                if txt:
+                    parcel_tracker.record_silent_customer_contact(
+                        brand_id=brand_id,
+                        platform="line",
+                        external_user_id=user_id,
+                        text=txt,
+                        customer_name=disp_name,
+                        role="user",
+                    )
+
+
+async def _buksukjai_parcel_tracker_loop() -> None:
+    """Dedicated background loop for ข้าวบุกสุขใจ 2-Stage Parcel Tracking & Delivery Notifier.
+    Checks JST ERP every 15 minutes and sends notifications ONLY during 09:00–20:00 Bangkok time.
+    """
+    import asyncio
+    from . import parcel_tracker
+
+    await asyncio.sleep(15.0)
+    while True:
+        try:
+            page_cfg = get_page_by_brand_id("buksukjai")
+            if page_cfg.get("parcel_tracking_enabled", False):
+                in_win, _ = parcel_tracker.is_within_send_window()
+                if in_win:
+                    res = await parcel_tracker.check_and_send_parcel_tracking_updates(
+                        public_base_url=PUBLIC_BASE_URL,
+                        dry_run=False,
+                    )
+                    if res.get("sent_stage1_count") or res.get("sent_stage2_count"):
+                        logger.info(
+                            "Parcel Tracker sent Stage1=%s Stage2=%s",
+                            res.get("sent_stage1_count"),
+                            res.get("sent_stage2_count"),
+                        )
+        except Exception as exc:
+            logger.warning("Buk Sukjai parcel tracker loop warning: %s", exc)
+        await asyncio.sleep(900.0)
+
+
+@app.get("/api/jst/parcel-vault")
+async def api_get_parcel_vault():
+    """Export encrypted parcel tracking state + LINE phone index envelope."""
+    from . import parcel_tracker
+
+    env = parcel_tracker.export_encrypted_parcel_vault()
+    return {"status": "ok", **env}
+
+
+@app.post("/api/jst/parcel-vault")
+async def api_post_parcel_vault(body: ParcelVaultEnvelopePayload):
+    """Verify HMAC + decrypt and merge encrypted parcel tracking vault envelope."""
+    import asyncio
+    from . import parcel_tracker
+
+    return await asyncio.to_thread(parcel_tracker.import_encrypted_parcel_vault, body.model_dump(), False)
+
+
+@app.get("/api/jst/tracking-status")
+async def api_jst_tracking_status():
+    """Return current Buk Sukjai parcel tracking state, send window, and tracked order summary."""
+    from . import parcel_tracker
+
+    st = parcel_tracker.get_tracking_state()
+    in_win, win_label = parcel_tracker.is_within_send_window(state=st)
+    return {
+        "status": "ok",
+        "in_send_window": in_win,
+        "allowed_window_bkk": win_label,
+        "auto_enabled": st.get("auto_enabled", True),
+        "min_order_date": st.get("min_order_date"),
+        "last_scan_at": st.get("last_scan_at"),
+        "state_updated_at": st.get("state_updated_at"),
+        "line_phone_index_count": len(st.get("phone_index") or {}),
+        "tracked_orders_count": len(st.get("orders") or {}),
+        "orders": st.get("orders") or {},
+    }
+
+
+@app.post("/api/jst/sync-tracking")
+async def api_jst_sync_tracking(dry_run: bool = False):
+    """Trigger JST ERP parcel tracking scan (respects 09:00-20:00 BKK send window unless dry_run=True)."""
+    from . import parcel_tracker
+
+    return await parcel_tracker.check_and_send_parcel_tracking_updates(
+        public_base_url=PUBLIC_BASE_URL,
+        dry_run=dry_run,
+    )
 
 
 @app.get("/api/jst/cookie-vault")

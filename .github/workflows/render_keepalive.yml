@@ -1,9 +1,10 @@
-name: Render Cloud 24-7 Keep-Alive & JST Cookie Vault Sync
+name: Render Cloud 24-7 Keep-Alive & JST Cookie + Parcel Vault Sync
 
 on:
   schedule:
     # Run every 10 minutes 24/7 so Render never sleeps, JST 48h sliding cookie auto-renews,
-    # and the encrypted cookie vault stays permanently synced across container restarts/deploys.
+    # Buk Sukjai parcel tracking runs reliably within 09:00-20:00 BKK, and both encrypted vaults
+    # stay permanently synced across container restarts/deploys.
     - cron: "*/10 * * * *"
   workflow_dispatch:
 
@@ -28,20 +29,21 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Wake Render Cloud, Restore Vault if Needed, Trigger Sliding Renewal, and Persist Updated Vault
+      - name: Wake Render Cloud, Sync Cookie + Parcel Vaults, and Run Daytime Parcel Check
         run: |
           python3 - << 'PY'
           import json, os, subprocess, urllib.request
 
           BASE = "https://buksukjai-omnichannel-twht.onrender.com"
-          VAULT_PATH = "vault_repo/jst_cookie_vault.json"
+          COOKIE_VAULT_PATH = "vault_repo/jst_cookie_vault.json"
+          PARCEL_VAULT_PATH = "vault_repo/parcel_tracking_vault.json"
 
-          def http_json(url, data=None, timeout=45):
+          def http_json(url, data=None, timeout=45, method=None):
               req = urllib.request.Request(
                   url,
-                  data=(json.dumps(data).encode("utf-8") if data is not None else None),
-                  headers={"Content-Type": "application/json", "User-Agent": "buksukjai-vault-keeper/1.0"},
-                  method=("POST" if data is not None else "GET"),
+                  data=(json.dumps(data).encode("utf-8") if data is not None else (b"" if method == "POST" else None)),
+                  headers={"Content-Type": "application/json", "User-Agent": "buksukjai-vault-keeper/1.1"},
+                  method=(method or ("POST" if data is not None else "GET")),
               )
               with urllib.request.urlopen(req, timeout=timeout) as r:
                   return json.loads(r.read().decode("utf-8"))
@@ -55,32 +57,55 @@ jobs:
               except Exception as e:
                   print("Wake retry:", e)
 
-          # 2. Load saved encrypted vault from jst-vault branch
-          saved_vault = {}
-          if os.path.exists(VAULT_PATH):
+          # 2. Load saved encrypted cookie vault + parcel vault from jst-vault branch
+          saved_cookie_vault = {}
+          if os.path.exists(COOKIE_VAULT_PATH):
               try:
-                  saved_vault = json.load(open(VAULT_PATH, "r", encoding="utf-8"))
+                  saved_cookie_vault = json.load(open(COOKIE_VAULT_PATH, "r", encoding="utf-8"))
               except Exception:
-                  saved_vault = {}
-          saved_ts = str(saved_vault.get("cookie_refreshed_at") or "")
+                  saved_cookie_vault = {}
+          saved_cookie_ts = str(saved_cookie_vault.get("cookie_refreshed_at") or "")
 
-          # 3. Compare with Render's current in-memory vault BEFORE stock check
+          saved_parcel_vault = {}
+          if os.path.exists(PARCEL_VAULT_PATH):
+              try:
+                  saved_parcel_vault = json.load(open(PARCEL_VAULT_PATH, "r", encoding="utf-8"))
+              except Exception:
+                  saved_parcel_vault = {}
+          saved_parcel_ts = str(saved_parcel_vault.get("state_updated_at") or "")
+
+          # 3. Restore Cookie Vault to Render if Render restarted with older state
           try:
-              rem_before = http_json(f"{BASE}/api/jst/cookie-vault")
+              rem_cookie_before = http_json(f"{BASE}/api/jst/cookie-vault")
           except Exception as e:
-              print("Vault endpoint not ready yet:", e)
-              rem_before = {}
-          rem_ts_before = str(rem_before.get("cookie_refreshed_at") or "")
+              print("Cookie vault endpoint warning:", e)
+              rem_cookie_before = {}
+          rem_cookie_ts_before = str(rem_cookie_before.get("cookie_refreshed_at") or "")
 
-          # If Render restarted/redeployed with an older cookie, restore newer vault immediately
-          if saved_ts and saved_vault.get("persisted_cookie_enc") and (not rem_ts_before or saved_ts > rem_ts_before):
+          if saved_cookie_ts and saved_cookie_vault.get("persisted_cookie_enc") and (not rem_cookie_ts_before or saved_cookie_ts > rem_cookie_ts_before):
               res_push = http_json(f"{BASE}/api/jst/cookie-vault", data={
-                  "version": str(saved_vault.get("version") or "1"),
-                  "cookie_refreshed_at": saved_ts,
-                  "persisted_cookie_enc": saved_vault["persisted_cookie_enc"],
-                  "vault_sig": saved_vault.get("vault_sig", ""),
+                  "version": str(saved_cookie_vault.get("version") or "1"),
+                  "cookie_refreshed_at": saved_cookie_ts,
+                  "persisted_cookie_enc": saved_cookie_vault["persisted_cookie_enc"],
+                  "vault_sig": saved_cookie_vault.get("vault_sig", ""),
               })
-              print("Restored newer vault to Render:", res_push)
+              print("Restored newer cookie vault to Render:", res_push)
+
+          # 3b. Merge/Restore Parcel Vault to Render so sent flags & LINE phone index survive restarts
+          if saved_parcel_ts and saved_parcel_vault.get("persisted_state_enc"):
+              try:
+                  rem_parcel_before = http_json(f"{BASE}/api/jst/parcel-vault")
+                  rem_parcel_ts_before = str(rem_parcel_before.get("state_updated_at") or "")
+                  if not rem_parcel_ts_before or saved_parcel_ts > rem_parcel_ts_before:
+                      res_p_push = http_json(f"{BASE}/api/jst/parcel-vault", data={
+                          "version": str(saved_parcel_vault.get("version") or "1"),
+                          "state_updated_at": saved_parcel_ts,
+                          "persisted_state_enc": saved_parcel_vault["persisted_state_enc"],
+                          "vault_sig": saved_parcel_vault.get("vault_sig", ""),
+                      })
+                      print("Restored parcel vault to Render:", res_p_push)
+              except Exception as e:
+                  print("Parcel vault restore warning:", e)
 
           # 4. Trigger live JST stock check & dual-domain 48h sliding cookie renewal
           try:
@@ -89,32 +114,61 @@ jobs:
           except Exception as e:
               print("Stock-live check warning:", e)
 
-          # 5. Re-read Render's vault AFTER sliding renewal; if newer, overwrite single-commit jst-vault branch
+          # 4b. Trigger Buk Sukjai Parcel Tracking check (server enforces 09:00-20:00 BKK window automatically)
           try:
-              rem_after = http_json(f"{BASE}/api/jst/cookie-vault")
-          except Exception:
-              rem_after = {}
-          rem_ts_after = str(rem_after.get("cookie_refreshed_at") or "")
-          rem_enc_after = str(rem_after.get("persisted_cookie_enc") or "")
-          rem_sig_after = str(rem_after.get("vault_sig") or "")
+              pt_res = http_json(f"{BASE}/api/jst/sync-tracking", timeout=90, method="POST")
+              print("Parcel tracking check:", pt_res.get("status"), "s1=", pt_res.get("sent_stage1_count", 0), "s2=", pt_res.get("sent_stage2_count", 0))
+          except Exception as e:
+              print("Parcel tracking check warning:", e)
 
-          if rem_ts_after and rem_enc_after and rem_sig_after and rem_ts_after > saved_ts:
-              new_vault = {
-                  "version": "1",
-                  "cookie_refreshed_at": rem_ts_after,
-                  "persisted_cookie_enc": rem_enc_after,
-                  "vault_sig": rem_sig_after,
-              }
-              with open(VAULT_PATH, "w", encoding="utf-8") as f:
-                  json.dump(new_vault, f, indent=2)
+          # 5. Re-read Render's Cookie Vault & Parcel Vault; if either updated, persist to single-commit jst-vault branch
+          vault_changed = False
+          try:
+              rem_cookie_after = http_json(f"{BASE}/api/jst/cookie-vault")
+          except Exception:
+              rem_cookie_after = {}
+          rem_cookie_ts_after = str(rem_cookie_after.get("cookie_refreshed_at") or "")
+          rem_cookie_enc_after = str(rem_cookie_after.get("persisted_cookie_enc") or "")
+          rem_cookie_sig_after = str(rem_cookie_after.get("vault_sig") or "")
+
+          if rem_cookie_ts_after and rem_cookie_enc_after and rem_cookie_sig_after and rem_cookie_ts_after > saved_cookie_ts:
+              with open(COOKIE_VAULT_PATH, "w", encoding="utf-8") as f:
+                  json.dump({
+                      "version": "1",
+                      "cookie_refreshed_at": rem_cookie_ts_after,
+                      "persisted_cookie_enc": rem_cookie_enc_after,
+                      "vault_sig": rem_cookie_sig_after,
+                  }, f, indent=2)
+              vault_changed = True
+
+          try:
+              rem_parcel_after = http_json(f"{BASE}/api/jst/parcel-vault")
+          except Exception:
+              rem_parcel_after = {}
+          rem_parcel_ts_after = str(rem_parcel_after.get("state_updated_at") or "")
+          rem_parcel_enc_after = str(rem_parcel_after.get("persisted_state_enc") or "")
+          rem_parcel_sig_after = str(rem_parcel_after.get("vault_sig") or "")
+
+          if rem_parcel_ts_after and rem_parcel_enc_after and rem_parcel_sig_after and rem_parcel_ts_after > saved_parcel_ts:
+              with open(PARCEL_VAULT_PATH, "w", encoding="utf-8") as f:
+                  json.dump({
+                      "version": "1",
+                      "state_updated_at": rem_parcel_ts_after,
+                      "persisted_state_enc": rem_parcel_enc_after,
+                      "vault_sig": rem_parcel_sig_after,
+                  }, f, indent=2)
+              vault_changed = True
+
+          if vault_changed:
               subprocess.run(["git", "-C", "vault_repo", "config", "user.name", "BukSukjai Vault Bot"], check=True)
               subprocess.run(["git", "-C", "vault_repo", "config", "user.email", "buksukjai@gmail.com"], check=True)
               subprocess.run(["git", "-C", "vault_repo", "checkout", "--orphan", "jst-vault-next"], check=True)
-              subprocess.run(["git", "-C", "vault_repo", "add", "jst_cookie_vault.json"], check=True)
-              subprocess.run(["git", "-C", "vault_repo", "commit", "-m", f"chore(vault): sync renewed JST sliding cookie ({rem_ts_after})"], check=True)
+              files_to_add = [fn for fn in ("jst_cookie_vault.json", "parcel_tracking_vault.json") if os.path.exists(os.path.join("vault_repo", fn))]
+              subprocess.run(["git", "-C", "vault_repo", "add"] + files_to_add, check=True)
+              subprocess.run(["git", "-C", "vault_repo", "commit", "-m", f"chore(vault): sync cookie & parcel vaults ({rem_cookie_ts_after or rem_parcel_ts_after})"], check=True)
               subprocess.run(["git", "-C", "vault_repo", "branch", "-M", "jst-vault"], check=True)
               subprocess.run(["git", "-C", "vault_repo", "push", "--force", "origin", "jst-vault"], check=True)
-              print("Synced new encrypted sliding cookie to jst-vault:", rem_ts_after)
+              print("Synced updated vaults to jst-vault.")
           else:
-              print("Vault already up to date:", saved_ts or rem_ts_after)
+              print("Vaults already up to date.")
           PY

@@ -48,10 +48,11 @@ def _chunk(text: str, limit: int = MESSENGER_CHAR_LIMIT) -> list[str]:
     return chunks
 
 
-def _get_channel_token(brand_id: str, platform: str) -> str:
+def _get_channel_token(brand_id: str, platform: str, allow_inactive: bool = False) -> str:
     page = get_page_by_brand_id(brand_id)
     if not page.get("active", False):
-        return ""
+        if not (allow_inactive and page.get("parcel_tracking_enabled", False)):
+            return ""
     channels = page.get("channels", {})
     if platform == "line":
         return channels.get("line_channel_access_token") or os.getenv("LINE_CHANNEL_ACCESS_TOKEN", "")
@@ -65,6 +66,26 @@ def _get_channel_token(brand_id: str, platform: str) -> str:
     return channels.get("fb_page_access_token") or os.getenv("PAGE_ACCESS_TOKEN", "")
 
 
+async def fetch_line_user_display_name(user_id: str, brand_id: str = "buksukjai") -> str:
+    """Fetch LINE customer displayName silently without sending any message."""
+    if not user_id or not user_id.startswith("U"):
+        return ""
+    token = _get_channel_token(brand_id, "line", allow_inactive=True)
+    if not token:
+        return ""
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            resp = await client.get(
+                f"https://api.line.me/v2/bot/profile/{user_id}",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            if resp.status_code == 200:
+                return str((resp.json() or {}).get("displayName") or "").strip()
+    except Exception:
+        pass
+    return ""
+
+
 async def send_omnichannel_text(
     platform: str,
     external_user_id: str,
@@ -75,7 +96,8 @@ async def send_omnichannel_text(
     image_local_path: str | None = None,
     media_items: list[dict] | None = None,
     public_base_url: str = "",
-) -> None:
+    allow_inactive: bool = False,
+) -> bool:
     """Send optional promo image(s) FIRST, followed by 1–2 short chat bubbles to LINE OA, Facebook Messenger, IG, or Web."""
     bubbles = split_into_bubbles(text)
     resolved_items: list[dict] = []
@@ -97,9 +119,9 @@ async def send_omnichannel_text(
             external_user_id,
             "\n---\n".join(bubbles),
         )
-        return
+        return True
 
-    token = _get_channel_token(brand_id, platform)
+    token = _get_channel_token(brand_id, platform, allow_inactive=allow_inactive)
     if not token:
         logger.info(
             "[LOCAL DEV — no %s token for %s] reply (%d bubbles) to %s:\n%s",
@@ -109,12 +131,12 @@ async def send_omnichannel_text(
             external_user_id,
             "\n---\n".join(bubbles),
         )
-        return
+        return False
 
     if platform == "line":
-        await _send_line_message(token, external_user_id, bubbles, reply_token, media_items=resolved_items)
+        return await _send_line_message(token, external_user_id, bubbles, reply_token, media_items=resolved_items)
     else:
-        await _send_meta_message(
+        return await _send_meta_message(
             token,
             external_user_id,
             bubbles,
@@ -181,7 +203,7 @@ async def _send_line_message(
     bubbles: list[str],
     reply_token: str | None = None,
     media_items: list[dict] | None = None,
-) -> None:
+) -> bool:
     headers = {
         "Authorization": f"Bearer {channel_access_token}",
         "Content-Type": "application/json",
@@ -221,7 +243,7 @@ async def _send_line_message(
         messages_payload = [{"type": "text", "text": t} for t in clean_texts[:5]]
 
     if not messages_payload:
-        return
+        return False
 
     async with httpx.AsyncClient(timeout=15) as client:
         if reply_token and not reply_token.startswith("sim_"):
@@ -231,7 +253,7 @@ async def _send_line_message(
                 json={"replyToken": reply_token, "messages": messages_payload[:5]},
             )
             if resp.status_code == 200:
-                return
+                return True
             logger.warning("LINE replyToken failed (%s: %s), falling back to Push API", resp.status_code, resp.text)
 
         resp = await client.post(
@@ -241,6 +263,8 @@ async def _send_line_message(
         )
         if resp.status_code != 200:
             logger.error("LINE Push API error %s: %s", resp.status_code, resp.text)
+            return False
+        return True
 
 
 async def _send_meta_image_only(
@@ -298,13 +322,16 @@ async def _send_meta_message(
     bubbles: list[str],
     platform: str = "facebook",
     media_items: list[dict] | None = None,
-) -> None:
+) -> bool:
     expanded_chunks: list[str] = []
     for b in bubbles:
         expanded_chunks.extend(_chunk(clean_chat_text(b), limit=MESSENGER_CHAR_LIMIT))
 
     clean_chunks = [c for c in expanded_chunks if c.strip()]
+    if not clean_chunks and not media_items:
+        return False
 
+    all_ok = True
     async with httpx.AsyncClient(timeout=25) as client:
         # 1. Always send the promo image(s) FIRST!
         for idx, it in enumerate(media_items or []):
@@ -332,8 +359,10 @@ async def _send_meta_message(
                     "message": {"text": chunk},
                 },
             )
-            if resp.status_code != 200 and platform == "facebook":
-                # Fallback to POST_PURCHASE_UPDATE tag for Day 3 / Day 5 / After-Sales check-ins beyond 24h window
+            if resp.status_code == 200:
+                continue
+            if platform == "facebook":
+                # Fallback to POST_PURCHASE_UPDATE tag for shipping/delivery updates beyond 24h window
                 resp2 = await client.post(
                     GRAPH_API_URL,
                     params={"access_token": token},
@@ -346,8 +375,12 @@ async def _send_meta_message(
                 )
                 if resp2.status_code == 200:
                     continue
-            if resp.status_code != 200:
-                logger.error("%s Send API error %s: %s", platform.upper(), resp.status_code, resp.text)
+                logger.error("%s POST_PURCHASE_UPDATE Send API error %s: %s", platform.upper(), resp2.status_code, resp2.text)
+                all_ok = False
+                continue
+            logger.error("%s Send API error %s: %s", platform.upper(), resp.status_code, resp.text)
+            all_ok = False
+    return all_ok
 
 
 async def send_text(psid: str, text: str) -> None:
@@ -972,11 +1005,15 @@ def _apply_facebook_sync_to_db(info: dict, brand_id: str = "buksukjai") -> dict:
     }
 
 
-async def sync_facebook_user_thread(external_user_id: str, brand_id: str = "buksukjai") -> dict | None:
+async def sync_facebook_user_thread(
+    external_user_id: str,
+    brand_id: str = "buksukjai",
+    allow_inactive: bool = False,
+) -> dict | None:
     """Query Facebook Graph API for a specific customer's real thread before replying or displaying in Admin UI."""
     if not external_user_id or "_test_" in external_user_id or external_user_id.startswith("FB") or external_user_id.startswith("U"):
         return None
-    token = _get_channel_token(brand_id, "facebook")
+    token = _get_channel_token(brand_id, "facebook", allow_inactive=allow_inactive)
     if not token:
         return None
     page = get_page_by_brand_id(brand_id)
@@ -1005,9 +1042,13 @@ async def sync_facebook_user_thread(external_user_id: str, brand_id: str = "buks
         return None
 
 
-async def sync_recent_facebook_conversations(brand_id: str = "buksukjai", limit: int = 40) -> list[dict]:
+async def sync_recent_facebook_conversations(
+    brand_id: str = "buksukjai",
+    limit: int = 40,
+    allow_inactive: bool = False,
+) -> list[dict]:
     """Scan the latest N conversations on the Facebook Page and sync paid/admin status + messages into SQLite."""
-    token = _get_channel_token(brand_id, "facebook")
+    token = _get_channel_token(brand_id, "facebook", allow_inactive=allow_inactive)
     if not token:
         return []
     page = get_page_by_brand_id(brand_id)

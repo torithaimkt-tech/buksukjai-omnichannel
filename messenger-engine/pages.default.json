@@ -5,6 +5,7 @@
       "slot": 1,
       "name": "ข้าวบุกสุขใจ (@602xbpha)",
       "active": false,
+      "parcel_tracking_enabled": true,
       "config_file": "config.json",
       "channels": {
         "line_channel_secret": "",

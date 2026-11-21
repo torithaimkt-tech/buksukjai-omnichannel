@@ -55,6 +55,7 @@ def load_pages_registry() -> list[dict]:
                 "slot": 1,
                 "name": "ข้าวบุกสุขใจ (@602xbpha)",
                 "active": False,
+                "parcel_tracking_enabled": os.getenv("BUKSUKJAI_PARCEL_TRACKING_ENABLED", "true").lower() in ("1", "true", "yes"),
                 "config_file": "config.json",
                 "channels": {
                     "line_channel_secret": os.getenv("LINE_CHANNEL_SECRET", ""),
@@ -73,6 +74,8 @@ def load_pages_registry() -> list[dict]:
     for idx, p in enumerate(pages, start=1):
         p["slot"] = idx
         if p.get("brand_id") == "buksukjai":
+            if "parcel_tracking_enabled" not in p:
+                p["parcel_tracking_enabled"] = os.getenv("BUKSUKJAI_PARCEL_TRACKING_ENABLED", "true").lower() in ("1", "true", "yes")
             ch = p.setdefault("channels", {})
             if not ch.get("line_channel_secret"):
                 ch["line_channel_secret"] = os.getenv("LINE_CHANNEL_SECRET", "")
@@ -84,6 +87,7 @@ def load_pages_registry() -> list[dict]:
                 ch["fb_page_access_token"] = os.getenv("PAGE_ACCESS_TOKEN", "")
         elif p.get("brand_id") == "mrbuk":
             p["active"] = False
+            p["parcel_tracking_enabled"] = False
             ch = p.setdefault("channels", {})
             ch["line_channel_secret"] = ""
             ch["line_channel_access_token"] = ""
